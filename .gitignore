@@ -1,0 +1,35 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+.vite/
+*.local
+
+# ===== 运行时数据与产物（不入库） =====
+data/
+output/
+*.step
+*.stp
+backend/knowledge/kb/output/
+backend/knowledge/kb/cache/
+backend/knowledge/kb/logs/
+
+# ===== 密钥与本地配置 =====
+.env
+.env.*
+!.env.example
+
+# ===== IDE / 系统 =====
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
