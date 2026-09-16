@@ -8,15 +8,17 @@
 
 以参数化 CAD 设计为核心、知识图谱增强检索为依据：需求智能解析 → 技术方案生成 → 参数化 CAD 建模出图 → 设计合规校验 → 知识沉淀复用，全程带审阅关与溯源。
 
-## 技术基线（demo 裁剪版）
+## 技术基线（完整版五层架构，ADR-001）
 
 | 层 | 选型 |
 |---|---|
-| 前端 | React + TypeScript + Vite + Ant Design |
-| 后端 | Python 3.12 + FastAPI（单后端，platform/ 与 agents/ 物理分层） |
-| 知识库 | GraphRAG + Chroma（文档预处理入库管线） |
-| CAD | CadQuery 子进程沙箱 → STEP |
-| 业务库 | SQLite（SQLAlchemy，可切 PostgreSQL） |
+| Java 平台层 | Java 17 + Spring Boot 3 + Spring Cloud Gateway + Spring Security(JWT/RBAC) |
+| Python 算力层 | Python 3.12 + FastAPI + Celery（A1–A5 Agent / CadQuery / 约束求解 / 检索） |
+| 前端 | React 19 + TypeScript + Vite + Ant Design（Three.js / D3 / ECharts / Monaco） |
+| 数据底座 | PostgreSQL 17 + Neo4j 5 + Milvus + MinIO + Redis 7.2 + RabbitMQ（docker-compose） |
+| 知识库 | GraphRAG + Neo4j，文档预处理入库管线（MinerU/PP-Structure） |
+| CAD | CadQuery（OCP/OpenCascade）沙箱执行 → STEP |
+| LLM | 统一适配器：私有化 vLLM 为目标，开发期公网 OpenAI 兼容 API fallback |
 
 ## 开发约定（速记）
 
