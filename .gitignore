@@ -27,6 +27,12 @@ backend/knowledge/kb/logs/
 target/
 *.class
 
+# ===== 临时工作文件（根目录 _ 前缀） =====
+/_*.py
+/_*.txt
+/_*.log
+*.tsbuildinfo
+
 # ===== 密钥与本地配置 =====
 .env
 .env.*
