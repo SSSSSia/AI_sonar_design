@@ -43,3 +43,6 @@ target/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# ===== AI 会话工作数据（交接走 docs/HANDOFF.md，不入库） =====
+.workbuddy/
