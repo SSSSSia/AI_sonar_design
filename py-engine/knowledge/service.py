@@ -160,6 +160,29 @@ class GraphRAGService:
         return self.sdk.build_index_sync(verbose=verbose, is_update=False)
 
     # ------------------------------------------------------------------
+    # 知识沉淀去重（T2.3）：候选名与既有语料的归一化匹配
+    # ------------------------------------------------------------------
+    def find_name_matches(self, name: str, limit: int = 3) -> list[dict[str, str]]:
+        """在 KB 语料中查找与候选名匹配的段落（去重的文本级依据）。
+
+        返回 [{doc_id, location, excerpt}]；空列表表示知识库中无同名知识。
+        """
+        normalized = _normalize_name(name)
+        if not normalized:
+            return []
+        hits: list[dict[str, str]] = []
+        for doc_id, para_idx, para in self._paragraph_sources:
+            if normalized in _normalize_name(para):
+                hits.append({
+                    "doc_id": doc_id,
+                    "location": f"段落{para_idx + 1}",
+                    "excerpt": para[:120],
+                })
+                if len(hits) >= limit:
+                    break
+        return hits
+
+    # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
     def _try_sdk(self, method: str, query: str) -> Optional[str]:
@@ -207,6 +230,11 @@ class GraphRAGService:
 
 
 _service: Optional[GraphRAGService] = None
+
+
+def _normalize_name(s: Any) -> str:
+    """去重用归一化：去空白 + 小写（中英文通用）。"""
+    return "".join(str(s or "").split()).lower()
 
 
 def get_knowledge_service() -> GraphRAGService:

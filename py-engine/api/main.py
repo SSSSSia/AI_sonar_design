@@ -128,6 +128,67 @@ def knowledge_status() -> dict[str, Any]:
     }
 
 
+class WritebackRequest(BaseModel):
+    """知识审阅关确认后的回写请求（T2.3，A-10：只有确认名单内的候选会入图）。"""
+
+    session_id: str
+    candidate_indexes: list[int] | None = None  # 缺省=全部 dedup_status=new 的候选
+
+
+@app.post("/knowledge/writeback")
+def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
+    """人工确认后回写 Neo4j：选定候选 → 图谱 MERGE（旧同名实体标 deprecated）→ IR5 v2 written。
+
+    Neo4j 不可达/写入失败：503 如实上报，IR5 保持 pending 可重试（A-16 不伪造成功）。
+    """
+    from ir_contract import IrContractError
+    from storage import ir_store
+    from storage.neo4j_store import Neo4jStore
+
+    ir5 = ir_store.get_latest_snapshot(req.session_id, "IR5")
+    if ir5 is None:
+        raise HTTPException(status_code=404, detail=f"session {req.session_id} 无 IR5 快照")
+    if ir5.get("writeback_status") != "pending":
+        raise HTTPException(status_code=409, detail="IR5 非 pending 状态，无可回写候选")
+
+    candidates = ir5.get("candidates", [])
+    if req.candidate_indexes is None:
+        selected = [c for c in candidates if c.get("dedup_status") == "new"]
+    else:
+        if any(i < 0 or i >= len(candidates) for i in req.candidate_indexes):
+            raise HTTPException(
+                status_code=400,
+                detail=f"candidate_indexes 越界（共 {len(candidates)} 条候选）",
+            )
+        selected = [candidates[i] for i in req.candidate_indexes]
+    if not selected:
+        raise HTTPException(status_code=400, detail="选定候选为空，无内容可回写")
+
+    store = Neo4jStore()
+    if not store.available():
+        raise HTTPException(status_code=503, detail="Neo4j 不可达，回写未执行（IR5 保持 pending）")
+    try:
+        stats = store.write_candidates(selected, req.session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Neo4j 回写失败（IR5 保持 pending）: {exc}") from exc
+
+    written_ir5 = {"candidates": selected, "writeback_status": "written"}
+    try:
+        version = ir_store.save_snapshot(req.session_id, "IR5", written_ir5, created_by="A5/writeback")
+    except IrContractError as exc:
+        raise HTTPException(status_code=500, detail=f"IR5 v2 未过契约: {exc}") from exc
+    return {
+        "session_id": req.session_id,
+        "written": stats,
+        "ir_version": version,
+        "selected_indexes": (
+            req.candidate_indexes
+            if req.candidate_indexes is not None
+            else [i for i, c in enumerate(candidates) if c.get("dedup_status") == "new"]
+        ),
+    }
+
+
 class ChatRequest(BaseModel):
     messages: list[dict[str, str]]
 

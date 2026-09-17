@@ -174,6 +174,55 @@ def a4_task(self, session_id: str) -> dict:
         raise
 
 
+@shared_task(bind=True, name="sonarcad.a5", max_retries=0)
+def a5_task(self, session_id: str) -> dict:
+    """A5 知识沉淀：IR1 + IR2 + IR4 → IR5（pending 候选，A-10 绝不直接写图谱）。
+
+    链尾任务：完成后发 COMPLETE 终止管线（gate2 批准后由 workflow 派发，T2.2）。
+    知识回写走 /knowledge/writeback（人工确认后），不在本任务内。
+    重试为 0：候选生成失败多为输入快照缺失，重试无意义。
+    """
+    try:
+        from agents.a5_knowledge.agent import A5Agent
+        from ir_contract import IrContractError
+        from knowledge.service import get_knowledge_service
+        from llm.adapter import llm_adapter
+        from storage import ir_store
+        from storage.neo4j_store import Neo4jStore
+
+        ir1 = ir_store.get_latest_snapshot(session_id, "IR1")
+        ir2 = ir_store.get_latest_snapshot(session_id, "IR2")
+        ir4 = ir_store.get_latest_snapshot(session_id, "IR4")
+        if ir2 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR2 快照，无法执行 A5")
+        if ir4 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR4 快照，无法执行 A5")
+
+        graph = Neo4jStore()
+        if not graph.available():
+            logger.warning("A5：Neo4j 不可达，知识去重仅 KB 文本级（如实降级）")
+            graph = None
+
+        try:
+            ir5 = A5Agent(
+                llm=llm_adapter, kb=get_knowledge_service(), graph=graph,
+            ).run(ir1, ir2, ir4)
+        except IrContractError as exc:
+            raise RuntimeError(f"A5 输出未过 IR5 契约: {exc}") from exc
+
+        version = ir_store.save_snapshot(session_id, "IR5", ir5, created_by="A5")
+        ir_store.update_stage(session_id, "A5")
+        _fire_session_event(session_id, "COMPLETE")
+        return {
+            "session_id": session_id, "ir": "IR5", "version": version,
+            "candidates": len(ir5["candidates"]),
+        }
+    except Exception as exc:
+        logger.exception("a5 任务失败 session=%s", session_id)
+        _fire_session_event(session_id, "FAIL")
+        raise
+
+
 @shared_task(bind=True, name="sonarcad.always_fail", max_retries=0)
 def always_fail_task(self, session_id: str = "") -> dict:
     """死信队列验证任务：必然失败、不重试，Reject(requeue=False) 进入 sonarcad.dlq（A-13 验收用）。

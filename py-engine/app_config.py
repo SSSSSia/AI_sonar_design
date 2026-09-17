@@ -60,3 +60,11 @@ BUCKET_CAD_SCRIPTS = "cad-scripts"
 # CAD 沙箱（A-13 有界）
 CAD_EXECUTE_TIMEOUT_S = int(_env("CAD_EXECUTE_TIMEOUT_S", "300"))
 CAD_FIX_MAX_ROUNDS = int(_env("CAD_FIX_MAX_ROUNDS", "3"))
+
+# ---- Neo4j 图谱（T2.3 A5 知识回写；compose 覆盖端口见 HANDOFF：BOLT 默认 7687，本机 17687）----
+NEO4J_URI = _env("NEO4J_URI", f"bolt://localhost:{_env('NEO4J_BOLT_PORT', '7687')}")
+_neo4j_auth = _env("NEO4J_AUTH")
+NEO4J_USER = _env("NEO4J_USER") or (_neo4j_auth.split("/", 1)[0] if "/" in _neo4j_auth else "neo4j")
+NEO4J_PASSWORD = _env("NEO4J_PASSWORD") or (_neo4j_auth.split("/", 1)[1] if "/" in _neo4j_auth else "")
+# 连接/查询超时（秒）：不可达时快速失败、如实上报（A-16）
+NEO4J_TIMEOUT_S = int(_env("NEO4J_TIMEOUT_S", "5"))

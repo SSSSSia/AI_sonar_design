@@ -132,7 +132,7 @@
   - [ ] `mvn -pl workflow,biz test` 全绿（gate 分发/裁决服务单测，mock 持久层）
 - **验收方法**：pytest e2e（§3 T2.7 样例）+ curl ASCII 负载走查。
 
-### T2.3 A5 知识沉淀（IR5 候选 + 知识审阅关回写）
+### T2.3 A5 知识沉淀（IR5 候选 + 知识审阅关回写）🚧 引擎完成（2026-09-17，回写实测随 e2e）
 
 - **目标**：从本次设计的经验中筛选可沉淀知识 → IR5 pending 候选（去重）→ 人工确认后才写 Neo4j（A-10）；图谱中已被新值取代的旧实体标 deprecated。
 - **设计要点**：
@@ -149,10 +149,11 @@
   | HTTP | `POST /knowledge/writeback`（py-engine 8090，内网；body `{session_id, candidate_indexes?: int[]}`） |
   | CLI | `python -m agents.a5_knowledge.cli` |
 - **DoD**：
-  - [ ] 候选去重单测（KB 命中→duplicate；无命中→new；Neo4j 不可达只降文本级）
-  - [ ] **未确认候选绝不入图谱**（单测断言 writeback 只处理选定下标；IR5 pending 态图谱无新增）
-  - [ ] 确认回写 + deprecated 标记实测（Neo4j 容器实连）；回写后 IR5 v2 written
-  - [ ] LLM 断供走确定性兜底仍产出合法 IR5（契约测试）
+  - [x] 候选去重单测（批内同名/KB 命中/Neo4j 查重三级证据齐备；Neo4j 不可达仅文本级）
+  - [x] **未确认候选绝不入图谱**（单测断言 A5Agent 全流程零写图谱调用 + writeback 端点只传选定下标）
+  - [ ] 确认回写 + deprecated 标记实测（Neo4j 容器实连）——随阶段 e2e
+  - [x] LLM 断供走确定性兜底仍产出合法 IR5（契约测试）；候选生成失败路径有界（A-13）
+- **实现备注**：driver 6.x 超时参数名回退为 connection_timeout（5.x 为 connection_timeout_s，兼容已处理）；Neo4jStore 实连本机容器（17687）探活通过；IR5 payload 结构定稿——constraint{name,expression,context}/case{name,params[],context}/relation{from,to,relation,context}，duplicate 附 dedup_refs 证据。
 - **验收方法**：`python -m pytest tests/test_t23_a5.py -v`；Cypher 手查节点/deprecated 标记。
 
 ### T2.4 溯源链（trace_id 贯穿 + 反查）
