@@ -1,0 +1,199 @@
+# ============================================================
+# 参考代码目录索引
+# ============================================================
+# 添加新声呐类型时，只需在 reference_files 下追加条目即可。
+# 无需修改任何 Python 代码。
+#
+# snippets.lines 为 [start, end]（1-indexed，含端点），
+# 定义可从源文件中提取的代码区域。
+
+version: "1.0"
+
+reference_files:
+  - file: "towed_array_system_twin.py"
+    description: "拖曳线列阵声呐完整系统数字孪生（湿端阵列+干端母船）"
+    sonar_types:
+      - "拖曳线列阵声呐"
+      - "towed array sonar"
+      - "拖曳阵"
+      - "线列阵"
+    keywords:
+      - "拖曳线列阵"
+      - "声阵段"
+      - "水听器"
+      - "姿态传感器"
+      - "减振段"
+      - "尾绳"
+      - "传输缆"
+      - "水密航插"
+      - "对接套筒"
+      - "变径汇流头"
+      - "spline"
+      - "sweep"
+      - "sin²"
+      - "弯曲"
+      - "柔性"
+      - "z_cursor"
+      - "Assembly"
+      - "loft"
+      - "intersect"
+      - "布尔"
+      - "样条"
+      - "扫掠"
+      - "绞车"
+      - "甲板"
+      - "机柜"
+      - "操控台"
+      - "管廊"
+      - "干端"
+      - "母船"
+      - "显控舱"
+      - "预处理"
+      - "收放"
+      - "分布式"
+    snippets:
+      - id: "parameters"
+        lines: [27, 57]
+        description: "系统级精密工程参数定义（声阵基元、各段长度/半径、内部元器件参数）"
+        keywords:
+          - "参数"
+          - "参数定义"
+          - "工程"
+          - "规格"
+      - id: "spline_sweep"
+        lines: [88, 113]
+        description: "sin²样条曲线轨迹生成与扫掠建模（含尾绳范例）"
+        keywords:
+          - "spline"
+          - "样条"
+          - "曲线"
+          - "sweep"
+          - "扫掠"
+          - "弯曲"
+          - "sin²"
+          - "轨迹"
+
+      - id: "acoustic_segment_full"
+        lines: [115, 177]
+        description: "声阵段完整建模：空心外护套、布尔交集对接套筒、水听器/传感器沿弯曲轨迹放置"
+        keywords:
+          - "声阵段"
+          - "acoustic"
+          - "水听器"
+          - "hydrophone"
+          - "姿态传感器"
+          - "sensor"
+          - "对接"
+          - "套筒"
+          - "coupling"
+          - "intersect"
+          - "布尔"
+          - "外护套"
+          - "切线"
+          - "旋转"
+
+      - id: "coupling_intersect"
+        lines: [126, 133]
+        description: "布尔交集截取对接套筒（加厚套管与切割盒的intersect运算）"
+        keywords:
+          - "对接"
+          - "套筒"
+          - "coupling"
+          - "intersect"
+          - "布尔"
+          - "切割"
+
+      - id: "bend_component_placement"
+        lines: [138, 163]
+        description: "沿弯曲轨迹放置内部组件：计算局部X偏移、切线斜率旋转角、精准平移就位"
+        keywords:
+          - "水听器"
+          - "放置"
+          - "切线"
+          - "旋转"
+          - "弯曲"
+          - "姿态传感器"
+          - "沿曲线"
+          - "嵌套"
+
+      - id: "damping_section"
+        lines: [178, 183]
+        description: "前减振段扫掠建模（简单管件范例）"
+        keywords:
+          - "减振"
+          - "damping"
+          - "隔振"
+          - "管件"
+
+      - id: "transition_loft"
+        lines: [185, 212]
+        description: "变径汇流头loft放样 + 传输缆扫掠 + 水密航插建模"
+        keywords:
+          - "变径"
+          - "汇流头"
+          - "transition"
+          - "loft"
+          - "放样"
+          - "传输缆"
+          - "cable"
+          - "水密"
+          - "航插"
+          - "connector"
+
+      - id: "assembly_pattern"
+        lines: [309, 364]
+        description: "z_cursor顺序装配模式：创建Assembly、湿端+干端逐段add、STEP导出"
+        keywords:
+          - "装配"
+          - "assembly"
+          - "z_cursor"
+          - "导出"
+          - "save"
+          - "STEP"
+          - "顺序"
+          - "干端"
+
+      - id: "dry_stern_deck_winch"
+        lines: [222, 249]
+        description: "干端船尾甲板与液压收放绞车建模（含底座、支架、滚筒、法兰盘）"
+        keywords:
+          - "绞车"
+          - "甲板"
+          - "winch"
+          - "deck"
+          - "收放"
+          - "干端"
+          - "母船"
+
+      - id: "dry_cabin_cabinet"
+        lines: [251, 270]
+        description: "干端显控舱防静电地板与前置波束形成机柜建模"
+        keywords:
+          - "机柜"
+          - "cabinet"
+          - "显控舱"
+          - "预处理"
+          - "干端"
+          - "母船"
+
+      - id: "dry_console_conduit"
+        lines: [272, 303]
+        description: "干端声呐操控台（双屏显控）与全船跨舱电缆管廊建模"
+        keywords:
+          - "操控台"
+          - "console"
+          - "管廊"
+          - "conduit"
+          - "显示器"
+          - "干端"
+          - "分布式"
+
+      - id: "full_model"
+        lines: [1, 364]
+        description: "完整拖曳线列阵声呐系统数字孪生（仅作为最后兜底参考）"
+        keywords:
+          - "完整"
+          - "full"
+          - "全部"
+          - "拖曳线列阵"
+          - "系统"

@@ -44,9 +44,19 @@ public class TaskPublisher {
         publish("sonarcad.echo", "task.echo", List.of(sessionId, "echo:" + sessionId), Map.of());
     }
 
-    /** A1 需求解析任务（T1.3）：参数只有 sessionId，IR0 由 worker 从共享存储读取。 */
+    /** A1 需求解析任务（T1.3）：参数只有 sessionId，IR 由 worker 从共享存储读取。 */
     public void publishA1Task(String sessionId) {
         publish("sonarcad.a1", "task.a1", List.of(sessionId), Map.of());
+    }
+
+    /** A2 方案生成任务（T1.4） */
+    public void publishA2Task(String sessionId) {
+        publish("sonarcad.a2", "task.a2", List.of(sessionId), Map.of());
+    }
+
+    /** A3 CAD 建模任务（T1.5） */
+    public void publishA3Task(String sessionId) {
+        publish("sonarcad.a3", "task.a3", List.of(sessionId), Map.of());
     }
 
     public void publish(String taskName, String routingKey, List<Object> args, Map<String, Object> kwargs) {

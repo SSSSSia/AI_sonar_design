@@ -15,3 +15,9 @@ psycopg[binary]>=3.2
 
 # 知识库 GraphRAG（T1.6）：可选重依赖（graphrag + litellm），未安装时检索自动降级到文本级（A-14）
 # 图谱级索引/查询需要时执行：python -m pip install graphrag~=2.0
+
+# T1.4/T1.5：公式求解（D-15 SymPy 精确代入）、MinIO 产物落桶（D-10）、CadQuery 沙箱执行（D-13，含 OCP 大依赖）
+sympy>=1.13
+minio>=7.2
+cadquery>=2.5
+

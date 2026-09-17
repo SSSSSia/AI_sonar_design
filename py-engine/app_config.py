@@ -44,3 +44,14 @@ LLM_MAX_RETRIES = int(_env("LLM_MAX_RETRIES", "2"))
 
 # ---- 知识库（T1.6，A-14 三级降级检索）----
 KNOWLEDGE_KB_DIR = _env("KNOWLEDGE_KB_DIR", os.path.join(os.path.dirname(__file__), "knowledge", "kb"))
+
+# ---- MinIO 对象存储（T1.5，D-10：step-models / cad-scripts 分桶）----
+MINIO_ENDPOINT = _env("MINIO_ENDPOINT", f"localhost:{_env('MINIO_API_PORT', '19000')}")
+MINIO_ACCESS_KEY = _env("MINIO_ROOT_USER", "sonarcad")
+MINIO_SECRET_KEY = _env("MINIO_ROOT_PASSWORD", "")
+BUCKET_STEP_MODELS = "step-models"
+BUCKET_CAD_SCRIPTS = "cad-scripts"
+
+# CAD 沙箱（A-13 有界）
+CAD_EXECUTE_TIMEOUT_S = int(_env("CAD_EXECUTE_TIMEOUT_S", "300"))
+CAD_FIX_MAX_ROUNDS = int(_env("CAD_FIX_MAX_ROUNDS", "3"))

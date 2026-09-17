@@ -7,7 +7,7 @@
 | 阶段 | 名称 | 目标 | 阶段文档 | 状态 |
 |---|---|---|---|---|
 | 阶段 0 | 工程地基 | 目录骨架 + 数据底座容器化 + IR 契约初版 | [PHASE-000](phase/phase-0-工程地基.md) | 完成（2026-09-17 收官验收） |
-| 阶段 1 | 纵向闭环迁移 | A1–A3 在新架构下重组，API 级端到端跑通需求→STEP | [PHASE-001](phase/phase-1-纵向闭环迁移.md) | 开发中（T1.1/T1.2/T1.3/T1.6 完成） |
+| 阶段 1 | 纵向闭环迁移 | A1–A3 在新架构下重组，API 级端到端跑通需求→STEP | [PHASE-001](phase/phase-1-纵向闭环迁移.md) | 完成（待人工验收） |
 | 阶段 2 | 人在回路与校验 | A4/A5、审阅关①②、局部回环、溯源链 | [PHASE-002](phase/phase-2-人在回路与校验.md) | 待开发（规划版已立） |
 | 阶段 3 | 文档预处理与知识治理 | 文档上传入库管线、公式/约束/军标库、图谱可视化 | [PHASE-003](phase/phase-3-文档预处理与知识治理.md) | 待开发（规划版已立） |
 | 阶段 4 | 前端工作台全量 | React 全部页面 + 三维预览 + 系统管理基础 | [PHASE-004](phase/phase-4-前端工作台全量.md) | 待开发（规划版已立） |
@@ -31,10 +31,10 @@
 | T1.1 | Java 平台层骨架：Gateway + JWT/RBAC 基础 + 会话 API + 状态机（pending→running→paused→completed/failed） | 完成 |
 | T1.2 | Python worker 骨架：Celery 消费 + 内部 FastAPI + 统一 LLM 适配器（OpenAI 兼容多供应商，配置热切换） | 完成 |
 | T1.3 | A1 需求解析：迁移旧 knowledge_stage 的查询规划/兜底/并行检索逻辑，输出 IR1（结构化目标 + missing_items + 子查询） | 完成 |
-| T1.4 | A2 方案生成：重写为带出处参数表（source_type 四分类 + trace_id），输出 IR2 ★系统枢纽 | 待开发 |
-| T1.5 | A3 CAD 建模：迁移 codegen/executor 内脏（多层校验 + 修复循环），接口改 IR2→IR3，CadQuery 沙箱出 STEP | 待开发 |
+| T1.4 | A2 方案生成：重写为带出处参数表（source_type 四分类 + trace_id），输出 IR2 ★系统枢纽 | 完成 |
+| T1.5 | A3 CAD 建模：迁移 codegen/executor 内脏（多层校验 + 修复循环），接口改 IR2→IR3，CadQuery 沙箱出 STEP | 完成 |
 | T1.6 | GraphRAG 封装迁移（sdk/service 异步包装）+ KB 索引产物接入 + 三级降级检索 | 完成 |
-| T1.7 | 端到端冒烟：自然语言需求 → 经 MQ 与状态机 → STEP + 设计文档落 MinIO（tests/e2e 固化标准样例） | 待开发 |
+| T1.7 | 端到端冒烟：自然语言需求 → 经 MQ 与状态机 → STEP + 设计文档落 MinIO（tests/e2e 固化标准样例） | 完成 |
 
 ## 阶段 2 · 人在回路与校验
 

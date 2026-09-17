@@ -78,6 +78,20 @@ public class SessionService {
 
     public DesignSessionEntity fireEvent(String id, PipelineEvent event) {
         DesignSessionEntity s = get(id);
+
+        // STAGE_DONE：worker 中间阶段完成回调——固定管线续派（A-01/A-05），不改会话状态。
+        // worker 落快照时先写 current_stage 再回调，故此处 stage 即"刚完成的 Agent"。
+        // 阶段 2 将在 A2/A3 后插入审阅关暂停（gate1/gate2）。
+        if (event == PipelineEvent.STAGE_DONE) {
+            String stage = s.getCurrentStage();
+            if ("A1".equals(stage)) {
+                taskPublisher.publishA2Task(id);
+            } else if ("A2".equals(stage)) {
+                taskPublisher.publishA3Task(id);
+            }
+            return s;
+        }
+
         PipelineStatus current = PipelineStatus.valueOf(s.getPipelineStatus());
         PipelineStatus target = PipelineTransitions.targetOf(current, event);
         if (target == null) {
@@ -92,7 +106,7 @@ public class SessionService {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "状态已被并发修改，请重试");
         }
-        // START 成功后投递首个管线任务（T1.3 起：A1 需求解析；echo 保留为 /debug 联通性任务）
+        // START 成功后投递首个管线任务（A1 需求解析；echo 保留为 /debug 联通性任务）
         if (event == PipelineEvent.START) {
             taskPublisher.publishA1Task(id);
         }

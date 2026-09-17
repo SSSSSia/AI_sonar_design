@@ -71,10 +71,72 @@ def a1_task(self, session_id: str) -> dict:
 
         version = ir_store.save_snapshot(session_id, "IR1", ir1, created_by="A1")
         ir_store.update_stage(session_id, "A1")
-        _fire_session_event(session_id, "COMPLETE")
+        _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR1", "version": version}
     except Exception as exc:
         logger.exception("a1 任务失败 session=%s", session_id)
+        _fire_session_event(session_id, "FAIL")
+        raise
+
+
+@shared_task(bind=True, name="sonarcad.a2", max_retries=TASK_MAX_RETRIES)
+def a2_task(self, session_id: str) -> dict:
+    """A2 方案生成：IR1 → IR2。公式参数由 solver 计算（A-07），LLM 仅文档组织。"""
+    try:
+        from agents.a2_scheme.agent import A2Agent
+        from ir_contract import IrContractError
+        from llm.adapter import llm_adapter
+        from storage import ir_store
+
+        ir1 = ir_store.get_latest_snapshot(session_id, "IR1")
+        if ir1 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR1 快照，无法执行 A2")
+
+        ir2 = A2Agent(llm=llm_adapter).run(ir1)
+        # A-06 补强断言：契约校验外再确认四件套非空（防御未来 schema 放松）
+        for p in ir2["parameters"]:
+            if not all(str(p.get(k, "")).strip() for k in ("source_type", "source_ref", "derivation", "trace_id")):
+                raise RuntimeError(f"参数 {p.get('id')} 四件套不完整")
+
+        version = ir_store.save_snapshot(session_id, "IR2", ir2, created_by="A2")
+        ir_store.update_stage(session_id, "A2")
+        _fire_session_event(session_id, "STAGE_DONE")
+        return {"session_id": session_id, "ir": "IR2", "version": version}
+    except Exception as exc:
+        logger.exception("a2 任务失败 session=%s", session_id)
+        _fire_session_event(session_id, "FAIL")
+        raise
+
+
+@shared_task(bind=True, name="sonarcad.a3", max_retries=0)
+def a3_task(self, session_id: str) -> dict:
+    """A3 CAD 建模：IR2 → IR3（沙箱出 STEP 落 MinIO）。
+
+    重试为 0：修复循环已在任务内部有界收敛（A-13），任务级重试只会重复同样的 LLM 输出；
+    失败如实 FAIL（阶段 2 接审阅关驳回回环）。
+    """
+    try:
+        from agents.a3_cad.agent import A3Agent
+        from app_config import CAD_EXECUTE_TIMEOUT_S, CAD_FIX_MAX_ROUNDS
+        from llm.adapter import llm_adapter
+        from storage import ir_store
+
+        ir2 = ir_store.get_latest_snapshot(session_id, "IR2")
+        if ir2 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR2 快照，无法执行 A3")
+
+        ir3 = A3Agent(
+            llm=llm_adapter,
+            fix_max_rounds=CAD_FIX_MAX_ROUNDS,
+            execute_timeout_s=CAD_EXECUTE_TIMEOUT_S,
+        ).run(session_id, ir2)
+
+        version = ir_store.save_snapshot(session_id, "IR3", ir3, created_by="A3")
+        ir_store.update_stage(session_id, "A3")
+        _fire_session_event(session_id, "COMPLETE")
+        return {"session_id": session_id, "ir": "IR3", "version": version}
+    except Exception as exc:
+        logger.exception("a3 任务失败 session=%s", session_id)
         _fire_session_event(session_id, "FAIL")
         raise
 
