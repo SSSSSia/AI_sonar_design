@@ -24,7 +24,11 @@ KB_REF = "towed_array_cad_knowledge.txt#声学约束公式"
 
 @dataclass(frozen=True)
 class FormulaSpec:
-    """一条可计算公式。symbols: 变量名→单位；defaults: 带默认值的可选符号；compute: 精确代入计算。"""
+    """一条可计算公式。
+
+    symbols: 变量名→单位；defaults: 带默认值的可选符号；compute: 精确代入计算；
+    expr: 同一公式的 SymPy 表达式（T2.1，A4 复算用，与 compute 互证）。
+    """
 
     key: str
     name: str
@@ -33,6 +37,7 @@ class FormulaSpec:
     source_ref: str
     compute: dict[str, float]
     defaults: dict[str, float] = None
+    expr: str = ""
 
     def required_symbols(self) -> list[str]:
         defaults = self.defaults or {}
@@ -66,20 +71,24 @@ REGISTRY: dict[str, FormulaSpec] = {
         FormulaSpec(
             "directivity_index", "指向性指数 DI", "dB",
             {"n": "阵元数（无量纲）"}, f"{KB_REF}#DI≈10lg(N)", _di,
+            expr="10*log(n, 10)",
         ),
         FormulaSpec(
             "beamforming_freq_max", "有效波束成形频率上限", "Hz",
             {"d": "阵元间距(m)", "c": "声速(m/s，默认1500)"}, f"{KB_REF}#f_beam≤c/(2d)",
             lambda d, c=1500.0: _fbeam_max(d, c),
             defaults={"c": 1500.0},
+            expr="c/(2*d)",
         ),
         FormulaSpec(
             "transmission_loss_spherical", "传播损失（球面扩展）", "dB",
             {"r": "距离(m)"}, f"{KB_REF}#TL=20lg(R)", _tl_sphere,
+            expr="20*log(r, 10)",
         ),
         FormulaSpec(
             "transmission_loss_cylindrical", "传播损失（圆柱扩展）", "dB",
             {"r": "距离(m)"}, f"{KB_REF}#TL=15lg(R)", _tl_cyl,
+            expr="15*log(r, 10)",
         ),
         FormulaSpec(
             "sonar_equation_di_required", "声呐方程所需指向性指数", "dB",
@@ -87,27 +96,30 @@ REGISTRY: dict[str, FormulaSpec] = {
             f"{KB_REF}#声呐方程",
             lambda sl, nl, tl, dt=3.0: _sonar_equation_di_required(sl, nl, tl, dt),
             defaults={"dt": 3.0},
+            expr="dt + nl + tl - sl",
         ),
     )
+}
+
+# 参数名（中/英）→ 公式符号。available_inputs 与 intervals.candidate_pools 共用（T2.1）。
+SYMBOL_ALIASES: dict[str, str] = {
+    "阵元数": "n", "阵元数目": "n", "阵元总数": "n", "总阵元数": "n",
+    "阵元数量": "n", "声阵规模": "n", "elements": "n", "n_elements": "n",
+    "阵元间距": "d", "间距": "d", "spacing": "d", "d_spacing": "d",
+    "声速": "c", "sound_speed": "c",
+    "距离": "r", "探测距离": "r", "range": "r",
+    "声源级": "sl", "source_level": "sl",
+    "噪声级": "nl", "noise_level": "nl",
+    "传播损失": "tl",
+    "检测阈值": "dt", "detection_threshold": "dt",
 }
 
 
 def available_inputs(params: dict[str, Any]) -> dict[str, float]:
     """把已有参数（含别名）归一为公式符号候选集。"""
-    alias = {
-        "阵元数": "n", "阵元数目": "n", "阵元总数": "n", "总阵元数": "n",
-        "阵元数量": "n", "声阵规模": "n", "elements": "n", "n_elements": "n",
-        "阵元间距": "d", "间距": "d", "spacing": "d", "d_spacing": "d",
-        "声速": "c", "sound_speed": "c",
-        "距离": "r", "探测距离": "r", "range": "r",
-        "声源级": "sl", "source_level": "sl",
-        "噪声级": "nl", "noise_level": "nl",
-        "传播损失": "tl",
-        "检测阈值": "dt", "detection_threshold": "dt",
-    }
     out: dict[str, float] = {}
     for k, v in params.items():
-        key = alias.get(k, k)
+        key = SYMBOL_ALIASES.get(k, k)
         if key in out:
             continue  # 先到先得：调用方按"目标值优先于提取值"的顺序传入
         value = _first_number(v)
