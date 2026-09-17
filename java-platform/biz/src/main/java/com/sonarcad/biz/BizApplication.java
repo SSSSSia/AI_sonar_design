@@ -1,5 +1,6 @@
 package com.sonarcad.biz;
 
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -9,6 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 职责边界：业务数据 CRUD 与状态落地；不直接调用 Agent、不做算力逻辑。
  */
 @SpringBootApplication
+@MapperScan("com.sonarcad.biz.project")
 public class BizApplication {
 
     public static void main(String[] args) {

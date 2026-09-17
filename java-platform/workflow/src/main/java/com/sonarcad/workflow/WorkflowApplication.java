@@ -1,5 +1,6 @@
 package com.sonarcad.workflow;
 
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 不做业务决策、不写业务逻辑。
  */
 @SpringBootApplication
+@MapperScan("com.sonarcad.workflow.session")
 public class WorkflowApplication {
 
     public static void main(String[] args) {

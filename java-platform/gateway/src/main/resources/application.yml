@@ -6,5 +6,20 @@ spring:
     name: sonarcad-gateway
   cloud:
     gateway:
-      # 路由规则在阶段 1 T1.1 落地；骨架期仅保留占位
-      routes: []
+      # PHASE-001 §2 服务拓扑：auth=8081 / workflow=8082 / biz=8083（py-engine=8090 自 T1.2 接入）
+      routes:
+        - id: auth
+          uri: http://${AUTH_HOST:localhost}:8081
+          predicates:
+            - Path=/api/v1/auth/**
+        - id: workflow
+          uri: http://${WORKFLOW_HOST:localhost}:8082
+          predicates:
+            - Path=/api/v1/workflow/**
+        - id: biz
+          uri: http://${BIZ_HOST:localhost}:8083
+          predicates:
+            - Path=/api/v1/**
+
+jwt:
+  secret: ${JWT_SECRET}

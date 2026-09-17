@@ -4,3 +4,12 @@ server:
 spring:
   application:
     name: sonarcad-workflow
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:sonarcad}?stringtype=unspecified
+    username: ${POSTGRES_USER:sonarcad}
+    password: ${POSTGRES_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
