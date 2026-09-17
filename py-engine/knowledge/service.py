@@ -28,18 +28,29 @@ from app_config import KNOWLEDGE_KB_DIR
 
 @dataclass
 class RetrievalResult:
-    """统一检索结果。level ∈ {local, basic, text, unavailable}。"""
+    """统一检索结果。level ∈ {local, basic, text, unavailable}。
+
+    refs = 来源引用列表 [{doc_id, location}]（E2 溯源最小单元，宪法 §6 ②）：
+    - text 级：doc_id=来源文件名、location=段落序号（T3 分块管线上线后升级为页码/章节）
+    - local/basic 级：由 GraphRAG context 提供，当前为空（SDK 接入后补全）
+    """
 
     content: str
     level: str
-    degraded_from: list[str] = field(default_factory=list)  # 经过的降级轨迹，如 ["local","basic"]
+    degraded_from: list[str] = field(default_factory=list)
+    refs: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return self.level != "unavailable"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"content": self.content, "level": self.level, "degraded_from": self.degraded_from}
+        return {
+            "content": self.content,
+            "level": self.level,
+            "degraded_from": self.degraded_from,
+            "refs": self.refs,
+        }
 
 
 def _load_sdk(kb_dir: Path):
@@ -66,13 +77,21 @@ class GraphRAGService:
         self.kb_dir = Path(kb_dir or KNOWLEDGE_KB_DIR).resolve()
         self.sdk = _load_sdk(self.kb_dir)
 
-        # 文本级降级的语料：input 目录全部 txt
+        # 文本级降级的语料：input 目录全部 txt（保留 (文件名, 段落) 结构供溯源）
         self.kb_text: Optional[str] = None
+        self._paragraph_sources: list[tuple[str, int, str]] = []  # (doc_id, para_idx, text)
         input_dir = self.kb_dir / "input"
         if input_dir.is_dir():
-            texts = sorted(input_dir.glob("*.txt"))
-            if texts:
-                self.kb_text = "\n\n".join(t.read_text(encoding="utf-8", errors="ignore") for t in texts)
+            chunks: list[str] = []
+            for t in sorted(input_dir.glob("*.txt")):
+                for i, para in enumerate(
+                        p.strip() for p in t.read_text(encoding="utf-8", errors="ignore").split("\n\n")
+                ):
+                    if para:
+                        chunks.append(para)
+                        self._paragraph_sources.append((t.name, i, para))
+            if chunks:
+                self.kb_text = "\n\n".join(chunks)
 
     # ------------------------------------------------------------------
     # 单条查询（三级降级）
@@ -97,7 +116,8 @@ class GraphRAGService:
         if self.kb_text:
             if self.sdk is None and not degraded:
                 degraded.append("graphrag_sdk_unavailable")  # 如实交代为何直接落在文本级
-            return RetrievalResult(self._search_text(query), "text", degraded)
+            content, refs = self._search_text(query)
+            return RetrievalResult(content, "text", degraded, refs)
 
         return RetrievalResult(
             "知识库不可用：GraphRAG SDK 未初始化且知识库文本未加载", "unavailable", degraded
@@ -115,7 +135,8 @@ class GraphRAGService:
                     if r.get("success"):
                         out.append(RetrievalResult(r.get("response", ""), "local"))
                     elif self.kb_text:
-                        out.append(RetrievalResult(self._search_text(q), "text", ["local", "basic"]))
+                        content, refs = self._search_text(q)
+                        out.append(RetrievalResult(content, "text", ["local", "basic"], refs))
                     else:
                         out.append(RetrievalResult(f"查询失败: {r.get('error', '未知错误')}", "unavailable"))
                 return out
@@ -123,7 +144,11 @@ class GraphRAGService:
                 logger.warning("批量查询异常，降级到逐条文本搜索: %s", exc)
 
         if self.kb_text:
-            return [RetrievalResult(self._search_text(q), "text") for q in queries]
+            out = []
+            for q in queries:
+                content, refs = self._search_text(q)
+                out.append(RetrievalResult(content, "text", [], refs))
+            return out
         return [RetrievalResult("知识库不可用", "unavailable") for _ in queries]
 
     # ------------------------------------------------------------------
@@ -147,32 +172,38 @@ class GraphRAGService:
             logger.warning("%s 异常: %s", method, exc)
         return None
 
-    def _search_text(self, query: str) -> str:
-        """第三级：按段落关键词匹配（迁移自旧 service._search_text）。"""
-        if not self.kb_text:
-            return "知识库文本不可用"
+    def _search_text(self, query: str) -> tuple[str, list[dict[str, str]]]:
+        """第三级：按段落关键词匹配（迁移自旧 service._search_text）。
 
-        paragraphs = [p.strip() for p in self.kb_text.split("\n\n") if p.strip()]
+        返回 (内容, 来源引用 [{doc_id, location}])——location 为段落序号，
+        T3 分块管线上线后升级为页码/章节。
+        """
+        if not self.kb_text:
+            return "知识库文本不可用", []
+
         # 中英文混合：按空格 + 简单 2-gram 提关键词
         keywords = [kw.lower() for kw in query.split() if len(kw) > 1]
         if any("\u4e00" <= ch <= "\u9fff" for ch in query):
             keywords += [query[i : i + 2] for i in range(len(query) - 1)]
 
-        scored: list[tuple[int, str]] = []
-        for para in paragraphs:
+        scored: list[tuple[int, int, str, int, str]] = []  # (score, seq, doc_id, para_idx, para)
+        for seq, (doc_id, para_idx, para) in enumerate(self._paragraph_sources):
             para_lower = para.lower()
             score = sum(1 for kw in keywords if kw in para_lower)
             if score > 0:
-                scored.append((score, para))
+                scored.append((score, seq, doc_id, para_idx, para))
 
-        scored.sort(key=lambda x: x[0], reverse=True)
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         if not scored:
-            return f"未找到精确匹配。知识库概览：\n\n{self.kb_text[:1500]}..."
+            return f"未找到精确匹配。知识库概览：\n\n{self.kb_text[:1500]}...", []
 
-        return (
+        top = scored[:5]
+        content = (
             "知识库搜索结果（文本降级模式）：\n\n"
-            + "\n\n---\n\n".join(para for _, para in scored[:5])
+            + "\n\n---\n\n".join(para for _, _, _, _, para in top)
         )
+        refs = [{"doc_id": doc_id, "location": f"段落{idx + 1}"} for _, _, doc_id, idx, _ in top]
+        return content, refs
 
 
 _service: Optional[GraphRAGService] = None

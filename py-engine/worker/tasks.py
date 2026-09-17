@@ -1,8 +1,10 @@
-"""任务定义（T1.2）。
+"""任务定义（T1.2 worker 骨架 / T1.3 起 A1–A3 固定管线任务注册处）。
 
-echo 任务是 T1.2 的全链路验证载体：workflow 在会话 START 时投递 → worker 消费 →
-回调 workflow 推进会话状态（COMPLETE/FAIL 由真实任务驱动，而非人工 POST）。
-T1.3 起 A1–A3 任务在本文件按同模式注册（固定管线，A-01）。
+- sonarcad.echo：T1.2 全链路验证载体（保留作联通性调试）。
+- sonarcad.a1：A1 需求解析——读 IR0 快照 → A1Agent → IR1 快照（A-04/A-12）→ 会话 COMPLETE。
+  （T1.4/T1.5 的 a2/a3 任务按同模式追加；固定管线由编排层驱动，A-01）
+
+失败路径：回话 FAIL + 异常上抛（如实，A-16）；重试上限 A-13。
 """
 
 from __future__ import annotations
@@ -35,17 +37,44 @@ def _fire_session_event(session_id: str, event: str) -> None:
 
 @shared_task(bind=True, name="sonarcad.echo", max_retries=TASK_MAX_RETRIES)
 def echo_task(self, session_id: str, payload: str = "") -> dict:
-    """骨架验证任务：原样回显 payload，成功驱动会话 COMPLETE，失败 FAIL。
-
-    顶层异常不重试（echo 无业务可重试语义），直接 FAIL——重试语义随 T1.3+ 各任务
-    按需定义，但必须有上限（A-13）。
-    """
+    """骨架验证任务：原样回显 payload，成功驱动会话 COMPLETE，失败 FAIL。"""
     try:
         result = {"session_id": session_id, "echo": payload, "worker": self.request.hostname}
         _fire_session_event(session_id, "COMPLETE")
         return result
     except Exception as exc:
         logger.exception("echo 任务失败 session=%s", session_id)
+        _fire_session_event(session_id, "FAIL")
+        raise
+
+
+@shared_task(bind=True, name="sonarcad.a1", max_retries=TASK_MAX_RETRIES)
+def a1_task(self, session_id: str) -> dict:
+    """A1 需求解析：IR0 → IR1。重试语义：LLM/检索瞬时故障可重试（上限 A-13）。"""
+    try:
+        from agents.a1_requirement.agent import A1Agent
+        from ir_contract import IrContractError
+        from knowledge.service import get_knowledge_service
+        from llm.adapter import llm_adapter
+        from storage import ir_store
+
+        ir0 = ir_store.get_latest_snapshot(session_id, "IR0")
+        if ir0 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR0 快照，无法执行 A1")
+
+        agent = A1Agent(llm=llm_adapter, kb_batch=get_knowledge_service().query_batch)
+        try:
+            ir1 = agent.run(ir0)
+        except IrContractError as exc:
+            # 契约失败不重试（重试也是同样输出）——如实失败
+            raise RuntimeError(f"A1 输出未过 IR1 契约: {exc}") from exc
+
+        version = ir_store.save_snapshot(session_id, "IR1", ir1, created_by="A1")
+        ir_store.update_stage(session_id, "A1")
+        _fire_session_event(session_id, "COMPLETE")
+        return {"session_id": session_id, "ir": "IR1", "version": version}
+    except Exception as exc:
+        logger.exception("a1 任务失败 session=%s", session_id)
         _fire_session_event(session_id, "FAIL")
         raise
 

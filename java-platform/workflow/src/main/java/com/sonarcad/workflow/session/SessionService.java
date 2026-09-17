@@ -21,21 +21,46 @@ import java.util.Map;
 public class SessionService {
 
     private final DesignSessionMapper mapper;
+    private final IrSnapshotMapper irSnapshotMapper;
     private final TaskPublisher taskPublisher;
 
-    public SessionService(DesignSessionMapper mapper, TaskPublisher taskPublisher) {
+    public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper, TaskPublisher taskPublisher) {
         this.mapper = mapper;
+        this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
     }
 
-    public DesignSessionEntity create(String projectId, String title, String createdBy) {
+    /**
+     * 创建会话（pending）。requirement 非空时固化为 IR0 快照 v1（created_by=user），
+     * 供 A1 消费（A-04：需求原文一经创建不可变，修订 = 新会话或 IR0 新快照）。
+     */
+    public DesignSessionEntity create(String projectId, String title, String requirement, String createdBy) {
         DesignSessionEntity s = new DesignSessionEntity();
         s.setProjectId(projectId);
         s.setTitle(title);
         s.setPipelineStatus(PipelineStatus.pending.name());
         s.setCreatedBy(createdBy);
         mapper.insert(s);
+        if (requirement != null && !requirement.isBlank()) {
+            IrSnapshotEntity ir0 = new IrSnapshotEntity();
+            ir0.setSessionId(s.getId());
+            ir0.setIrType("IR0");
+            ir0.setVersion(1);
+            ir0.setSchemaVersion("v1");
+            ir0.setContent(serializeIr0(requirement));
+            ir0.setCreatedBy("user");
+            irSnapshotMapper.insert(ir0);
+        }
         return s;
+    }
+
+    private String serializeIr0(String requirement) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writeValueAsString(java.util.Map.of("raw_text", requirement));
+        } catch (Exception e) {
+            throw new IllegalStateException("IR0 序列化失败", e);
+        }
     }
 
     public DesignSessionEntity get(String id) {
@@ -67,9 +92,9 @@ public class SessionService {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "状态已被并发修改，请重试");
         }
-        // START 成功后投递首个任务（T1.2 骨架：echo 验证任务；T1.3 起换 A1 真实任务）
+        // START 成功后投递首个管线任务（T1.3 起：A1 需求解析；echo 保留为 /debug 联通性任务）
         if (event == PipelineEvent.START) {
-            taskPublisher.publishEchoTask(id);
+            taskPublisher.publishA1Task(id);
         }
         s.setPipelineStatus(target.name());
         return s;

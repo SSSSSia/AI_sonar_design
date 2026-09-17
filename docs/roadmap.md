@@ -30,7 +30,7 @@
 |---|---|---|
 | T1.1 | Java 平台层骨架：Gateway + JWT/RBAC 基础 + 会话 API + 状态机（pending→running→paused→completed/failed） | 完成 |
 | T1.2 | Python worker 骨架：Celery 消费 + 内部 FastAPI + 统一 LLM 适配器（OpenAI 兼容多供应商，配置热切换） | 完成 |
-| T1.3 | A1 需求解析：迁移旧 knowledge_stage 的查询规划/兜底/并行检索逻辑，输出 IR1（结构化目标 + missing_items + 子查询） | 待开发 |
+| T1.3 | A1 需求解析：迁移旧 knowledge_stage 的查询规划/兜底/并行检索逻辑，输出 IR1（结构化目标 + missing_items + 子查询） | 完成 |
 | T1.4 | A2 方案生成：重写为带出处参数表（source_type 四分类 + trace_id），输出 IR2 ★系统枢纽 | 待开发 |
 | T1.5 | A3 CAD 建模：迁移 codegen/executor 内脏（多层校验 + 修复循环），接口改 IR2→IR3，CadQuery 沙箱出 STEP | 待开发 |
 | T1.6 | GraphRAG 封装迁移（sdk/service 异步包装）+ KB 索引产物接入 + 三级降级检索 | 完成 |

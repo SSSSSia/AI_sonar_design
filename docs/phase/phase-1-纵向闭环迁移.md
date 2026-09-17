@@ -115,7 +115,7 @@ PG(ir_snapshots 参数/状态)        py-engine worker(Celery)
   - [ ] 死信队列：制造必失败任务，验证进入 DLX 且任务表状态如实 failed
   - [ ] pytest 单测 + roadmap/devlog 回填同 commit
 
-### T1.3 A1 需求解析（迁移 knowledge_stage 拆用 → IR1）
+### T1.3 A1 需求解析（迁移 knowledge_stage 拆用 → IR1）✅ 完成（2026-09-17）
 
 - **目标**：自然语言需求 → 结构化目标 + 4~8 条子查询 + missing_items，输出 IR1。
 - **设计要点**：
@@ -123,10 +123,13 @@ PG(ir_snapshots 参数/状态)        py-engine worker(Celery)
   - 边界（A-02/§3.1）：不推导几何参数、不赋值；知识缺口如实进 `missing_items`（A-16）。
   - 检索调用经 T1.6 的三级降级封装；A1 不直接 import 其他 Agent（A-03）。
   - IR1 落 `ir_snapshots`（不可变快照，A-12），schema 对齐 `contracts/ir`。
-- **DoD / 验收**：
-  - [ ] 标准样例需求（拖曳线列阵）解析出结构化目标 + 子查询，IR1 通过契约校验
-  - [ ] 无知识命中时 missing_items 非空且如实展示；检索三级降级各有单测
-  - [ ] Agent 可独立运行（CLI 入口，宪法 §9.1）；契约测试"合法 IR0 → 合法 IR1"
+- **DoD / 验收**（已通过，2026-09-17 实机）：
+  - [x] 标准样例需求解析出结构化目标 + 子查询，IR1 通过契约校验（worker 内 jsonschema 硬校验）
+  - [x] 知识缺失如实展示：LLM 不可用时 fallback 规划 8 维度全部进 missing_items；检索全败追加"知识库检索无可用结果"
+  - [x] 检索三级降级单测 10 个（T1.6）+ A1 契约/兜底单测 10 个
+  - [x] Agent 独立 CLI 实测（`python -m agents.a1_requirement.cli`，含真实 KB 检索）
+- **实现备注**：会话创建即固化 IR0 快照（requirement 字段，created_by=user）；START 投 `sonarcad.a1`（新队列 sonarcad.a1，DLX 同配置）；worker 读 IR0 → A1Agent → IR1 快照（created_by=A1）→ current_stage=A1 → COMPLETE。文本级检索引用带 doc_id+段落位置（E2 溯源最小单元，T3 升级为页码/章节）。
+- **环境事实**：`.env` 的 LLM_API_KEY 仍为占位符 your_api_key（401 已实锤），LLM 规划自动走兜底——填真实 key 后无需改码即恢复 LLM 规划。
 
 ### T1.4 A2 方案生成（★系统枢纽 → IR2）
 

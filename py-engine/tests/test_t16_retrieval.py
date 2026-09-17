@@ -119,6 +119,6 @@ class TestChineseTextSearch:
 
 class TestResultContract:
     def test_to_dict_shape(self):
-        r = RetrievalResult("c", "text", ["local", "basic"])
+        r = RetrievalResult("c", "text", ["local", "basic"], [{"doc_id": "d", "location": "段落1"}])
         d = r.to_dict()
-        assert set(d) == {"content", "level", "degraded_from"}
+        assert set(d) == {"content", "level", "degraded_from", "refs"}

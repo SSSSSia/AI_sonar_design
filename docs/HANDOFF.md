@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 13:00 · ZCode）
+## 当前状态（最后更新：2026-09-17 15:15 · ZCode）
 
 | 项 | 状态 |
 |---|---|
@@ -25,7 +25,8 @@
 | git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
 | 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000**（Console 已随上游移除）/ Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
 | MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
-| 阶段 1 | **T1.1 + T1.2 + T1.6 完成**（实机验收通过）；设计文档 `docs/phase/phase-1-纵向闭环迁移.md`（PHASE-001 完整版） |
+| 阶段 1 | **T1.1 + T1.2 + T1.6 + T1.3 完成**（实机验收通过）；设计文档 PHASE-001 完整版 |
+| ⚠️ 待用户 | `.env` 的 `LLM_API_KEY` 为占位符（401 实锤）——填真实 key 后 LLM 规划自动恢复，无需改码 |
 | py-engine | worker（Celery/RabbitMQ）+ 内部 FastAPI 8090 就绪；LLM 适配器 env 兜底（llm_providers 表 V3 已建，管理 API 随 T3.3） |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（jar 实跑验证过；启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET） |
 | 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改） |
@@ -33,7 +34,7 @@
 ## 下一步入口（按序）
 
 1. **用户**：push 全部 commit（`git push`）。
-2. **任一 AI 续做 T1.3 A1 需求解析**：迁移旧 `stages/knowledge_stage.py`（★★拆用）的查询规划/兜底/并行检索，LLM 走 `llm/adapter.py`，检索走 `knowledge/service.py`，输出 IR1（契约 `contracts/ir/`）。旧仓库参照 `../Sonar_cad_design`（只读）。
+2. **任一 AI 续做 T1.4 A2 方案生成**：IR1 → IR2（带出处参数表：source_type 四件套 + trace_id，A-06）；公式类参数必须由 SymPy 代码计算（A-07），求解底座落 `py-engine/solver/`；设计文档生成可迁移旧 prompts.py 的 CONSOLIDATION_DOC_PROMPT（★）。IR2 快照复用 `storage/ir_store.py`，任务模式复刻 `worker/tasks.py::a1_task`。
    - graphrag 本机未安装（可选依赖），当前检索自动落文本级；装 graphrag~=2.0 后图谱级自动启用（A-14）
 3. 阶段 1 开发提示：数据底座与 Java 四服务均可直接连（连接参数见 `.env`；注意 Neo4j/MinIO 的 host 端口是覆盖后的非默认值；Java 服务启动前 `set -a; source .env; set +a`）。
 

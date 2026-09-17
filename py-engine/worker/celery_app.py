@@ -38,14 +38,25 @@ celery_app.conf.update(
                 "x-dead-letter-routing-key": "dead",
             },
         ),
+        Queue(
+            "sonarcad.a1",
+            exchange=task_exchange,
+            routing_key="task.a1",
+            durable=True,
+            queue_arguments={
+                "x-dead-letter-exchange": "sonarcad.dlx",
+                "x-dead-letter-routing-key": "dead",
+            },
+        ),
         # 注意：sonarcad.dlq 不放 task_queues——放这里会被 worker 默认订阅，
         # 死信被再次消费形成回环。DLQ 只允许人工排查/重放。
     ),
     task_default_exchange="sonarcad.task",
     task_default_exchange_type="topic",
-    task_routes={
-        "sonarcad.*": {"queue": "sonarcad.echo"},
-    },
+    task_routes=[
+        {"sonarcad.a1": {"queue": "sonarcad.a1"}},
+        {"sonarcad.*": {"queue": "sonarcad.echo"}},
+    ],
     task_acks_late=True,                      # 执行成功才 ack，崩溃不丢任务
     worker_prefetch_multiplier=1,             # 长任务公平分发
     result_expires=3600,

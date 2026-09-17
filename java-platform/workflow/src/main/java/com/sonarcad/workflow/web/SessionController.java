@@ -27,7 +27,7 @@ public class SessionController {
         this.sessionService = sessionService;
     }
 
-    public record CreateSessionRequest(String projectId, String title) {}
+    public record CreateSessionRequest(String projectId, String title, String requirement) {}
 
     @PostMapping
     @PreAuthorize("hasAnyRole('admin','designer')")
@@ -36,7 +36,7 @@ public class SessionController {
         if (req.projectId() == null || req.projectId().isBlank()) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
-        return ApiResponse.ok(sessionService.create(req.projectId(), req.title(), userId));
+        return ApiResponse.ok(sessionService.create(req.projectId(), req.title(), req.requirement(), userId));
     }
 
     @GetMapping
