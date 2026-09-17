@@ -9,9 +9,8 @@
 # - MinIO 分桶（step-models / cad-scripts / design-docs / validation-reports / knowledge-dumps）
 #   由应用启动时创建，不在本文件内。
 # - Milvus standalone 依赖独立 etcd + 内部 MinIO（官方标准拓扑，不占用业务 MinIO 端口）。
-# - MinIO 镜像说明：官方 minio/minio 已于 2026-02 从 Docker Hub 全量下架（社区版转 source-only），
-#   各加速源对其均 403/not found。改用社区重建镜像 elestio/minio（开发环境可用；
-#   其 latest 含 1 个 HIGH CVE-2025-62506，生产部署前必须评估替代，届时走 ADR）。
+# - MinIO 镜像说明：官方 minio/minio 已于 2026-02 从 Docker Hub 全量下架（社区版转 source-only）。
+#   现用 Chainguard 官方二进制重构镜像（0 CVE），按 digest 固定；决策与备选方案见 docs/adr/ADR-002。
 # - 国内网络拉取 Docker Hub 失败时两种解法：
 #   a) Docker Desktop Settings → Docker Engine 配 registry-mirrors（推荐，一次配好全局生效）；
 #   b) 在 .env 设 DOCKER_MIRROR=docker.m.daocloud.io/ 与 QUAY_MIRROR=quay.m.daocloud.io/
@@ -99,17 +98,34 @@ services:
     networks: [sonar-net]
     restart: unless-stopped
 
+  # Chainguard 镜像以非 root(65532) 运行；旧卷数据由 root 写入，需一次性移交属主（幂等）
+  minio-volume-init:
+    image: cgr.dev/chainguard/minio@sha256:83b4a2d9f21bbf5127ef8b8bbe456d371cd35c8d03ec72262866ceee889c9a88
+    container_name: sonar-minio-volume-init
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["chown -R 65532:65532 /data /minio_data"]
+    volumes:
+      - minio-data:/data
+      - milvus-minio-data:/minio_data
+    networks: [sonar-net]
+
   milvus-minio:
-    image: ${DOCKER_MIRROR:-}elestio/minio:latest
+    # Chainguard 官方二进制重构，按 digest 固定版本（0 CVE，见 ADR-002）
+    image: cgr.dev/chainguard/minio@sha256:83b4a2d9f21bbf5127ef8b8bbe456d371cd35c8d03ec72262866ceee889c9a88
     container_name: sonar-milvus-minio
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    command: minio server /minio_data
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    # 镜像 entrypoint 即 /usr/bin/minio，command 只传参数
+    command: ["server", "/minio_data"]
     volumes:
       - milvus-minio-data:/minio_data
+    depends_on:
+      minio-volume-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "/usr/bin/mc", "ready", "local"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -144,19 +160,23 @@ services:
 
   # ---------- 文件存储（业务 MinIO，D-10 分桶） ----------
   minio:
-    image: ${DOCKER_MIRROR:-}elestio/minio:latest
+    # Chainguard 官方二进制重构，按 digest 固定版本（0 CVE，见 ADR-002）
+    image: cgr.dev/chainguard/minio@sha256:83b4a2d9f21bbf5127ef8b8bbe456d371cd35c8d03ec72262866ceee889c9a88
     container_name: sonar-minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sonarcad}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在 .env 中设置}
-    command: minio server /data --console-address ":9001"
+    # 上游已于 2025-06 移除 Web Console，不再映射 9001（MINIO_CONSOLE_PORT 保留仅作占位）
+    command: ["server", "/data"]
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
+    depends_on:
+      minio-volume-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "/usr/bin/mc", "ready", "local"]
       interval: 15s
       timeout: 10s
       retries: 5
