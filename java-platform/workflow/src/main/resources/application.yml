@@ -19,3 +19,7 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
+
+# py-engine 算力层（T2.3 知识回写同步调用；仅内网/本机）
+py-engine:
+  base-url: ${PY_ENGINE_BASE_URL:http://localhost:8090}

@@ -109,7 +109,7 @@
 - **实现备注**：IR2 参数 schema additionalProperties=false，formula_key 不落库——A4 靠 source_ref `#` 尾段定位注册公式、从 derivation 解析代入值；无法定位公式的 formula 参数出 info 请人工复核而非硬失败（注册表会持续增长）。sonarcad.a4 任务/队列已注册（编排派发在 T2.2 接线）。
 - **验收方法**：`python -m pytest tests/test_t21_a4.py -v`；CLI 实跑一次样例。
 
-### T2.2 审阅关①②（状态机暂停/裁决 + 局部回环）
+### T2.2 审阅关①②（状态机暂停/裁决 + 局部回环）🚧 接线与裁决服务完成（2026-09-18，实测随 e2e）
 
 - **目标**：gate1（IR2 后）/gate2（IR3+IR4 后）暂停—裁决—恢复/回环全流程落地；驳回走局部回算 + 下游失效，禁止整链路重跑（A-11/A-12）。
 - **设计要点**：
@@ -126,10 +126,10 @@
   | GET | /api/v1/workflow/sessions/{sid}/reviews | 裁决历史（四角色可读） |
   | GET | /api/v1/workflow/sessions/{sid}/irs/{type} 与 /versions | 增返回 invalidated 标记（改造现有端点） |
 - **DoD**：
-  - [ ] 通过流实测：START→…→gate1 暂停→approve→…→gate2 暂停→approve→A5→completed
-  - [ ] 驳回回流实测：gate2 驳回（back_to_A2）→ 下游失效标记可查 → 局部回算重跑到 gate2 再次暂停 → IR 版本递增、全程快照可追溯
-  - [ ] 非审阅角色（designer/viewer）裁决 403；非暂停态裁决 409；并发双裁决一次成功一次 409
-  - [ ] `mvn -pl workflow,biz test` 全绿（gate 分发/裁决服务单测，mock 持久层）
+  - [ ] 通过流实测：START→…→gate1 暂停→approve→…→gate2 暂停→approve→A5→completed——随阶段 e2e
+  - [ ] 驳回回流实测：gate2 驳回（back_to_A2）→ 下游失效标记可查 → 局部回算重跑到 gate2 再次暂停 → IR 版本递增、全程快照可追溯——随阶段 e2e
+  - [ ] 非审阅角色（designer/viewer）裁决 403；非暂停态裁决 409；并发双裁决一次成功一次 409——403 待实机 RBAC 抽查，409/并发由单测覆盖
+  - [x] `mvn -pl workflow,biz test` 全绿（SessionGateDispatchTest 5 + ReviewServiceDecisionTest 10：gate 分发、双 gate 暂停、IR4 suggestion 推断重跑目标、失效范围、知识关回写/失败如实记录/409 收敛）
 - **验收方法**：pytest e2e（§3 T2.7 样例）+ curl ASCII 负载走查。
 
 ### T2.3 A5 知识沉淀（IR5 候选 + 知识审阅关回写）🚧 引擎完成（2026-09-17，回写实测随 e2e）

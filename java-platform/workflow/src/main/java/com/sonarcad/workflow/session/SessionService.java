@@ -81,13 +81,17 @@ public class SessionService {
 
         // STAGE_DONE：worker 中间阶段完成回调——固定管线续派（A-01/A-05），不改会话状态。
         // worker 落快照时先写 current_stage 再回调，故此处 stage 即"刚完成的 Agent"。
-        // 阶段 2 将在 A2/A3 后插入审阅关暂停（gate1/gate2）。
+        // T2.2 审阅关接线：A2 后暂停 gate1、A4 后暂停 gate2（每份新产物都须人工过闸，PHASE-002 §2.1）。
         if (event == PipelineEvent.STAGE_DONE) {
             String stage = s.getCurrentStage();
             if ("A1".equals(stage)) {
                 taskPublisher.publishA2Task(id);
             } else if ("A2".equals(stage)) {
-                taskPublisher.publishA3Task(id);
+                pauseAtGate(id, "gate1");
+            } else if ("A3".equals(stage)) {
+                taskPublisher.publishA4Task(id);
+            } else if ("A4".equals(stage)) {
+                pauseAtGate(id, "gate2");
             }
             return s;
         }
@@ -117,5 +121,40 @@ public class SessionService {
     public Map<String, Object> allowedEvents(String id) {
         return Map.of("events", PipelineTransitions.allowedEvents(
                 PipelineStatus.valueOf(get(id).getPipelineStatus())));
+    }
+
+    /**
+     * 审阅关暂停（T2.2）：running → paused + current_stage=gate，单次乐观更新。
+     * 复用现有 paused/PAUSE 语义（无新增状态/事件）；恢复由审阅裁决驱动（ReviewService）。
+     */
+    public DesignSessionEntity pauseAtGate(String id, String gate) {
+        DesignSessionEntity patch = new DesignSessionEntity();
+        patch.setPipelineStatus(PipelineStatus.paused.name());
+        patch.setCurrentStage(gate);
+        int updated = mapper.update(patch, new LambdaQueryWrapper<DesignSessionEntity>()
+                .eq(DesignSessionEntity::getId, id)
+                .eq(DesignSessionEntity::getPipelineStatus, PipelineStatus.running.name()));
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "审阅关暂停失败：会话不在 running 状态（可能已被并发修改）");
+        }
+        DesignSessionEntity s = get(id);
+        s.setPipelineStatus(PipelineStatus.paused.name());
+        s.setCurrentStage(gate);
+        return s;
+    }
+
+    /** 审阅关恢复（T2.2）：paused → running + current_stage=下一棒，乐观更新（并发双裁决在此收敛 409）。 */
+    public void resumeFromGate(String id, String nextStage) {
+        DesignSessionEntity patch = new DesignSessionEntity();
+        patch.setPipelineStatus(PipelineStatus.running.name());
+        patch.setCurrentStage(nextStage);
+        int updated = mapper.update(patch, new LambdaQueryWrapper<DesignSessionEntity>()
+                .eq(DesignSessionEntity::getId, id)
+                .eq(DesignSessionEntity::getPipelineStatus, PipelineStatus.paused.name()));
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "审阅关恢复失败：会话不在 paused 状态（可能已被并发裁决）");
+        }
     }
 }

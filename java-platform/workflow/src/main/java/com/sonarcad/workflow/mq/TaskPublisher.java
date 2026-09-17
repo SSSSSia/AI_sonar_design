@@ -59,6 +59,16 @@ public class TaskPublisher {
         publish("sonarcad.a3", "task.a3", List.of(sessionId), Map.of());
     }
 
+    /** A4 合规校验任务（T2.1） */
+    public void publishA4Task(String sessionId) {
+        publish("sonarcad.a4", "task.a4", List.of(sessionId), Map.of());
+    }
+
+    /** A5 知识沉淀任务（T2.3，链尾，完成后 worker 发 COMPLETE） */
+    public void publishA5Task(String sessionId) {
+        publish("sonarcad.a5", "task.a5", List.of(sessionId), Map.of());
+    }
+
     public void publish(String taskName, String routingKey, List<Object> args, Map<String, Object> kwargs) {
         String taskId = UUID.randomUUID().toString();
         try {

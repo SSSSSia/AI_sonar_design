@@ -18,6 +18,8 @@ public class IrSnapshotEntity {
     private String content;
     private String createdBy;
     private OffsetDateTime createdAt;
+    /** 生命周期元数据（T2.2）：驳回下游失效批量标记；内容保持不可变（A-12）。 */
+    private OffsetDateTime invalidatedAt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -34,4 +36,6 @@ public class IrSnapshotEntity {
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
+    public OffsetDateTime getInvalidatedAt() { return invalidatedAt; }
+    public void setInvalidatedAt(OffsetDateTime invalidatedAt) { this.invalidatedAt = invalidatedAt; }
 }

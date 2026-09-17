@@ -42,6 +42,7 @@ public class IrSnapshotController {
                 "version", snapshot.getVersion(),
                 "schema_version", snapshot.getSchemaVersion(),
                 "created_by", snapshot.getCreatedBy() == null ? "" : snapshot.getCreatedBy(),
+                "invalidated", snapshot.getInvalidatedAt() != null,
                 "content", snapshot.getContent()));
     }
 
@@ -58,6 +59,7 @@ public class IrSnapshotController {
                 "version", r.getVersion(),
                 "schema_version", r.getSchemaVersion(),
                 "created_by", r.getCreatedBy() == null ? "" : r.getCreatedBy(),
+                "invalidated", r.getInvalidatedAt() != null,
                 "created_at", String.valueOf(r.getCreatedAt()))).toList());
     }
 
