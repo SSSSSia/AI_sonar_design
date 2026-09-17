@@ -4,3 +4,12 @@ server:
 spring:
   application:
     name: sonarcad-biz
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:sonarcad}
+    username: ${POSTGRES_USER:sonarcad}
+    password: ${POSTGRES_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
