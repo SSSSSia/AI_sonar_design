@@ -7,7 +7,7 @@
 | 阶段 | 名称 | 目标 | 状态 |
 |---|---|---|---|
 | 阶段 0 | 工程地基 | 目录骨架 + 数据底座容器化 + IR 契约初版 | 待开发 |
-| 阶段 1 | 纵向闭环迁移 | A1–A3 在新架构下重组，API 级端到端跑通需求→STEP | 待开发 |
+| 阶段 1 | 纵向闭环迁移 | A1–A3 在新架构下重组，API 级端到端跑通需求→STEP | 开发中（设计文档 PHASE-001 已立） |
 | 阶段 2 | 人在回路与校验 | A4/A5、审阅关①②、局部回环、溯源链 | 待开发 |
 | 阶段 3 | 文档预处理与知识治理 | 文档上传入库管线、公式/约束/军标库、图谱可视化 | 待开发 |
 | 阶段 4 | 前端工作台全量 | React 全部页面 + 三维预览 + 系统管理基础 | 待开发 |
@@ -28,7 +28,7 @@
 
 | 任务 | 内容 | 状态 |
 |---|---|---|
-| T1.1 | Java 平台层骨架：Gateway + JWT/RBAC 基础 + 会话 API + 状态机（pending→running→paused→completed/failed） | 待开发 |
+| T1.1 | Java 平台层骨架：Gateway + JWT/RBAC 基础 + 会话 API + 状态机（pending→running→paused→completed/failed） | 开发中 |
 | T1.2 | Python worker 骨架：Celery 消费 + 内部 FastAPI + 统一 LLM 适配器（OpenAI 兼容多供应商，配置热切换） | 待开发 |
 | T1.3 | A1 需求解析：迁移旧 knowledge_stage 的查询规划/兜底/并行检索逻辑，输出 IR1（结构化目标 + missing_items + 子查询） | 待开发 |
 | T1.4 | A2 方案生成：重写为带出处参数表（source_type 四分类 + trace_id），输出 IR2 ★系统枢纽 | 待开发 |
