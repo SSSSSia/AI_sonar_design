@@ -35,6 +35,42 @@ def _fire_session_event(session_id: str, event: str) -> None:
         logger.error("session %s event %s 回调失败: %s", session_id, event, exc)
 
 
+def _record_trace(session_id: str, steps_builder) -> None:
+    """溯源链写入（T2.4）降级策略：IR 快照（含四件套 trace_id）是权威出处，快照落库成功后
+    链路表写入失败只记日志、不拖垮管线——trace API 无行即 404 如实，链路可由快照重建。
+    """
+    try:
+        from storage import trace_store
+
+        trace_store.record_steps(steps_builder())
+    except Exception:
+        logger.exception("session %s 溯源链写入失败（快照为权威出处，链路降级）", session_id)
+
+
+def _a2_trace(ir2: dict, session_id: str) -> list[dict]:
+    from storage import ir_store, trace_steps
+
+    return trace_steps.build_a2_steps(ir2, ir_store.get_latest_snapshot_id(session_id, "IR2"), session_id)
+
+
+def _a3_trace(ir3: dict, ir2: dict | None, session_id: str) -> list[dict]:
+    from storage import ir_store, trace_steps
+
+    return trace_steps.build_a3_steps(ir3, ir2, ir_store.get_latest_snapshot_id(session_id, "IR3"), session_id)
+
+
+def _a4_trace(ir4: dict, ir2: dict | None, session_id: str) -> list[dict]:
+    from storage import ir_store, trace_steps
+
+    return trace_steps.build_a4_steps(ir4, ir2, ir_store.get_latest_snapshot_id(session_id, "IR4"), session_id)
+
+
+def _a5_trace(ir5: dict, session_id: str) -> list[dict]:
+    from storage import ir_store, trace_steps
+
+    return trace_steps.build_a5_steps(ir5, ir_store.get_latest_snapshot_id(session_id, "IR5"), session_id)
+
+
 @shared_task(bind=True, name="sonarcad.echo", max_retries=TASK_MAX_RETRIES)
 def echo_task(self, session_id: str, payload: str = "") -> dict:
     """骨架验证任务：原样回显 payload，成功驱动会话 COMPLETE，失败 FAIL。"""
@@ -99,6 +135,7 @@ def a2_task(self, session_id: str) -> dict:
                 raise RuntimeError(f"参数 {p.get('id')} 四件套不完整")
 
         version = ir_store.save_snapshot(session_id, "IR2", ir2, created_by="A2")
+        _record_trace(session_id, lambda: _a2_trace(ir2, session_id))
         ir_store.update_stage(session_id, "A2")
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR2", "version": version}
@@ -132,6 +169,7 @@ def a3_task(self, session_id: str) -> dict:
         ).run(session_id, ir2)
 
         version = ir_store.save_snapshot(session_id, "IR3", ir3, created_by="A3")
+        _record_trace(session_id, lambda: _a3_trace(ir3, ir2, session_id))
         ir_store.update_stage(session_id, "A3")
         _fire_session_event(session_id, "COMPLETE")
         return {"session_id": session_id, "ir": "IR3", "version": version}
@@ -165,6 +203,7 @@ def a4_task(self, session_id: str) -> dict:
             raise RuntimeError(f"A4 输出未过 IR4 契约: {exc}") from exc
 
         version = ir_store.save_snapshot(session_id, "IR4", ir4, created_by="A4")
+        _record_trace(session_id, lambda: _a4_trace(ir4, ir2, session_id))
         ir_store.update_stage(session_id, "A4")
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR4", "version": version}
@@ -211,6 +250,7 @@ def a5_task(self, session_id: str) -> dict:
             raise RuntimeError(f"A5 输出未过 IR5 契约: {exc}") from exc
 
         version = ir_store.save_snapshot(session_id, "IR5", ir5, created_by="A5")
+        _record_trace(session_id, lambda: _a5_trace(ir5, session_id))
         ir_store.update_stage(session_id, "A5")
         _fire_session_event(session_id, "COMPLETE")
         return {

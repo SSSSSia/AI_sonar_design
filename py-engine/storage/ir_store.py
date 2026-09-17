@@ -27,10 +27,27 @@ def _connect() -> psycopg.Connection:
 
 
 def get_latest_snapshot(session_id: str, ir_type: str) -> Optional[dict[str, Any]]:
-    """取某类型最新版本快照内容；不存在返回 None。"""
+    """取某类型最新**未失效**版本快照内容；不存在返回 None。
+
+    T2.2 下游失效语义：驳回标记 invalidated_at 的旧版本对算力侧读不可见
+    （审阅/前端经 workflow API 仍可查全部历史——诚实展示）。
+    """
     with _connect() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT content FROM ir_snapshots
+               WHERE session_id = %s AND ir_type = %s AND invalidated_at IS NULL
+               ORDER BY version DESC LIMIT 1""",
+            (session_id, ir_type),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def get_latest_snapshot_id(session_id: str, ir_type: str) -> Optional[str]:
+    """取最新快照行 id（溯源链 ir_snapshot_id 外键引用用，T2.4）。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id::text FROM ir_snapshots
                WHERE session_id = %s AND ir_type = %s
                ORDER BY version DESC LIMIT 1""",
             (session_id, ir_type),

@@ -30,6 +30,7 @@ class ReviewServiceDecisionTest {
     private SessionService sessionService;
     private TaskPublisher taskPublisher;
     private KnowledgeWritebackClient writebackClient;
+    private com.sonarcad.workflow.session.TraceChainMapper traceChainMapper;
     private ReviewService service;
 
     @BeforeEach
@@ -40,8 +41,9 @@ class ReviewServiceDecisionTest {
         sessionService = mock(SessionService.class);
         taskPublisher = mock(TaskPublisher.class);
         writebackClient = mock(KnowledgeWritebackClient.class);
+        traceChainMapper = mock(com.sonarcad.workflow.session.TraceChainMapper.class);
         service = new ReviewService(sessionMapper, irSnapshotMapper, reviewRecordMapper,
-                sessionService, taskPublisher, writebackClient);
+                traceChainMapper, sessionService, taskPublisher, writebackClient);
     }
 
     private DesignSessionEntity session(String status, String stage) {
@@ -78,6 +80,13 @@ class ReviewServiceDecisionTest {
         assertEquals("gate1", record.getValue().getGate());
         assertEquals("approved", record.getValue().getDecision());
         assertEquals("IR2-1", record.getValue().getIrSnapshotId());
+        // T2.4：裁决同步写溯源 confirm 行（合成 trace_id rv- 前缀）
+        ArgumentCaptor<com.sonarcad.workflow.session.TraceChainEntity> trace =
+                ArgumentCaptor.forClass(com.sonarcad.workflow.session.TraceChainEntity.class);
+        verify(traceChainMapper).insert(trace.capture());
+        assertTrue(trace.getValue().getTraceId().startsWith("rv-"));
+        assertEquals("review", trace.getValue().getActor());
+        assertEquals("confirm", trace.getValue().getAction());
     }
 
     @Test

@@ -143,8 +143,30 @@ class A5Agent:
                     continue
             if item["type"] == "constraint" and not str(payload.get("name") or "").strip():
                 continue
+            payload = self._attach_source_traces(payload, by_name)
             out.append({"type": item["type"], "payload": payload, "dedup_status": "new"})
         return out
+
+    @staticmethod
+    def _attach_source_traces(payload: dict[str, Any], by_name: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """候选回填来源参数的 trace_id（溯源链 A5 assign 行的继承依据，T2.4）。"""
+        names: list[str] = []
+        if payload.get("name"):
+            names.append(str(payload["name"]))
+        for p in payload.get("params", []) or []:
+            if p.get("name"):
+                names.append(str(p["name"]))
+        for side in ("from", "to"):
+            if (payload.get(side) or {}).get("name"):
+                names.append(str(payload[side]["name"]))
+        traces: list[str] = []
+        for n in names:
+            ref = by_name.get(n)
+            if ref and ref.get("trace_id") and ref["trace_id"] not in traces:
+                traces.append(ref["trace_id"])
+        if traces:
+            payload = {**payload, "source_trace_ids": traces}
+        return payload
 
     # ------------------------------------------------------------------
     def _fallback_candidates(
@@ -160,6 +182,7 @@ class A5Agent:
                         "name": f"{p['name']}（设计约束经验）",
                         "expression": f"{p['name']} = {p['value']} {p['unit']}",
                         "context": f"依据 {p.get('source_ref')}；{p.get('derivation', '')[:200]}",
+                        "source_trace_ids": [p.get("trace_id", "")] if p.get("trace_id") else [],
                     },
                     "dedup_status": "new",
                 })
@@ -169,12 +192,17 @@ class A5Agent:
             if p.get("source_type") == "case" and p["id"] not in error_param_ids
         ]
         if case_params:
+            case_traces = [
+                p.get("trace_id") for p in params
+                if p.get("source_type") == "case" and p["id"] not in error_param_ids and p.get("trace_id")
+            ]
             candidates.append({
                 "type": "case",
                 "payload": {
                     "name": "设计会话案例参数组（审阅关通过）",
                     "params": case_params,
                     "context": "经人工审阅关通过的设计会话中采纳的案例参数取值",
+                    "source_trace_ids": [t for t in case_traces if t],
                 },
                 "dedup_status": "new",
             })

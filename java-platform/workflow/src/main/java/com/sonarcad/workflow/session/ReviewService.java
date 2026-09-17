@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 审阅裁决服务（T2.2，宪法 A-11/A-12）。
@@ -34,16 +35,19 @@ public class ReviewService {
     private final DesignSessionMapper sessionMapper;
     private final IrSnapshotMapper irSnapshotMapper;
     private final ReviewRecordMapper reviewRecordMapper;
+    private final TraceChainMapper traceChainMapper;
     private final SessionService sessionService;
     private final TaskPublisher taskPublisher;
     private final KnowledgeWritebackClient writebackClient;
 
     public ReviewService(DesignSessionMapper sessionMapper, IrSnapshotMapper irSnapshotMapper,
-                         ReviewRecordMapper reviewRecordMapper, SessionService sessionService,
+                         ReviewRecordMapper reviewRecordMapper, TraceChainMapper traceChainMapper,
+                         SessionService sessionService,
                          TaskPublisher taskPublisher, KnowledgeWritebackClient writebackClient) {
         this.sessionMapper = sessionMapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.reviewRecordMapper = reviewRecordMapper;
+        this.traceChainMapper = traceChainMapper;
         this.sessionService = sessionService;
         this.taskPublisher = taskPublisher;
         this.writebackClient = writebackClient;
@@ -207,11 +211,27 @@ public class ReviewService {
         record.setDecision(decision);
         record.setReviewerId(reviewerId);
         record.setDecidedAt(OffsetDateTime.now());
+        String syntheticTraceId = "rv-" + UUID.randomUUID().toString().substring(0, 8);
         Map<String, Object> annotationPayload = new LinkedHashMap<>();
         annotationPayload.put("annotations", annotations == null ? List.of() : annotations);
+        annotationPayload.put("trace_id", syntheticTraceId);
         annotationPayload.putAll(autoFields);
         record.setAnnotations(toJson(annotationPayload));
         reviewRecordMapper.insert(record);
+        // 溯源链 confirm 行（T2.4）：裁决以合成 trace_id（rv- 前缀）可反查
+        TraceChainEntity trace = new TraceChainEntity();
+        trace.setTraceId(syntheticTraceId);
+        trace.setStepNo(1);
+        trace.setSessionId(sessionId);
+        trace.setActor("review");
+        trace.setAction("confirm");
+        trace.setIrSnapshotId(irSnapshotId);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("gate", gate);
+        payload.put("decision", decision);
+        payload.put("reviewer", reviewerId);
+        trace.setPayload(toJson(payload));
+        traceChainMapper.insert(trace);
         return record;
     }
 
