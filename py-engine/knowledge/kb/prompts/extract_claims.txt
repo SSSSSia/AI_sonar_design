@@ -1,0 +1,65 @@
+-Target activity-
+你是一位拖曳线列阵声呐 CAD 建模验证分析师，负责从技术文档中提取设计断言、参数约束声明和建模规则。
+
+-Goal-
+给定一份拖曳线列阵声呐 CAD 建模相关的技术文档、实体规范和声明描述，提取所有符合实体规范的实体以及针对这些实体的所有声明。
+
+-Steps-
+1. Extract all named entities that match the predefined entity specification. Entity specification can either be a list of entity names or a list of entity types.
+2. For each entity identified in step 1, extract all claims associated with the entity. Claims need to match the specified claim description, and the entity should be the subject of the claim.
+For each claim, extract the following information:
+- Subject: name of the entity that is subject of the claim, capitalized. The subject entity is one that committed the action described in the claim. Subject needs to be one of the named entities identified in step 1.
+- Object: name of the entity that is object of the claim, capitalized. If object entity is unknown, use **NONE**.
+- Claim Type: one of: DIMENSION_SPECIFICATION, DESIGN_CONSTRAINT_CLAIM, PARAMETER_MATCHING, PERFORMANCE_SPECIFICATION, ASSEMBLY_RULE, CAD_MODELING_RULE, DESIGN_TRADEOFF, STRUCTURE_RELATION
+- Claim Status: **TRUE**, **FALSE**, or **SUSPECTED**.
+- Claim Date: Period (start_date, end_date) when the claim was made. If unknown, return **NONE**.
+- Claim Description: Detailed description explaining the reasoning behind the claim, together with all the related numerical values and references.
+- Claim Source Text: List of **all** quotes from the original text that are relevant to the claim.
+
+Format each claim as (<subject_entity><|><object_entity><|><claim_type><|><claim_status><|><claim_start_date><|><claim_end_date><|><claim_description><|><claim_source>)
+
+3. Return output in Chinese as a single list of all the claims identified in steps 1 and 2. Use **##** as the list delimiter.
+
+4. When finished, output <|COMPLETE|>
+
+-Claim Type Definitions-
+1. DIMENSION_SPECIFICATION — 尺寸规格：如"声阵段外半径13.5mm，内半径10.5mm，壁厚3mm"
+2. DESIGN_CONSTRAINT_CLAIM — 设计约束：如"声阵段外径不超过27mm"、"重量不大于40kg"
+3. PARAMETER_MATCHING — 参数匹配：如"阵元间距1.5m对应半波长间距"
+4. PERFORMANCE_SPECIFICATION — 性能指标：如"灵敏度不低于-195dB"
+5. ASSEMBLY_RULE — 装配规则：如"从尾部开始按顺序依次连接"
+6. CAD_MODELING_RULE — CAD建模规则：如"禁用.shell()方法"
+7. DESIGN_TRADEOFF — 设计权衡：如"增加直径降低流噪声但增大重量"
+8. STRUCTURE_RELATION — 结构关系：如"水听器嵌于管内等间距排列"
+
+-Examples-
+Example 1:
+Entity specification: 声阵段, 尾绳
+Claim description: 尺寸规格和设计约束声明
+Text: 声阵段外半径13.5mm（直径27mm，满足不超过27mm约束），内半径10.5mm（壁厚3mm），单段长度24000mm。尾绳半径2.5mm，长度10000mm。阵列空气中重量不大于40kg。
+Output:
+
+(声阵段<|>NONE<|>DIMENSION_SPECIFICATION<|>TRUE<|>NONE<|>NONE<|>声阵段外半径13.5mm直径27mm，内半径10.5mm壁厚3mm，单段长度24000mm含16个水听器<|>声阵段外半径13.5mm（直径27mm，满足不超过27mm约束），内半径10.5mm（壁厚3mm），单段长度24000mm)
+##
+(声阵段<|>NONE<|>DESIGN_CONSTRAINT_CLAIM<|>TRUE<|>NONE<|>NONE<|>声阵段外径不超过27mm，是拖线阵核心物理尺寸约束<|>直径27mm，满足不超过27mm约束)
+##
+(尾绳<|>NONE<|>DIMENSION_SPECIFICATION<|>TRUE<|>NONE<|>NONE<|>尾绳半径2.5mm，长度10000mm即10米<|>尾绳半径2.5mm，长度10000mm)
+<|COMPLETE|>
+
+Example 2:
+Entity specification: 阵元间距, CadQuery建模规范
+Claim description: 参数匹配和CAD建模规则声明
+Text: 阵元间距1.5m±10mm，对应最高工作频率约1000Hz时的半波长间距（水中声速约1500m/s）。禁止使用.shell()方法，用.cut()实现抽壳。禁止使用整数索引选择面，使用方向字符串。import语句仅限cadquery、math、os。
+Output:
+
+(阵元间距<|>NONE<|>PARAMETER_MATCHING<|>TRUE<|>NONE<|>NONE<|>阵元间距1.5m对应最高工作频率约1000Hz时的半波长间距d=λ/2=c/(2f)=1500/(2×1000)=0.75m<|>阵元间距1.5m±10mm，对应最高工作频率约1000Hz时的半波长间距（水中声速约1500m/s）)
+##
+(CADQUERY建模规范<|>NONE<|>CAD_MODELING_RULE<|>TRUE<|>NONE<|>NONE<|>禁用shell/chamfer/fillet方法，用cut实现抽壳，禁止整数索引选面改用方向字符串，import仅限cadquery/math/os<|>禁止使用.shell()方法，用.cut()实现抽壳。禁止使用整数索引选择面，使用方向字符串。import语句仅限cadquery、math、os)
+<|COMPLETE|>
+
+-Real Data-
+Use the following input for your answer.
+Entity specification: {entity_specs}
+Claim description: {claim_description}
+Text: {input_text}
+Output:

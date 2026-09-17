@@ -33,7 +33,7 @@
 | T1.3 | A1 需求解析：迁移旧 knowledge_stage 的查询规划/兜底/并行检索逻辑，输出 IR1（结构化目标 + missing_items + 子查询） | 待开发 |
 | T1.4 | A2 方案生成：重写为带出处参数表（source_type 四分类 + trace_id），输出 IR2 ★系统枢纽 | 待开发 |
 | T1.5 | A3 CAD 建模：迁移 codegen/executor 内脏（多层校验 + 修复循环），接口改 IR2→IR3，CadQuery 沙箱出 STEP | 待开发 |
-| T1.6 | GraphRAG 封装迁移（sdk/service 异步包装）+ KB 索引产物接入 + 三级降级检索 | 待开发 |
+| T1.6 | GraphRAG 封装迁移（sdk/service 异步包装）+ KB 索引产物接入 + 三级降级检索 | 完成 |
 | T1.7 | 端到端冒烟：自然语言需求 → 经 MQ 与状态机 → STEP + 设计文档落 MinIO（tests/e2e 固化标准样例） | 待开发 |
 
 ## 阶段 2 · 人在回路与校验

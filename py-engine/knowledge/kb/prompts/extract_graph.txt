@@ -1,0 +1,132 @@
+-Goal-
+你是一位专业的拖曳线列阵声呐 CAD 建模工程师和知识图谱构建专家。给定一份拖曳线列阵声呐 CAD 建模相关的技术文档，请识别所有实体及其关系。核心目标是提取**部件结构与尺寸参数**、**设计约束与性能指标**、**CAD建模规则与装配逻辑**之间的关联关系，为自动化 CAD 建模提供知识支撑。
+
+-Entity Types-
+### 系统级
+1. SonarSystem（声呐系统）: 拖曳线列阵声呐整机系统，如"拖曳线列阵声呐"、"Towed Array Sonar"
+
+### 结构/模块级
+2. StructuralModule（结构模块）: 拖线阵的六大组成部件，如"尾绳"、"声阵段"、"前减振段"、"变径汇流头"、"传输缆"、"水密航插"
+3. Component（基础零件/器件）: 模块内部的元器件，如"水听器"、"姿态压力传感器"、"采集放大组件"、"整合组件"、"对接件"、"外护套"
+
+### 参数/指标级
+4. DesignParameter（设计参数）: 可量化参数，如"阵列直径27mm"、"阵元间距1500mm"、"尾绳长度10000mm"、"外护套壁厚3mm"、"正弦弯曲幅度"
+5. PerformanceIndicator（性能指标）: 结果指标，如"阵元灵敏度-195dB"、"流噪声级16dB@1kHz"、"指向性因子DI≥16dB"、"探测距离数十公里"
+6. DesignConstraint（设计约束）: 工程约束规则，如"阵列直径不超过27mm"、"空气中重量不大于40kg"、"最大工作深度不小于300m"、"灵敏度起伏不超过±3dB"
+
+### 算法/规则级
+7. Algorithm（算法/公式）: 计算公式和设计原理，如"声呐方程SL-NL-TL+DI≥DT"、"传播损失TL≈20lgR"、"正弦轨迹函数x=A*sin²(πz/L)"
+8. CADModelingStandard（CAD建模规范）: CadQuery建模规则，如"函数命名build_xxx(z_start)"、"z_cursor装配模式"、"禁用.shell()方法"
+
+-Extraction Guidelines-
+1. 提取具体数值、单位、公差（如"直径不超过27mm"、"间距1.5m±10mm"）
+2. 提取公式时保留完整表达式、变量含义
+3. 重点提取部件之间的装配关系（从尾到头的顺序、变径过渡、段间连接）
+4. 提取内部组件与外管的结构关系（水听器嵌于管内、间距排列、顺应弯曲）
+5. 提取CAD建模规则时保留完整代码约束（禁用方法、命名规范、装配模式）
+6. 提取颜色参数时保留RGB/RGBA值
+7. 关系类型优先级：
+   - 遇到"由...组成"、"包含" → consists_of
+   - 遇到部件的尺寸、参数描述 → has_parameter
+   - 遇到"不超过"、"不大于"、"不小于" → constrained_by
+   - 遇到参数间的计算、匹配逻辑 → matches_with
+   - 遇到"满足"、"为实现" → satisfies_requirement
+   - 遇到设计权衡、矛盾 → trades_off_with
+   - 遇到CAD代码规范 → modeled_by
+
+-Steps-
+1. Identify all entities. For each identified entity, extract the following information:
+- entity_name: Name of the entity
+- entity_type: One of the following types: [{entity_types}]
+- entity_description: Comprehensive description of the entity's attributes, parameters and functions
+Format each entity as ("entity"<|><entity_name><|><entity_type><|><entity_description>)
+
+2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are *clearly related* to each other.
+For each pair of related entities, extract the following information:
+- source_entity: name of the source entity, as identified in step 1
+- target_entity: name of the target entity, as identified in step 1
+- relationship_description: detailed description of the relationship with technical details and parameter values
+- relationship_type: one of: consists_of, is_part_of, has_parameter, derived_from, constrained_by, matches_with, satisfies_requirement, trades_off_with, modeled_by
+Format each relationship as ("relationship"<|><source_entity><|><target_entity><|><relationship_description><|><relationship_type>)
+
+3. Return output in Chinese as a single list of all the entities and relationships identified in steps 1 and 2. Use **##** as the list delimiter.
+
+4. When finished, output <|COMPLETE|>
+
+######################
+-Examples-
+######################
+Example 1:
+Entity_types: SonarSystem, StructuralModule, Component
+Text:
+拖曳线列阵声呐从尾部到头部依次由以下六大部件组成：1. 尾绳：尾部稳定器，提供拖曳稳定性；2. 16基元声阵段：声学模块，含16个水听器基元；3. 前减振段：前部隔振段；4. 变径汇流头与传输缆：变径机电汇流头连接高强度传输缆；5. 水密航插：水密电连接器。装配顺序从尾部开始依次连接。
+######################
+Output:
+("entity"<|>拖曳线列阵声呐<|>SonarSystem<|>被动声呐系统，由拖曳平台拖拽柔性线列阵进行水下目标探测，从尾部到头部由六大部件组成)
+##
+("entity"<|>尾绳<|>StructuralModule<|>尾部稳定器，提供拖曳稳定性，半径2.5mm，长度10000mm)
+##
+("entity"<|>声阵段<|>StructuralModule<|>拖线阵核心功能段，负责水声信号采集，共2段，每段含16个水听器基元和2个姿态压力传感器)
+##
+("entity"<|>前减振段<|>StructuralModule<|>前部隔振段，隔离拖缆振动向声阵段传递，半径13.0mm，长度10000mm)
+##
+("entity"<|>变径汇流头<|>StructuralModule<|>实现声阵段到传输缆的变径过渡和机电汇流，最大半径19.75mm)
+##
+("relationship"<|>拖曳线列阵声呐<|>尾绳<|>拖曳线列阵声呐从尾部到头部依次由尾绳、声阵段、前减振段、变径汇流头、传输缆、水密航插六大部件组成<|>consists_of)
+##
+("relationship"<|>变径汇流头<|>声阵段<|>变径汇流头实现声阵段外径27mm到传输缆外径16mm的平滑过渡，采用锥面渐缩设计<|>matches_with)
+<|COMPLETE|>
+
+######################
+Example 2:
+Entity_types: DesignParameter, PerformanceIndicator, DesignConstraint
+Text:
+声阵段外半径13.5mm（直径27mm，满足不超过27mm约束），内半径10.5mm（壁厚3mm）。工作频率50Hz～3kHz。阵元灵敏度不低于-195dB，灵敏度起伏不超过±3dB。流噪声级：4节航速下噪声级上升不超过16dB@1kHz。阵列空气中重量不大于40kg。
+######################
+Output:
+("entity"<|>声阵段外半径<|>DesignParameter<|>声阵段外半径13.5mm对应直径27mm，外护套半透明聚氨酯管，壁厚约3mm，内半径10.5mm)
+##
+("entity"<|>阵元间距<|>DesignParameter<|>水听器间距1500mm±10mm，对应最高工作频率约1000Hz时的半波长间距)
+##
+("entity"<|>阵列直径约束<|>DesignConstraint<|>声阵段外径不超过27mm，是拖线阵核心物理尺寸约束)
+##
+("entity"<|>阵元灵敏度<|>PerformanceIndicator<|>工作频带内阵元灵敏度不含前放不低于-195dB)
+##
+("entity"<|>流噪声级指标<|>PerformanceIndicator<|>4节航速下噪声级上升不超过16dB@1kHz)
+##
+("entity"<|>阵列重量约束<|>DesignConstraint<|>阵列空气中重量不大于40kg，影响材料选择和壁厚设计)
+##
+("relationship"<|>声阵段外半径<|>阵列直径约束<|>声阵段外半径13.5mm对应直径27mm，恰好满足不超过27mm的直径约束<|>constrained_by)
+##
+("relationship"<|>阵元间距<|>阵元灵敏度<|>阵元间距1.5m对应半波长间距，与工作频率和灵敏度共同决定阵列探测性能<|>matches_with)
+<|COMPLETE|>
+
+######################
+Example 3:
+Entity_types: Algorithm, DesignParameter, CADModelingStandard
+Text:
+声呐探测方程：SL - NL - TL + DI ≥ DT，其中TL≈20lgR。采用z_cursor光标模式装配：起始z_cursor=0，每个部件构建后z_cursor+=部件长度。正弦轨迹函数：x=amplitude*sin²(π*z/length)。部件构建函数命名：build_xxx(z_start)，返回(part, z_cursor)。
+######################
+Output:
+("entity"<|>声呐方程<|>Algorithm<|>拖曳线列阵声呐探测方程SL-NL-TL+DI≥DT，SL为目标声源级，NL为环境噪声级，TL为传播损失，DI为指向性指数，DT为检测阈通常取3dB)
+##
+("entity"<|>传播损失公式<|>Algorithm<|>球面扩展损失近似公式TL≈20lgR，R为目标与阵列的距离）
+##
+("entity"<|>z_cursor装配模式<|>CADModelingStandard<|>光标模式装配：起始z_cursor=0，每个部件构建后累加长度，所有部件沿Z轴正向依次排列)
+##
+("entity"<|>正弦轨迹函数<|>Algorithm<|>柔性装配的正弦弯曲轨迹函数x=amplitude*sin²(π*z/length)，两端斜率为0)
+##
+("entity"<|>CadQuery建模规范<|>CADModelingStandard<|>函数命名build_xxx(z_start)，返回(part, z_cursor)或([(part,color,name),...], z_cursor)，使用cq.Assembly()组装)
+##
+("relationship"<|>声呐方程<|>传播损失公式<|>声呐方程中TL项由传播损失公式TL≈20lgR计算<|>derived_from)
+##
+("relationship"<|>正弦轨迹函数<|>z_cursor装配模式<|>正弦轨迹函数为每个部件生成弯曲路径点，z_cursor模式确保部件沿Z轴依次排列<|>matches_with)
+<|COMPLETE|>
+
+######################
+-Real Data-
+######################
+Entity_types: {entity_types}
+Text: {input_text}
+######################
+Output:

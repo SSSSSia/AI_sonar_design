@@ -153,15 +153,16 @@ PG(ir_snapshots 参数/状态)        py-engine worker(Celery)
   - [ ] 故意注入坏脚本 → 修复循环在配置上限内收敛或如实失败，无死循环
   - [ ] 篡改 IR2 参数的场景被拒绝（A-08 断言）；契约测试"合法 IR2 → 合法 IR3"
 
-### T1.6 GraphRAG 检索封装迁移 + 三级降级
+### T1.6 GraphRAG 检索封装迁移 + 三级降级 ✅ 完成（2026-09-17）
 
 - **目标**：`py-engine/knowledge/` 提供统一检索接口：图谱(local) → 向量(basic) → 文本关键词，任一级失败降级不中断（A-14）。
 - **设计要点**：
   - `sdk.py + service.py` 直接迁移（★）+ 异步包装；旧 KB 索引产物复制入 `py-engine/knowledge/kb/`（★，注意不含密钥）。
   - Neo4j/Milvus 连接走覆盖端口（17474/17687、19530，见 HANDOFF）；降级事件必须记录并可查（诚实交代）。
-- **DoD / 验收**：
-  - [ ] 三级各返回结果的单测；逐级模拟故障的降级单测（图谱断开→向量、向量断开→文本）
-  - [ ] 标准查询在真实 KB（307 实体）上返回可用上下文；降级事件出现在响应元数据中
+- **DoD / 验收**（已通过，2026-09-17）：
+  - [x] 三级各返回结果的单测；逐级模拟故障的降级单测（local→basic→text、异常不中断）——10 用例
+  - [x] 标准查询在真实 KB 上返回可用上下文；降级轨迹出现在响应元数据（`degraded_from`，含 `graphrag_sdk_unavailable` 如实标注）
+- **实现备注**：sdk.py 原样迁移（★，仅改日志路径）；service.py v2 化——`RetrievalResult`（content/level/degraded_from）、GraphRAG lazy import（未装 graphrag 自动文本级，测试轻量可跑）、KB 目录 env 可配、中文 2-gram 文本检索。kb/ 资产（input/output/prompts/settings.yaml，2.9MB）已入库；`.gitignore` 对 `py-engine/knowledge/kb/output/` 显式反排除。graphrag 为可选依赖（requirements 注释说明）。
 
 ### T1.7 端到端冒烟与固化
 

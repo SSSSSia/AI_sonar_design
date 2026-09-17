@@ -41,3 +41,6 @@ PROVIDER_CACHE_TTL_S = int(_env("PROVIDER_CACHE_TTL_S", "30"))
 # 重试上限（A-13 有界终止）：全栈共享，禁止死循环
 TASK_MAX_RETRIES = int(_env("TASK_MAX_RETRIES", "3"))
 LLM_MAX_RETRIES = int(_env("LLM_MAX_RETRIES", "2"))
+
+# ---- 知识库（T1.6，A-14 三级降级检索）----
+KNOWLEDGE_KB_DIR = _env("KNOWLEDGE_KB_DIR", os.path.join(os.path.dirname(__file__), "knowledge", "kb"))

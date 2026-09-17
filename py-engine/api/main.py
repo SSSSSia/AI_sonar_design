@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from app_config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, WORKFLOW_BASE_URL
+from app_config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, KNOWLEDGE_KB_DIR, WORKFLOW_BASE_URL
 from llm.adapter import active_provider, llm_adapter, reload_providers
 from worker.celery_app import celery_app
 from worker.tasks import always_fail_task, echo_task
@@ -101,6 +101,31 @@ def llm_provider() -> dict[str, Any]:
 def llm_provider_reload() -> dict[str, str]:
     reload_providers()
     return {"status": "reloaded"}
+
+
+class SearchRequest(BaseModel):
+    query: str
+
+
+@app.post("/knowledge/search")
+def knowledge_search(req: SearchRequest) -> dict[str, Any]:
+    """检索调试入口（T1.6）：返回 content + 命中层级 + 降级轨迹（A-14/A-16 如实交代）。"""
+    from knowledge.service import get_knowledge_service
+
+    return get_knowledge_service().query(req.query).to_dict()
+
+
+@app.get("/knowledge/status")
+def knowledge_status() -> dict[str, Any]:
+    """知识库现状诚实上报：SDK 可用性 / 语料规模。"""
+    from knowledge.service import get_knowledge_service
+
+    svc = get_knowledge_service()
+    return {
+        "kb_dir": str(svc.kb_dir),
+        "graphrag_sdk": svc.sdk is not None,
+        "text_corpus_chars": len(svc.kb_text or ""),
+    }
 
 
 class ChatRequest(BaseModel):

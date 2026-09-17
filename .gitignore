@@ -17,6 +17,8 @@ dist/
 # ===== 运行时数据与产物（不入库） =====
 data/
 output/
+# 知识库索引产物是数据资产（ADR-001 ★直接复制），显式入库
+!py-engine/knowledge/kb/output/
 *.step
 *.stp
 backend/knowledge/kb/output/
