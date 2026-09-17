@@ -17,28 +17,26 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 09:50 · WorkBuddy）
+## 当前状态（最后更新：2026-09-17 10:40 · WorkBuddy）
 
 | 项 | 状态 |
 |---|---|
-| 阶段 0 | T0.1 ✅ / T0.3 ✅ / T0.2 🟡待验收 / T0.4 🟡待验收（代码全部完成） |
+| **阶段 0** | **全部完成** ✅（T0.1~T0.4，含实机验收：9/9 容器 healthy、Flyway V1 建表 12 张成功） |
 | git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
-| 数据底座 | compose 语法已校验；**Docker 引擎已就绪（29.6.1），但镜像拉取被国内网络阻断**（Docker Hub 直连秒断，报 access denied 为误导性报错，见 devlog 2026-09-17 补充节） |
-| 阶段 1 | 未开始 |
+| 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000,19001** / Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
+| 阶段 1 | 未开始，**下一步从这里进** |
 
 ## 下一步入口（按序）
 
-1. **用户**：给 Docker 配镜像加速（二选一）——
-   - 方案 a（推荐）：Docker Desktop → Settings → Docker Engine，加 `"registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"]` → Apply & Restart；
-   - 方案 b：仓库根目录 `.env` 取消注释 `DOCKER_MIRROR=docker.m.daocloud.io/` 与 `QUAY_MIRROR=quay.m.daocloud.io/`（compose 已支持前缀变量）。
-   然后 `docker compose -f deploy/docker-compose.yml --env-file .env up -d` → `ps` 确认全部 healthy → push 全部 commit。
-2. **任一 AI**：T0.2/T0.4 验证通过后回填 roadmap「完成」+ devlog（一次 `docs:` commit）。
-3. **阶段 1 开工**：T1.1 Java 平台层骨架（Gateway 路由 + JWT/RBAC 基础 + 会话 API + 状态机 pending→running→paused→completed/failed）。开工前先写轻量阶段设计 `docs/phase/phase-1-*.md` 并登记 roadmap（宪法 §7.1 文档先行）。
+1. **用户**：push 全部 commit（`git push`）。
+2. **任一 AI 开工阶段 1**：T1.1 Java 平台层骨架（Gateway 路由 + JWT/RBAC 基础 + 会话 API + 状态机 pending→running→paused→completed/failed）。开工前先写轻量阶段设计 `docs/phase/phase-1-*.md` 并登记 roadmap（宪法 §7.1 文档先行）。
+3. 阶段 1 开发提示：数据底座已就绪可直接连（连接参数见 `.env`；注意 Neo4j/MinIO 的 host 端口是覆盖后的非默认值）。
 
 ## 待验证 / 待决事项
 
-- [ ] T0.2：容器实机启动 + healthcheck 全绿（命令见上，用户侧执行）
-- [ ] T0.4：Flyway V1 建表（biz 服务连 PG 启动时自动执行，或 T1.1 联调时验证）
+- [x] T0.2：容器实机启动，9/9 healthy（2026-09-17）
+- [x] T0.4：Flyway V1 对 PG 17.11 实机执行，12 张表建成（2026-09-17，flyway 一次性容器验证）
+- [ ] 阶段 1 开发期注意：minio 镜像为社区重建 elestio/minio（官方镜像已下架），latest 含 HIGH CVE-2025-62506，生产部署前须评估替代并走 ADR
 - [ ] ZCode 首次接入：确认沙箱/终端能力与「环境注意」清单是否同样适用，不适用处更新该清单
 
 ## 环境注意（机器相关事实，只增不删；失效的标注"[已失效]"）
@@ -49,7 +47,9 @@
 - **Maven**：走 aliyun 镜像；`spring-statemachine-bom` 不在 Boot BOM 内，父 pom 显式 import 且 **version 写死**（property 插值在 BOM import 处失效）。
 - **前端**：npm 慢（135 包 ≈ 9 分钟）；构建 `tsc -b && vite build` 已验证。
 - **Python**：托管 venv 在 `C:\Users\Administrator\.workbuddy\binaries\python\envs\default`（pytest/fastapi/jsonschema 已装）。
-- **Docker Desktop**：安装于 `D:\Download\Docker Desktop\`（非默认路径）；国内网络拉 Docker Hub 秒断（报 access denied 误导，实为网络不通）——compose 镜像已支持 `DOCKER_MIRROR`/`QUAY_MIRROR` 前缀变量（.env 控制），或配 daemon.json `registry-mirrors`；镜像总量约 2~3 GB。
+- **Docker Desktop**：安装于 `D:\Download\Docker Desktop\`（非默认路径）；国内网络拉 Docker Hub 秒断（报 access denied 误导，实为网络不通）——已配 daocloud registry-mirrors 解决；镜像总量约 2~3 GB。
+- **Docker 镜像坑**：`minio/minio` 官方镜像已被 MinIO 从 Docker Hub 全量下架（2026-02，社区版转 source-only），各加速源 403/not found 属上游不存在；已切换社区重建 `elestio/minio`。Docker 引擎运行中时本沙箱可直接执行 docker 命令（含 compose/一次性容器）。
+- **端口冲突**：本机常驻 `release-openspg-*` 容器占 7474/7687/9000/9001 → 本套 host 端口已覆盖（Neo4j 17474/17687、MinIO 19000/19001，见 `.env`）；busybox wget 的 healthcheck 必须用 `127.0.0.1` 不能用 `localhost`（IPv6 解析坑）。
 
 ## 工作约定速记（全文见宪法 CONST-001）
 
