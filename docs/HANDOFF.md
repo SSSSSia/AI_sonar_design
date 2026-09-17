@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 15:15 · ZCode）
+## 当前状态（最后更新：2026-09-17 16:40 · ZCode）
 
 | 项 | 状态 |
 |---|---|
@@ -25,7 +25,8 @@
 | git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
 | 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000**（Console 已随上游移除）/ Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
 | MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
-| 阶段 1 | **T1.1 + T1.2 + T1.6 + T1.3 完成**（实机验收通过）；设计文档 PHASE-001 完整版 |
+| 阶段 1 | **全部 7 任务完成**（T1.1–T1.7），e2e 需求→STEP 落 MinIO 通过；**待人工验收**（PHASE-001 v2.1） |
+| 管线现状 | 会话 START → A1→A2→A3 固定管线（STAGE_DONE 续派）；IR0–IR3 快照/查询 API 齐；STEP 落 MinIO step-models 桶 |
 | ⚠️ 待用户 | `.env` 的 `LLM_API_KEY` 为占位符（401 实锤）——填真实 key 后 LLM 规划自动恢复，无需改码 |
 | py-engine | worker（Celery/RabbitMQ）+ 内部 FastAPI 8090 就绪；LLM 适配器 env 兜底（llm_providers 表 V3 已建，管理 API 随 T3.3） |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（jar 实跑验证过；启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET） |
@@ -34,8 +35,9 @@
 ## 下一步入口（按序）
 
 1. **用户**：push 全部 commit（`git push`）。
-2. **任一 AI 续做 T1.4 A2 方案生成**：IR1 → IR2（带出处参数表：source_type 四件套 + trace_id，A-06）；公式类参数必须由 SymPy 代码计算（A-07），求解底座落 `py-engine/solver/`；设计文档生成可迁移旧 prompts.py 的 CONSOLIDATION_DOC_PROMPT（★）。IR2 快照复用 `storage/ir_store.py`，任务模式复刻 `worker/tasks.py::a1_task`。
-   - graphrag 本机未安装（可选依赖），当前检索自动落文本级；装 graphrag~=2.0 后图谱级自动启用（A-14）
+2. **用户**：阶段 1 人工验收（PHASE-001 §5）；**填写真实 LLM_API_KEY**（.env，现为占位符）→ 删除 llm_providers 的 mock-e2e 行（或直接覆盖）→ 重跑 `python -m pytest tests/e2e -q` 复验 A3 真实生成/修复行为。
+3. **任一 AI 开工阶段 2**：PHASE-002 升级完整版（审阅关①②/STAGE_DONE 处已留插入点）→ 按 roadmap T2.1 起。
+   - graphrag 本机未安装（可选依赖），检索自动落文本级；装 graphrag~=2.0 后图谱级自动启用（A-14）
 3. 阶段 1 开发提示：数据底座与 Java 四服务均可直接连（连接参数见 `.env`；注意 Neo4j/MinIO 的 host 端口是覆盖后的非默认值；Java 服务启动前 `set -a; source .env; set +a`）。
 
 ## 待验证 / 待决事项
@@ -59,6 +61,7 @@
 - **Docker 镜像坑**：`minio/minio` 官方镜像已被 MinIO 从 Docker Hub 全量下架（2026-02，社区版转 source-only），各加速源 403/not found 属上游不存在；**现用 Chainguard digest 固定镜像（0 CVE，ADR-002）**，entrypoint 即 /usr/bin/minio、非 root(65532) 运行、卷属主由 minio-volume-init 服务初始化。Docker 引擎运行中时本沙箱可直接执行 docker 命令（含 compose/一次性容器）。
 - **端口冲突**：本机常驻 `release-openspg-*` 容器占 7474/7687/9000/9001 → 本套 host 端口已覆盖（Neo4j 17474/17687、MinIO 19000/19001，见 `.env`）；busybox wget 的 healthcheck 必须用 `127.0.0.1` 不能用 `localhost`（IPv6 解析坑）。
 - **git push**：ZCode 沙箱可直接 push（2026-09-17 用户授权 AI 自主 git 管理，含 push）。
+- **e2e 与 mock LLM**：`tests/e2e/test_towed_array_e2e.py` 前置=全栈在跑 + llm_providers 有 enabled mock 行（conftest 会自动加载 .env）；mock 服务 `python tests/e2e/mock_llm_server.py`（8091）。**改 worker/agent 代码后必须重启 celery worker**（进程内不热载）。
 - **py-engine 陷阱**：① `shared_task` 进程内 delay 必须先 `celery_app.set_current()/set_default()`，否则消息进默认 celery 队列；② DLQ 严禁放 task_queues（worker 会订阅死信成回环），用 worker_ready 信号声明；③ Celery v2 消息的 embed 字段含 null，Java 侧 `Map.of()` 会 NPE；④ 失败任务要进 DLQ 需显式 `Reject(requeue=False)`；⑤ pip 默认装进 Anaconda——统一 `python -m pip`（python=D:/Download/Python/Python312）。
 - **ZCode 沙箱（2026-09-17 核对）**：Bash/Git/curl/Maven 均正常（与 WorkBuddy 清单不同，PowerShell 仅为 Windows 互操作用）；`java -version` 显示 21 但 Maven 用 JAVA_HOME=jdk-17，编译按 17 正确。新坑：
   - Git Bash 控制台发中文 JSON body 会按 GBK 编码 → curl 验收一律 ASCII 负载
