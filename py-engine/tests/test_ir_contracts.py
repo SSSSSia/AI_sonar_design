@@ -110,6 +110,29 @@ def test_ir4_issue_suggestion_only_local_back() -> None:
         _validate(schema, bad)
 
 
+def test_ir4_three_level_severity_and_optional_suggestion() -> None:
+    """T2.1 契约微扩：severity 增加 info（三级风险）；info 级可不带 suggestion。"""
+    schema = _load("ir4.schema.json")
+    ir4 = {
+        "overall": "pass",
+        "issues": [
+            {"constraint_id": "CHK-EST-001", "severity": "info",
+             "related_params": ["P-003"],
+             "related_features": [],
+             "message": "2 个估算参数未经公式验证，请人工复核"},
+            {"constraint_id": "CHK-CASE-001", "severity": "warning",
+             "related_params": ["P-005", "P-009"], "related_features": [],
+             "message": "阵元总数案例候选冲突：16 vs 32", "suggestion": "back_to_A2"},
+        ],
+    }
+    _validate(schema, ir4)
+    # severity 只允许三级，无第四级
+    bad = {"overall": "pass", "issues": [{"constraint_id": "X", "severity": "critical",
+                                          "related_params": [], "related_features": []}]}
+    with pytest.raises(Exception):
+        _validate(schema, bad)
+
+
 def test_ir5_writeback_pending_by_default() -> None:
     schema = _load("ir5.schema.json")
     ir5 = {

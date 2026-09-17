@@ -84,7 +84,7 @@
 > 每个任务给出：目标 / 设计要点 / 接口契约 / 完成定义（DoD）/ 验收方法。状态与 roadmap 同步。
 > 执行顺序：T2.1 → T2.3（引擎）→ T2.2（接线）→ T2.4 → 阶段验收。理由：gate2 批准要直接发布 A5 任务，先备好引擎再接线，避免"半接线"中间态（详见 §4.2）。
 
-### T2.1 A4 合规校验引擎（IR3 → IR4）
+### T2.1 A4 合规校验引擎（IR3 → IR4）✅ 完成（2026-09-17）
 
 - **目标**：对 IR2 参数表 + IR3 建模产物做分流校验与自洽检查，输出 IR4 结构化报告；**只出报告不改参数**（A-09）。
 - **设计要点**：
@@ -102,10 +102,11 @@
   | 任务 | `sonarcad.a4`（队列 `sonarcad.a4`，DLX 同配置；读 IR2+IR3 最新未失效快照 → 落 IR4（created_by=A4）→ update_stage("A4") → STAGE_DONE） |
   | CLI | `python -m agents.a4_validation.cli`（样例 IR2/IR3 脱离管线单独调试，§9.1） |
 - **DoD**：
-  - [ ] 四类 source_type 分流各有单测，**含故意注入违例参数**（formula 值被改→error；case 候选冲突→warning；standard→待补 info；estimated→info）
-  - [ ] IR4 过契约校验（扩展后 schema）；"合法 IR2+IR3 → 合法 IR4"契约测试
-  - [ ] A4 独立 CLI 可跑
-  - [ ] SymPy 复算与阶段 1 math 闭包结果互证（同输入同输出）
+  - [x] 四类 source_type 分流各有单测，**含故意注入违例参数**（formula 值被改→error；case 候选冲突→warning；standard→待补 info；estimated→info）——test_t21_a4.py 15 用例
+  - [x] IR4 过契约校验（扩展后 schema）；"合法 IR2+IR3 → 合法 IR4"契约测试
+  - [x] A4 独立 CLI 可跑（内置样例故意注入悬空引用/案例冲突，实跑 overall=fail 定级正确）
+  - [x] SymPy 复算与阶段 1 math 闭包结果互证（test_t21_solver.py 全公式同输入同输出）
+- **实现备注**：IR2 参数 schema additionalProperties=false，formula_key 不落库——A4 靠 source_ref `#` 尾段定位注册公式、从 derivation 解析代入值；无法定位公式的 formula 参数出 info 请人工复核而非硬失败（注册表会持续增长）。sonarcad.a4 任务/队列已注册（编排派发在 T2.2 接线）。
 - **验收方法**：`python -m pytest tests/test_t21_a4.py -v`；CLI 实跑一次样例。
 
 ### T2.2 审阅关①②（状态机暂停/裁决 + 局部回环）
@@ -218,6 +219,7 @@ T2.1 → T2.3 → T2.2 → T2.4 → 验收。
 
 | 日期 | 事项 | 结论 |
 |---|---|---|
+| 2026-09-17 | T2.1 验收（四类分流单测 15 用例含违例注入 + SymPy 互证 + CLI 实跑 + IR4 契约扩展） | ✅ 通过 |
 | — | 待阶段开工后回填 | — |
 
 ## 6. 修订记录

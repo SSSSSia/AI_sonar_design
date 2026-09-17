@@ -141,6 +141,39 @@ def a3_task(self, session_id: str) -> dict:
         raise
 
 
+@shared_task(bind=True, name="sonarcad.a4", max_retries=TASK_MAX_RETRIES)
+def a4_task(self, session_id: str) -> dict:
+    """A4 合规校验：IR2 + IR3 → IR4（纯确定性，无 LLM；A-09 只出报告不改参数）。
+
+    编排接线（T2.2）：A4 完成由 workflow 在 STAGE_DONE 分支暂停 gate2 人工裁决。
+    """
+    try:
+        from agents.a4_validation.agent import A4Agent
+        from ir_contract import IrContractError
+        from storage import ir_store
+
+        ir2 = ir_store.get_latest_snapshot(session_id, "IR2")
+        ir3 = ir_store.get_latest_snapshot(session_id, "IR3")
+        if ir2 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR2 快照，无法执行 A4")
+        if ir3 is None:
+            raise RuntimeError(f"session {session_id} 缺少 IR3 快照，无法执行 A4")
+
+        try:
+            ir4 = A4Agent().run(ir2, ir3)
+        except IrContractError as exc:
+            raise RuntimeError(f"A4 输出未过 IR4 契约: {exc}") from exc
+
+        version = ir_store.save_snapshot(session_id, "IR4", ir4, created_by="A4")
+        ir_store.update_stage(session_id, "A4")
+        _fire_session_event(session_id, "STAGE_DONE")
+        return {"session_id": session_id, "ir": "IR4", "version": version}
+    except Exception as exc:
+        logger.exception("a4 任务失败 session=%s", session_id)
+        _fire_session_event(session_id, "FAIL")
+        raise
+
+
 @shared_task(bind=True, name="sonarcad.always_fail", max_retries=0)
 def always_fail_task(self, session_id: str = "") -> dict:
     """死信队列验证任务：必然失败、不重试，Reject(requeue=False) 进入 sonarcad.dlq（A-13 验收用）。
