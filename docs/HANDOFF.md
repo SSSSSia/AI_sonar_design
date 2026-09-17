@@ -17,13 +17,14 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 10:40 · WorkBuddy）
+## 当前状态（最后更新：2026-09-17 11:15 · WorkBuddy）
 
 | 项 | 状态 |
 |---|---|
 | **阶段 0** | **全部完成** ✅（T0.1~T0.4，含实机验收：9/9 容器 healthy、Flyway V1 建表 12 张成功） |
 | git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
-| 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000,19001** / Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
+| 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000**（Console 已随上游移除）/ Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
+| MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
 | 阶段 1 | 未开始，**下一步从这里进** |
 
 ## 下一步入口（按序）
