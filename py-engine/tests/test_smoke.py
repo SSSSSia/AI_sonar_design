@@ -19,5 +19,7 @@ def test_healthz() -> None:
     resp = client.get("/healthz")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ok"
     assert body["service"] == "py-engine"
+    # 单测环境不要求真实 broker 连通（T1.2 起健康检查含依赖探测，A-16 如实上报）
+    assert body["status"] in ("ok", "degraded")
+    assert "broker" in body

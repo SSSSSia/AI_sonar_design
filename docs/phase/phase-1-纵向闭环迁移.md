@@ -100,7 +100,7 @@ PG(ir_snapshots 参数/状态)        py-engine worker(Celery)
   - [x] 终态再 START 返回 409
 - **遗留/已知限制**：项目 API 仅最小 CRUD（完整 §5.7 随阶段 2/3）；任务表与 MQ 派发在 T1.2/T1.7 接入；devlog 记录 5 个环境坑（uuid/stringtype、JWT sub、GBK curl、jar 锁、statemachine 4.0 API）。
 
-### T1.2 Python worker 骨架（Celery + FastAPI + LLM 适配器）
+### T1.2 Python worker 骨架（Celery + FastAPI + LLM 适配器）✅ 完成（2026-09-17）
 
 - **目标**：`py-engine/` 具备无状态消费 MQ 任务的能力，LLM 接入可配置热切换。
 - **设计要点**：

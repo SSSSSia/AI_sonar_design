@@ -1,0 +1,156 @@
+"""统一 LLM 适配器（T1.2，D-12）。
+
+职责：
+- 屏蔽供应商差异：统一走 OpenAI 兼容 /chat/completions 协议（目标形态私有化 vLLM，
+  开发期公网 API fallback，P3 §4.7 允许）；
+- 多供应商热切换：优先读业务库 llm_providers（带 TTL 热加载，改库即生效），
+  库中无 enabled 行时回退 .env 环境供应商；
+- 密钥安全：ProviderConfig 用 SecretStr，模型序列化/日志输出一律脱敏（宪法 §10.2）；
+- 有界终止：调用失败重试上限 LLM_MAX_RETRIES（A-13），超限抛异常如实上抛。
+
+不做：提示词模板管理（T3.3）、并发限流细化（随 A1 接入时补）。
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from typing import Any
+
+import httpx
+from pydantic import BaseModel, SecretStr
+
+from app_config import (
+    DATABASE_URL,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MAX_RETRIES,
+    LLM_MODEL,
+    PROVIDER_CACHE_TTL_S,
+)
+
+logger = logging.getLogger("sonarcad.llm")
+
+
+class ProviderConfig(BaseModel):
+    """一个 LLM 供应商配置。api_key 为 SecretStr——任何输出必须走 model_dump(redacted)。"""
+
+    name: str
+    base_url: str
+    api_key: SecretStr
+    model: str
+    timeout_s: int = 60
+
+    def redacted(self) -> dict[str, Any]:
+        """对外（API/日志/报告）唯一合法的输出形式：api_key 脱敏。"""
+        d = self.model_dump()
+        d["api_key"] = "****"
+        return d
+
+
+def _load_providers_from_db() -> list[ProviderConfig] | None:
+    """业务库读取 enabled 供应商；表不可用/无行返回 None（走 env 兜底）。"""
+    try:
+        import psycopg
+
+        with psycopg.connect(DATABASE_URL.replace("+psycopg", "")) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT name, base_url, api_key, model, timeout_s
+                   FROM llm_providers WHERE enabled ORDER BY priority DESC"""
+            )
+            rows = cur.fetchall()
+        return [
+            ProviderConfig(name=r[0], base_url=r[1], api_key=r[2], model=r[3], timeout_s=r[4])
+            for r in rows
+        ] or None
+    except Exception as exc:  # 连接失败不阻断：降级 env 供应商并如实记录
+        logger.warning("llm_providers 读取失败，回退 env 供应商: %s", exc)
+        return None
+
+
+class _ProviderStore:
+    """带 TTL 的供应商缓存（热切换：DB 改动后 ≤TTL 生效）。"""
+
+    def __init__(self, ttl_s: int) -> None:
+        self._ttl_s = ttl_s
+        self._cached_at = 0.0
+        self._providers: list[ProviderConfig] = []
+        self._lock = threading.Lock()
+
+    def active(self) -> ProviderConfig:
+        with self._lock:
+            if time.time() - self._cached_at > self._ttl_s:
+                providers = _load_providers_from_db()
+                if providers:
+                    self._providers = providers
+                elif not self._providers:
+                    # DB 无可用行且无历史供应商时才走 env 兜底；已有供应商保持不变（DB 抖动不切换）
+                    if LLM_BASE_URL and LLM_API_KEY:
+                        self._providers = [
+                            ProviderConfig(
+                                name="env-fallback",
+                                base_url=LLM_BASE_URL,
+                                api_key=LLM_API_KEY,
+                                model=LLM_MODEL,
+                            )
+                        ]
+                    else:
+                        self._providers = []
+                self._cached_at = time.time()
+            return self._providers[0] if self._providers else _MISSING
+
+
+class _MissingProvider:
+    def __str__(self) -> str:
+        return "MISSING_PROVIDER"
+
+
+_MISSING = _MissingProvider()
+
+_store = _ProviderStore(PROVIDER_CACHE_TTL_S)
+
+
+def active_provider() -> ProviderConfig:
+    """当前生效供应商（热切换入口）。无可用供应商时抛错，不静默。"""
+    p = _store.active()
+    if isinstance(p, _MissingProvider):
+        raise RuntimeError("无可用 LLM 供应商：业务库 llm_providers 无 enabled 行且 .env 未配置")
+    return p
+
+
+def reload_providers() -> None:
+    """强制立即重载（测试/管理用）。"""
+    _store._cached_at = 0.0
+
+
+class LlmAdapter:
+    """OpenAI 兼容 chat completion 客户端。"""
+
+    def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
+        last_exc: Exception | None = None
+        for attempt in range(1, LLM_MAX_RETRIES + 1):
+            provider = active_provider()
+            try:
+                resp = httpx.post(
+                    f"{provider.base_url.rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {provider.api_key.get_secret_value()}"},
+                    json={
+                        "model": provider.model,
+                        "messages": messages,
+                        **kwargs,
+                    },
+                    timeout=provider.timeout_s,
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "LLM 调用失败(第 %s/%s 次, provider=%s): %s",
+                    attempt, LLM_MAX_RETRIES, provider.name, exc,
+                )
+        raise RuntimeError(f"LLM 调用在 {LLM_MAX_RETRIES} 次重试后仍失败") from last_exc
+
+
+llm_adapter = LlmAdapter()

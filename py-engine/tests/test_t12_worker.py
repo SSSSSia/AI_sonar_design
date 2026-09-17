@@ -1,0 +1,97 @@
+"""T1.2 单测：LLM 适配器（脱敏/热切换/重试上限）与任务定义。不依赖真实 broker/DB。"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+import llm.adapter as adapter_mod
+from llm.adapter import LlmAdapter, ProviderConfig
+
+
+class TestProviderConfig:
+    def test_redacted_hides_api_key(self):
+        p = ProviderConfig(name="p1", base_url="http://x", api_key="sk-real-secret", model="m")
+        red = p.redacted()
+        assert red["api_key"] == "****"
+        assert "sk-real-secret" not in json.dumps(red)
+
+    def test_model_dump_contains_secret_only_via_get(self):
+        p = ProviderConfig(name="p1", base_url="http://x", api_key="sk-real", model="m")
+        assert p.api_key.get_secret_value() == "sk-real"
+
+
+class TestHotSwitch:
+    def test_active_provider_switches_after_db_change(self, monkeypatch):
+        store = adapter_mod._ProviderStore(ttl_s=30)
+        first = ProviderConfig(name="a", base_url="http://a", api_key="k1", model="m1")
+        second = ProviderConfig(name="b", base_url="http://b", api_key="k2", model="m2")
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: [first])
+        assert store.active().name == "a"
+        # TTL 内不重载
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: [second])
+        assert store.active().name == "a"
+        # TTL 过期后重载生效（热切换）
+        store._cached_at = 0.0
+        assert store.active().name == "b"
+
+    def test_db_empty_keeps_previous(self, monkeypatch):
+        store = adapter_mod._ProviderStore(ttl_s=30)
+        first = ProviderConfig(name="a", base_url="http://a", api_key="k1", model="m1")
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: [first])
+        assert store.active().name == "a"
+        store._cached_at = 0.0
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: None)
+        assert store.active().name == "a"  # 库不可用不阻断，保持原供应商
+
+
+class TestLlmAdapterRetry:
+    def test_retry_then_success(self, monkeypatch):
+        calls = {"n": 0}
+
+        def flaky(self=None):
+            def handler(*args, **kwargs):
+                calls["n"] += 1
+                if calls["n"] < 2:
+                    raise RuntimeError("transient")
+                return MockResp()
+            return handler
+
+        class MockResp:
+            def raise_for_status(self): pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        target = adapter_mod.active_provider  # 保存
+        monkeypatch.setattr(adapter_mod, "active_provider",
+                            lambda: ProviderConfig(name="t", base_url="http://t", api_key="k", model="m"))
+        monkeypatch.setattr(adapter_mod.httpx, "post", flaky())
+        assert LlmAdapter().chat([{"role": "user", "content": "hi"}]) == "ok"
+        assert calls["n"] == 2
+
+    def test_retry_upper_bound(self, monkeypatch):
+        calls = {"n": 0}
+
+        def always_error(*args, **kwargs):
+            calls["n"] += 1
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(adapter_mod, "active_provider",
+                            lambda: ProviderConfig(name="t", base_url="http://t", api_key="k", model="m"))
+        monkeypatch.setattr(adapter_mod.httpx, "post", always_error)
+        with pytest.raises(RuntimeError, match="重试"):
+            LlmAdapter().chat([{"role": "user", "content": "hi"}])
+        assert calls["n"] == adapter_mod.LLM_MAX_RETRIES  # A-13：有界，不死循环
+
+
+class TestNoProvider:
+    def test_missing_provider_raises(self, monkeypatch):
+        store = adapter_mod._ProviderStore(ttl_s=30)
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: None)
+        monkeypatch.setattr(adapter_mod, "LLM_BASE_URL", "")
+        monkeypatch.setattr(adapter_mod, "LLM_API_KEY", "")
+        monkeypatch.setattr(adapter_mod, "_store", store)
+        with pytest.raises(RuntimeError, match="无可用 LLM 供应商"):
+            adapter_mod.active_provider()

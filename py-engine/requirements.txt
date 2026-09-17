@@ -9,3 +9,6 @@ celery>=5.4,<6.0
 pytest>=8.0
 httpx>=0.27
 jsonschema>=4.23
+# T1.2：worker 骨架 + LLM 适配器（新增理由：MQ 消费/Redis 结果后端/PG 供应商配置/回调 workflow）
+redis>=5.0
+psycopg[binary]>=3.2

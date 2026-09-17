@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 12:00 · ZCode）
+## 当前状态（最后更新：2026-09-17 12:40 · ZCode）
 
 | 项 | 状态 |
 |---|---|
@@ -25,14 +25,15 @@
 | git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
 | 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000**（Console 已随上游移除）/ Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
 | MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
-| 阶段 1 | **T1.1 完成**（Java 平台层骨架实机验收通过）；设计文档 `docs/phase/phase-1-纵向闭环迁移.md`（PHASE-001） |
+| 阶段 1 | **T1.1 + T1.2 完成**（实机验收通过）；设计文档 `docs/phase/phase-1-纵向闭环迁移.md`（PHASE-001 完整版） |
+| py-engine | worker（Celery/RabbitMQ）+ 内部 FastAPI 8090 就绪；LLM 适配器 env 兜底（llm_providers 表 V3 已建，管理 API 随 T3.3） |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（jar 实跑验证过；启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET） |
 | 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改） |
 
 ## 下一步入口（按序）
 
 1. **用户**：push 全部 commit（`git push`）。
-2. **任一 AI 续做 T1.2**：Python worker 骨架（Celery 消费 RabbitMQ 5672 + 内部 FastAPI 8090 + 统一 LLM 适配器，OpenAI 兼容多供应商热切换，D-12）。要点见 PHASE-001 §4。
+2. **任一 AI 续做 T1.6 → T1.3**：GraphRAG 检索封装迁移 + 三级降级（建议先做，A1 依赖检索），随后 A1 需求解析。旧仓库参照 `../Sonar_cad_design`（只读）。
 3. 阶段 1 开发提示：数据底座与 Java 四服务均可直接连（连接参数见 `.env`；注意 Neo4j/MinIO 的 host 端口是覆盖后的非默认值；Java 服务启动前 `set -a; source .env; set +a`）。
 
 ## 待验证 / 待决事项
@@ -55,6 +56,8 @@
 - **代理与 Docker**：用户常挂梯子，但系统代理对 Docker daemon 不自动生效，且客户端分流规则常把 docker.io/registry-1.docker.io 设为 DIRECT——"挂着梯子也连不上"属正常现象；Docker 拉取以 registry-mirrors 为准，不要试图依赖梯子。
 - **Docker 镜像坑**：`minio/minio` 官方镜像已被 MinIO 从 Docker Hub 全量下架（2026-02，社区版转 source-only），各加速源 403/not found 属上游不存在；**现用 Chainguard digest 固定镜像（0 CVE，ADR-002）**，entrypoint 即 /usr/bin/minio、非 root(65532) 运行、卷属主由 minio-volume-init 服务初始化。Docker 引擎运行中时本沙箱可直接执行 docker 命令（含 compose/一次性容器）。
 - **端口冲突**：本机常驻 `release-openspg-*` 容器占 7474/7687/9000/9001 → 本套 host 端口已覆盖（Neo4j 17474/17687、MinIO 19000/19001，见 `.env`）；busybox wget 的 healthcheck 必须用 `127.0.0.1` 不能用 `localhost`（IPv6 解析坑）。
+- **git push**：ZCode 沙箱可直接 push（2026-09-17 用户授权 AI 自主 git 管理，含 push）。
+- **py-engine 陷阱**：① `shared_task` 进程内 delay 必须先 `celery_app.set_current()/set_default()`，否则消息进默认 celery 队列；② DLQ 严禁放 task_queues（worker 会订阅死信成回环），用 worker_ready 信号声明；③ Celery v2 消息的 embed 字段含 null，Java 侧 `Map.of()` 会 NPE；④ 失败任务要进 DLQ 需显式 `Reject(requeue=False)`；⑤ pip 默认装进 Anaconda——统一 `python -m pip`（python=D:/Download/Python/Python312）。
 - **ZCode 沙箱（2026-09-17 核对）**：Bash/Git/curl/Maven 均正常（与 WorkBuddy 清单不同，PowerShell 仅为 Windows 互操作用）；`java -version` 显示 21 但 Maven 用 JAVA_HOME=jdk-17，编译按 17 正确。新坑：
   - Git Bash 控制台发中文 JSON body 会按 GBK 编码 → curl 验收一律 ASCII 负载
   - 服务运行中 `mvn package` 会因 jar 被锁 rename 失败 → 先杀 `java -jar *SNAPSHOT.jar` 进程再打包

@@ -2,6 +2,7 @@ package com.sonarcad.workflow.session;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.sonarcad.workflow.mq.TaskPublisher;
 import com.sonarcad.workflow.statemachine.PipelineEvent;
 import com.sonarcad.workflow.statemachine.PipelineStatus;
 import com.sonarcad.workflow.statemachine.PipelineTransitions;
@@ -20,9 +21,11 @@ import java.util.Map;
 public class SessionService {
 
     private final DesignSessionMapper mapper;
+    private final TaskPublisher taskPublisher;
 
-    public SessionService(DesignSessionMapper mapper) {
+    public SessionService(DesignSessionMapper mapper, TaskPublisher taskPublisher) {
         this.mapper = mapper;
+        this.taskPublisher = taskPublisher;
     }
 
     public DesignSessionEntity create(String projectId, String title, String createdBy) {
@@ -63,6 +66,10 @@ public class SessionService {
                 .eq(DesignSessionEntity::getPipelineStatus, current.name()));
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "状态已被并发修改，请重试");
+        }
+        // START 成功后投递首个任务（T1.2 骨架：echo 验证任务；T1.3 起换 A1 真实任务）
+        if (event == PipelineEvent.START) {
+            taskPublisher.publishEchoTask(id);
         }
         s.setPipelineStatus(target.name());
         return s;
