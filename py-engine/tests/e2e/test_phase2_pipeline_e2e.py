@@ -169,7 +169,7 @@ def test_phase2_full_gate_loop(stack):
     assert severities <= {"error", "warning", "info"}, "IR4 severity 超出三级风险"
     r = httpx.post(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/reviews/gate2", headers=headers,
                    json={"decision": "rejected", "annotations": ["e2e 驳回回流演练"],
-                         "rework_stage": "A2"}, timeout=15)
+                         "reworkStage": "A2"}, timeout=15)
     assert r.status_code == 200, r.text
     effects = r.json()["data"]
     assert effects["rework_stage"] == "A2"

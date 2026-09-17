@@ -16,6 +16,11 @@ spring:
           uri: http://${WORKFLOW_HOST:localhost}:8082
           predicates:
             - Path=/api/v1/workflow/**
+        # T2.4 溯源反查（§5.4 基线端点 /api/v1/trace/{trace_id}，宿主 workflow）
+        - id: workflow-trace
+          uri: http://${WORKFLOW_HOST:localhost}:8082
+          predicates:
+            - Path=/api/v1/trace/**
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:

@@ -42,9 +42,12 @@ public class TraceController {
     @GetMapping("/{traceId}")
     @PreAuthorize("hasAnyRole('admin','designer','reviewer','viewer')")
     public ApiResponse<Map<String, Object>> trace(@PathVariable String traceId) {
+        // 排序按时间序（step_no 是各写入方内部的序号，跨 actor 会碰撞；
+        // 各阶段落库相差分钟级，created_at 即真实链路顺序，step_no 作同批内稳定序）
         List<TraceChainEntity> rows = traceChainMapper.selectList(
                 new LambdaQueryWrapper<TraceChainEntity>()
                         .eq(TraceChainEntity::getTraceId, traceId)
+                        .orderByAsc(TraceChainEntity::getCreatedAt)
                         .orderByAsc(TraceChainEntity::getStepNo));
         if (rows.isEmpty()) {
             throw new IllegalArgumentException("无溯源记录: " + traceId);

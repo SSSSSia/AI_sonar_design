@@ -150,7 +150,8 @@ def a3_task(self, session_id: str) -> dict:
     """A3 CAD 建模：IR2 → IR3（沙箱出 STEP 落 MinIO）。
 
     重试为 0：修复循环已在任务内部有界收敛（A-13），任务级重试只会重复同样的 LLM 输出；
-    失败如实 FAIL（阶段 2 接审阅关驳回回环）。
+    失败如实 FAIL（审阅关驳回回环由 workflow 裁决驱动，T2.2）。
+    阶段 2 编排：完成后发 STAGE_DONE，由 workflow 派发 A4（A3 不再直接终止管线）。
     """
     try:
         from agents.a3_cad.agent import A3Agent
@@ -171,7 +172,7 @@ def a3_task(self, session_id: str) -> dict:
         version = ir_store.save_snapshot(session_id, "IR3", ir3, created_by="A3")
         _record_trace(session_id, lambda: _a3_trace(ir3, ir2, session_id))
         ir_store.update_stage(session_id, "A3")
-        _fire_session_event(session_id, "COMPLETE")
+        _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR3", "version": version}
     except Exception as exc:
         logger.exception("a3 任务失败 session=%s", session_id)
