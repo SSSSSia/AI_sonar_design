@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sonarcad-gateway
+  cloud:
+    gateway:
+      # 路由规则在阶段 1 T1.1 落地；骨架期仅保留占位
+      routes: []

@@ -1,0 +1,2 @@
+# contracts/ir — IR0–IR5 JSON Schema 单一事实源（A-04）
+# 本目录在 T0.3 填充；Java/Python 两侧代码由 schema 生成或校验对齐，禁止在两侧各自定义字段。

@@ -23,6 +23,10 @@ backend/knowledge/kb/output/
 backend/knowledge/kb/cache/
 backend/knowledge/kb/logs/
 
+# ===== Java =====
+target/
+*.class
+
 # ===== 密钥与本地配置 =====
 .env
 .env.*

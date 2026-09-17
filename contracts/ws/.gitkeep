@@ -1,0 +1,2 @@
+# contracts/ws — WebSocket 消息 schema（宪法 §5.5：不允许裸字符串协议）
+# 本目录在 T0.3 填充。

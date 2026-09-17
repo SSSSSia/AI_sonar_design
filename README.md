@@ -28,6 +28,18 @@
 - UI 改动先 mockup 确认再落地；蓝色仅用于交互语义。
 - 打 tag 前走发布检查清单（宪法文档附录 A）。
 
+## 目录结构（宪法附录 C）
+
+```
+AI_sonar_design/
+├── java-platform/   # Java 17 + Spring Boot 3 平台层（gateway/auth/workflow/biz/notify）
+├── py-engine/       # Python 3.12 + FastAPI 算力层（api/agents/knowledge/solver/cad_engine）
+├── contracts/       # IR0–IR5 JSON Schema 单一事实源（ir/ + ws/）
+├── frontend/        # React 19 + TS + Vite + AntD
+├── deploy/          # docker-compose 数据底座
+└── docs/            # 宪法 + roadmap + phase + api + adr + devlog + reference
+```
+
 ## 设计文档来源
 
-权威设计文档位于旧项目 `../Sonar_cad_design/docs/项目设计相关/`，优先级与裁决规则见宪法文档 §1。
+权威设计文档副本位于 `docs/reference/`（项目自包含），优先级与裁决规则见宪法文档 §1。
