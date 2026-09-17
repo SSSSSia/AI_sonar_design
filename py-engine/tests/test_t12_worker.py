@@ -46,28 +46,45 @@ class TestHotSwitch:
         assert store.active().name == "a"  # 库不可用不阻断，保持原供应商
 
 
+class _FakeStreamResp:
+    """流式响应替身：上下文管理器 + SSE 行。"""
+
+    def __init__(self, sse_lines: list[str]):
+        self._lines = sse_lines
+
+    def raise_for_status(self):
+        pass
+
+    def iter_lines(self):
+        return iter(self._lines)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def _sse(content: str) -> list[str]:
+    return [
+        'data: {"choices":[{"delta":{"content":"%s"}}]}' % content,
+        "data: [DONE]",
+    ]
+
+
 class TestLlmAdapterRetry:
     def test_retry_then_success(self, monkeypatch):
         calls = {"n": 0}
 
-        def flaky(self=None):
-            def handler(*args, **kwargs):
-                calls["n"] += 1
-                if calls["n"] < 2:
-                    raise RuntimeError("transient")
-                return MockResp()
-            return handler
+        def flaky_stream(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise RuntimeError("transient")
+            return _FakeStreamResp(_sse("ok"))
 
-        class MockResp:
-            def raise_for_status(self): pass
-
-            def json(self):
-                return {"choices": [{"message": {"content": "ok"}}]}
-
-        target = adapter_mod.active_provider  # 保存
         monkeypatch.setattr(adapter_mod, "active_provider",
                             lambda: ProviderConfig(name="t", base_url="http://t", api_key="k", model="m"))
-        monkeypatch.setattr(adapter_mod.httpx, "post", flaky())
+        monkeypatch.setattr(adapter_mod.httpx, "stream", flaky_stream)
         assert LlmAdapter().chat([{"role": "user", "content": "hi"}]) == "ok"
         assert calls["n"] == 2
 
@@ -80,10 +97,23 @@ class TestLlmAdapterRetry:
 
         monkeypatch.setattr(adapter_mod, "active_provider",
                             lambda: ProviderConfig(name="t", base_url="http://t", api_key="k", model="m"))
-        monkeypatch.setattr(adapter_mod.httpx, "post", always_error)
+        monkeypatch.setattr(adapter_mod.httpx, "stream", always_error)
         with pytest.raises(RuntimeError, match="重试"):
             LlmAdapter().chat([{"role": "user", "content": "hi"}])
         assert calls["n"] == adapter_mod.LLM_MAX_RETRIES  # A-13：有界，不死循环
+
+    def test_stream_assembles_chunks(self, monkeypatch):
+        def multi_chunk(*args, **kwargs):
+            return _FakeStreamResp([
+                'data: {"choices":[{"delta":{"content":"你"}}]}',
+                'data: {"choices":[{"delta":{"content":"好"}}]}',
+                "data: [DONE]",
+            ])
+
+        monkeypatch.setattr(adapter_mod, "active_provider",
+                            lambda: ProviderConfig(name="t", base_url="http://t", api_key="k", model="m"))
+        monkeypatch.setattr(adapter_mod.httpx, "stream", multi_chunk)
+        assert LlmAdapter().chat([{"role": "user", "content": "hi"}]) == "你好"
 
 
 class TestNoProvider:

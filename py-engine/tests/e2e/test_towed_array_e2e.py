@@ -63,9 +63,14 @@ def _stack_ready() -> tuple[bool, str]:
         "SELECT count(*) FROM llm_providers WHERE enabled AND priority = (SELECT max(priority) FROM llm_providers)",
         fetch=True,
     )
-    if not rows or rows[0][0] == 0:
-        return False, "llm_providers 无 enabled 供应商（e2e 需注册 mock LLM 行）"
-    return True, ""
+    if rows and rows[0][0] > 0:
+        return True, ""
+    # 表空时允许 .env 真实供应商兜底（D-12），占位符不算
+    from app_config import LLM_API_KEY, LLM_BASE_URL
+
+    if LLM_BASE_URL and LLM_API_KEY and not LLM_API_KEY.startswith("your_api"):
+        return True, ""
+    return False, "无可用 LLM 供应商（llm_providers 空且 .env 未配置真实 key）"
 
 
 @pytest.fixture(scope="module")
@@ -111,8 +116,8 @@ def test_towed_array_full_chain(stack):
                    json={"event": "START"}, timeout=15)
     assert r.status_code == 200 and r.json()["data"]["pipelineStatus"] == "running", r.text
 
-    # 3. 轮询到终态（上限 6 分钟：3 个 Agent + LLM mock + 沙箱 + 检索）
-    deadline = time.time() + 360
+    # 3. 轮询到终态（上限 25 分钟：真实 LLM 时 A1–A3 共 4~8 次调用，公网延迟波动大）
+    deadline = time.time() + 1500
     final = None
     while time.time() < deadline:
         r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
@@ -139,11 +144,15 @@ def test_towed_array_full_chain(stack):
         assert p["source_type"] in ("formula", "case", "standard", "estimated")
         assert str(p["source_ref"]).strip() and str(p["derivation"]).strip()
     formulas = [p for p in contents["IR2"]["parameters"] if p["source_type"] == "formula"]
-    assert formulas, "IR2 缺少公式类参数"
-    di = next(p for p in formulas if "指向性" in p["name"])
+    assert formulas, "IR2 缺少公式类参数（A-07：公式数值必须由代码计算）"
     import math
+    import re
 
-    assert abs(di["value"] - 10 * math.log10(16)) < 1e-3, "公式参数数值必须可由代码复算"
+    di = next((p for p in formulas if "指向性" in p["name"]), None)
+    assert di is not None, f"缺少指向性指数公式参数，现有: {[p['name'] for p in formulas]}"
+    m = re.search(r"n=([\d.]+)", di["derivation"])
+    assert m, "DI derivation 未记录输入 n"
+    assert abs(di["value"] - 10 * math.log10(float(m.group(1)))) < 1e-3, "公式参数数值必须可由 derivation 复算"
 
     # 6. IR3 + STEP 产物在 MinIO（D-10 分桶）真实可读
     step_ref = contents["IR3"]["step_file"]

@@ -133,6 +133,7 @@ class A3Agent:
             ],
             max_tokens=8192,
             temperature=0.2,
+            timeout_s=900,
         )
         return strip_markdown(raw)
 
@@ -144,5 +145,6 @@ class A3Agent:
             ],
             max_tokens=8192,
             temperature=0.2,
+            timeout_s=900,
         )
         return strip_markdown(raw)

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -27,6 +28,7 @@ from app_config import (
     LLM_BASE_URL,
     LLM_MAX_RETRIES,
     LLM_MODEL,
+    LLM_TIMEOUT_S,
     PROVIDER_CACHE_TTL_S,
 )
 
@@ -93,6 +95,7 @@ class _ProviderStore:
                                 base_url=LLM_BASE_URL,
                                 api_key=LLM_API_KEY,
                                 model=LLM_MODEL,
+                                timeout_s=LLM_TIMEOUT_S,
                             )
                         ]
                     else:
@@ -125,25 +128,45 @@ def reload_providers() -> None:
 
 
 class LlmAdapter:
-    """OpenAI 兼容 chat completion 客户端。"""
+    """OpenAI 兼容 chat completion 客户端（流式）。
 
-    def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
+    流式原因（旧仓库同款踩坑）：长脚本生成（A3 可达数千 token）非流式等待整包
+    极易触发读超时；流式下读超时按 chunk 间隔计，连接持续有数据即不超时。
+    """
+
+    def chat(self, messages: list[dict[str, str]], timeout_s: int | None = None, **kwargs: Any) -> str:
+        """timeout_s：单次调用超时覆盖（默认用供应商配置）；其余 kwargs 透传请求体。"""
         last_exc: Exception | None = None
         for attempt in range(1, LLM_MAX_RETRIES + 1):
             provider = active_provider()
             try:
-                resp = httpx.post(
+                chunks: list[str] = []
+                with httpx.stream(
+                    "POST",
                     f"{provider.base_url.rstrip('/')}/chat/completions",
                     headers={"Authorization": f"Bearer {provider.api_key.get_secret_value()}"},
                     json={
                         "model": provider.model,
                         "messages": messages,
+                        "stream": True,
                         **kwargs,
                     },
-                    timeout=provider.timeout_s,
-                )
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
+                    timeout=httpx.Timeout(connect=30, read=timeout_s or provider.timeout_s, write=30, pool=30),
+                ) as resp:
+                    resp.raise_for_status()
+                    for line in resp.iter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[len("data:"):].strip()
+                        if payload in ("", "[DONE]"):
+                            continue
+                        choices = json.loads(payload).get("choices") or []
+                        if not choices:  # 部分供应商会发 usage-only 空块
+                            continue
+                        content = choices[0].get("delta", {}).get("content")
+                        if content:
+                            chunks.append(content)
+                return "".join(chunks)
             except Exception as exc:
                 last_exc = exc
                 logger.warning(

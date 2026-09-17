@@ -95,8 +95,9 @@ REGISTRY: dict[str, FormulaSpec] = {
 def available_inputs(params: dict[str, Any]) -> dict[str, float]:
     """把已有参数（含别名）归一为公式符号候选集。"""
     alias = {
-        "阵元数": "n", "阵元数目": "n", "elements": "n", "n_elements": "n",
-        "阵元间距": "d", "spacing": "d", "d_spacing": "d",
+        "阵元数": "n", "阵元数目": "n", "阵元总数": "n", "总阵元数": "n",
+        "阵元数量": "n", "声阵规模": "n", "elements": "n", "n_elements": "n",
+        "阵元间距": "d", "间距": "d", "spacing": "d", "d_spacing": "d",
         "声速": "c", "sound_speed": "c",
         "距离": "r", "探测距离": "r", "range": "r",
         "声源级": "sl", "source_level": "sl",
@@ -107,11 +108,24 @@ def available_inputs(params: dict[str, Any]) -> dict[str, float]:
     out: dict[str, float] = {}
     for k, v in params.items():
         key = alias.get(k, k)
-        try:
-            out[key] = float(v)
-        except (TypeError, ValueError):
-            continue
+        if key in out:
+            continue  # 先到先得：调用方按"目标值优先于提取值"的顺序传入
+        value = _first_number(v)
+        if value is not None:
+            out[key] = value
     return out
+
+
+def _first_number(v: Any) -> float | None:
+    """数值直取；字符串（如 "16 个"/"约300米"）提取首个数字。"""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    import re as _re
+
+    m = _re.search(r"-?\d+(?:\.\d+)?", str(v))
+    return float(m.group()) if m else None
 
 
 def evaluate_available(known: dict[str, Any]) -> list[dict[str, Any]]:

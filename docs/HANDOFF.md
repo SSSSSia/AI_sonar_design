@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 16:40 · ZCode）
+## 当前状态（最后更新：2026-09-17 23:20 · ZCode）
 
 | 项 | 状态 |
 |---|---|
@@ -27,7 +27,7 @@
 | MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
 | 阶段 1 | **全部 7 任务完成**（T1.1–T1.7），e2e 需求→STEP 落 MinIO 通过；**待人工验收**（PHASE-001 v2.1） |
 | 管线现状 | 会话 START → A1→A2→A3 固定管线（STAGE_DONE 续派）；IR0–IR3 快照/查询 API 齐；STEP 落 MinIO step-models 桶 |
-| ⚠️ 待用户 | `.env` 的 `LLM_API_KEY` 为占位符（401 实锤）——填真实 key 后 LLM 规划自动恢复，无需改码 |
+| LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**（Qwen3-8B 实测过慢已弃用）；流式适配器；真实 e2e 通过（8m05s） |
 | py-engine | worker（Celery/RabbitMQ）+ 内部 FastAPI 8090 就绪；LLM 适配器 env 兜底（llm_providers 表 V3 已建，管理 API 随 T3.3） |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（jar 实跑验证过；启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET） |
 | 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改） |
@@ -35,7 +35,7 @@
 ## 下一步入口（按序）
 
 1. **用户**：push 全部 commit（`git push`）。
-2. **用户**：阶段 1 人工验收（PHASE-001 §5）；**填写真实 LLM_API_KEY**（.env，现为占位符）→ 删除 llm_providers 的 mock-e2e 行（或直接覆盖）→ 重跑 `python -m pytest tests/e2e -q` 复验 A3 真实生成/修复行为。
+2. **用户**：阶段 1 人工验收（PHASE-001 §5）；**阶段 1 人工验收**（走查清单见验收报告）——自动化验收与真实 LLM e2e 已全部通过。
 3. **任一 AI 开工阶段 2**：PHASE-002 升级完整版（审阅关①②/STAGE_DONE 处已留插入点）→ 按 roadmap T2.1 起。
    - graphrag 本机未安装（可选依赖），检索自动落文本级；装 graphrag~=2.0 后图谱级自动启用（A-14）
 3. 阶段 1 开发提示：数据底座与 Java 四服务均可直接连（连接参数见 `.env`；注意 Neo4j/MinIO 的 host 端口是覆盖后的非默认值；Java 服务启动前 `set -a; source .env; set +a`）。

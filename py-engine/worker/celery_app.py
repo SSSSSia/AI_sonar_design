@@ -13,7 +13,13 @@ from kombu import Exchange, Queue
 
 from celery import Celery
 
-from app_config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, TASK_MAX_RETRIES
+from app_config import (
+    CELERY_BROKER_URL,
+    CELERY_RESULT_BACKEND,
+    TASK_HARD_TIME_LIMIT_S,
+    TASK_MAX_RETRIES,
+    TASK_SOFT_TIME_LIMIT_S,
+)
 
 task_exchange = Exchange("sonarcad.task", type="topic", durable=True)
 dead_letter_exchange = Exchange("sonarcad.dlx", type="topic", durable=True)
@@ -82,8 +88,8 @@ celery_app.conf.update(
     task_acks_late=True,                      # 执行成功才 ack，崩溃不丢任务
     worker_prefetch_multiplier=1,             # 长任务公平分发
     result_expires=3600,
-    task_soft_time_limit=300,
-    task_time_limit=360,
+    task_soft_time_limit=TASK_SOFT_TIME_LIMIT_S,
+    task_time_limit=TASK_HARD_TIME_LIMIT_S,
     broker_connection_retry_on_startup=True,
     # 有界终止（A-13）：默认重试上限；个别任务可自行覆盖
     task_publish_retry=True,

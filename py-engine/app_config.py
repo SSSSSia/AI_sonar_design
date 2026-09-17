@@ -37,6 +37,11 @@ LLM_MODEL = _env("LLM_MODEL")
 
 # 供应商配置热加载 TTL（秒）：DB 改动后最多该时长内生效
 PROVIDER_CACHE_TTL_S = int(_env("PROVIDER_CACHE_TTL_S", "30"))
+# LLM 单次调用超时（秒）：公网供应商排队/长生成可能远超 60s
+LLM_TIMEOUT_S = int(_env("LLM_TIMEOUT_S", "300"))
+# Celery 任务时限（秒）：A2 两次 LLM 调用、A3 最多 4 次（生成+3 轮修复），需覆盖最坏情况
+TASK_SOFT_TIME_LIMIT_S = int(_env("TASK_SOFT_TIME_LIMIT_S", "1800"))
+TASK_HARD_TIME_LIMIT_S = int(_env("TASK_HARD_TIME_LIMIT_S", "2400"))
 
 # 重试上限（A-13 有界终止）：全栈共享，禁止死循环
 TASK_MAX_RETRIES = int(_env("TASK_MAX_RETRIES", "3"))
