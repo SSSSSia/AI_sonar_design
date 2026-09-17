@@ -117,11 +117,27 @@ def test_towed_array_full_chain(stack):
     assert r.status_code == 200 and r.json()["data"]["pipelineStatus"] == "running", r.text
 
     # 3. 轮询到终态（上限 25 分钟：真实 LLM 时 A1–A3 共 4~8 次调用，公网延迟波动大）
+    # 阶段 2 起管线带审阅关（A2 后 gate1、A4 后 gate2）：到达暂停即批准，门语义见 PHASE-002 §2.1
     deadline = time.time() + 1500
+
+    def _state() -> dict:
+        r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
+        return r.json()["data"]
+
+    def _approve(gate: str) -> None:
+        r = httpx.post(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/reviews/{gate}",
+                       headers=headers, json={"decision": "approved",
+                                              "annotations": ["T1.7 e2e 自动过闸"]},
+                       timeout=15)
+        assert r.status_code == 200, r.text
+
     final = None
     while time.time() < deadline:
-        r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
-        status = r.json()["data"]["pipelineStatus"]
+        data = _state()
+        status = data["pipelineStatus"]
+        if status == "paused" and data.get("currentStage") in ("gate1", "gate2"):
+            _approve(data["currentStage"])
+            continue
         if status in ("completed", "failed"):
             final = status
             break
@@ -173,8 +189,8 @@ def test_towed_array_full_chain(stack):
     assert shape.val().Volume() > 0
     tmp.unlink()
 
-    # 7. 会话 stage=A3（管线走满三棒）
+    # 7. 会话 stage=A5（管线走满五棒：A3 之后 A4 校验、gate2 批准、A5 沉淀）
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
-    assert r.json()["data"]["currentStage"] == "A3"
+    assert r.json()["data"]["currentStage"] == "A5"
 
     print(f"\ne2e 通过：session={sid} run={run_tag} step={step_ref}")
