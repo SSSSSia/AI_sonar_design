@@ -17,28 +17,30 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 23:20 · ZCode）
+## 当前状态（最后更新：2026-09-18 03:50 · ZCode）
 
 | 项 | 状态 |
 |---|---|
 | **阶段 0** | **全部完成** ✅（T0.1~T0.4，含实机验收：9/9 容器 healthy、Flyway V1 建表 12 张成功） |
-| git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
+| git | push 由 AI 自主执行（2026-09-17 用户授权），每任务一推 |
 | 数据底座 | 运行中，接入端口：PG 5432 / Redis 6379 / RabbitMQ 5672,15672 / Neo4j **17474,17687** / 业务 MinIO **19000**（Console 已随上游移除）/ Milvus 19530 / Nginx 80（宿主机已有 openspg 容器占用 7474/7687/9000/9001，故覆盖端口，见 `.env`） |
 | MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
 | 阶段 1 | **全部 7 任务完成**（T1.1–T1.7），e2e 需求→STEP 落 MinIO 通过；**待人工验收**（PHASE-001 v2.1） |
-| 管线现状 | 会话 START → A1→A2→A3 固定管线（STAGE_DONE 续派）；IR0–IR3 快照/查询 API 齐；STEP 落 MinIO step-models 桶 |
-| LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**（Qwen3-8B 实测过慢已弃用）；流式适配器；真实 e2e 通过（8m05s） |
-| py-engine | worker（Celery/RabbitMQ）+ 内部 FastAPI 8090 就绪；LLM 适配器 env 兜底（llm_providers 表 V3 已建，管理 API 随 T3.3） |
-| 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（jar 实跑验证过；启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET） |
-| 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改） |
+| **阶段 2** | **全部 4 任务完成**（T2.1–T2.4），五步闭环 + 审阅关驳回流 e2e 全绿（16m36s，真实 DeepSeek）；**待人工验收**（PHASE-002 v1.1） |
+| 管线现状 | START → A1→A2→**gate1**→A3→A4→**gate2**→A5→completed；驳回=局部回算+下游失效（ir_snapshots.invalidated_at）；知识关（gate=knowledge）人工确认后回写 Neo4j；`GET /api/v1/trace/{trace_id}` 反查。IR0–IR5 全量快照 API 齐 |
+| Flyway | V1~V5 已应用（V4=ir_snapshots.invalidated_at；V5=review_records.gate varchar(16)） |
+| LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**；流式适配器；阶段 2 e2e 两次全链真实跑通 |
+| py-engine | 任务 sonarcad.a1~a5 + echo/always_fail（队列 sonarcad.a1~a5）；`POST /knowledge/writeback`（8090）；neo4j driver 已入 requirements |
+| 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET；gateway 另有 `/api/v1/trace/**` → workflow 路由） |
+| 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改）；另有验收用 **rbac_designer / admin123**（designer 角色，RBAC 抽查用，可删） |
 
 ## 下一步入口（按序）
 
-1. **用户**：push 全部 commit（`git push`）。
-2. **用户**：阶段 1 人工验收（PHASE-001 §5）；**阶段 1 人工验收**（走查清单见验收报告）——自动化验收与真实 LLM e2e 已全部通过。
-3. **任一 AI 开工阶段 2**：PHASE-002 升级完整版（审阅关①②/STAGE_DONE 处已留插入点）→ 按 roadmap T2.1 起。
+1. **用户**：阶段 1 + 阶段 2 人工验收（PHASE-001 §5 / PHASE-002 §5）——建议抽查：一份真实 IR4 报告的风险定级；Neo4j 浏览器（localhost:17474）看沉淀节点。
+2. **任一 AI 开工阶段 3**：PHASE-003 升级完整版（文档上传解析/知识治理/公式约束军标库——A4 的军标框架占位与 T3.3 对接）→ 按 roadmap T3.1 起。
    - graphrag 本机未安装（可选依赖），检索自动落文本级；装 graphrag~=2.0 后图谱级自动启用（A-14）
-3. 阶段 1 开发提示：数据底座与 Java 四服务均可直接连（连接参数见 `.env`；注意 Neo4j/MinIO 的 host 端口是覆盖后的非默认值；Java 服务启动前 `set -a; source .env; set +a`）。
+   - 阶段 4 前端开工前须先出页面 mockup（宪法 §7.3）
+3. 开发提示：数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`；注意 Neo4j/MinIO 覆盖端口）；**e2e 两条**：`tests/e2e/test_towed_array_e2e.py`（自动过闸，7 分钟）与 `tests/e2e/test_phase2_pipeline_e2e.py`（完整门语义含驳回流，约 17 分钟）。
 
 ## 待验证 / 待决事项
 
@@ -69,6 +71,14 @@
   - PG uuid 列 vs Java String 实体：JDBC URL 已加 `?stringtype=unspecified`（三模块 yml），勿删
   - JWT sub 必须是用户 UUID（owner_id/created_by 外键），username 走 claim
   - spring-statemachine 4.0 用阻塞 `sendEvent(E)`/`start()`，无 sendEventReactively
+- **阶段 2 实机新坑（2026-09-18，验收九轮 e2e 累积，只增不删）**：
+  - **JDK HttpClient 默认发 h2c Upgrade 头**（`Upgrade: h2c` + `HTTP2-Settings`），uvicorn/h11 会把这类请求的 body 丢弃（FastAPI 报 422 `loc:["body"] missing`，Spring RestClient 独立 builder 同样不写 body）→ **Java 调 py-engine 一律 `HttpClient.newBuilder().version(HTTP_1_1)`**（见 KnowledgeWritebackClient）
+  - **JDBC/MyBatis 落 jsonb 列没问题，但 varchar 长度按枚举值最长者核对**：V1 把 review_records.gate 建成 varchar(8)，注释里声明的枚举值 "knowledge"（9 字符）插不进去，运行期才炸（V5 已扩 16）——新表枚举列长度务必数一遍字符
+  - **gateway 路由按路径前缀匹配**，新增非 `/api/v1/workflow/**` 的 workflow 端点（如 `/api/v1/trace/**`）必须同步加 gateway 路由，否则落 biz 兜底报 "No static resource"
+  - **改了编排语义要同步改 e2e**：管线接入 gate 后 `test_towed_array_e2e.py` 轮询遇 paused 自动批准（已适配）；`test_phase2_pipeline_e2e.py` 是阶段 2 门语义的标准样例（约 17 分钟，含驳回流）
+  - 审阅请求体风格 camelCase（`reworkStage`），与既有端点一致；Python 侧快照读取自动过滤 `invalidated_at IS NOT NULL` 的版本
+  - neo4j driver 6.x 超时参数是 `connection_timeout`（5.x 是 `connection_timeout_s`，storage/neo4j_store.py 已做兼容）
+  - Bash 复合命令里 `&&` 与 `&` 优先级坑：`cmd1 && cmd2 & cmd3 &` 只让 cmd2 吃到环境，cmd3 在外——**多服务带 env 启动务必整段包进 `bash -c`**
 
 ## 工作约定速记（全文见宪法 CONST-001）
 

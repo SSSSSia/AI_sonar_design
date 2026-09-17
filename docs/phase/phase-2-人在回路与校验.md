@@ -109,7 +109,7 @@
 - **实现备注**：IR2 参数 schema additionalProperties=false，formula_key 不落库——A4 靠 source_ref `#` 尾段定位注册公式、从 derivation 解析代入值；无法定位公式的 formula 参数出 info 请人工复核而非硬失败（注册表会持续增长）。sonarcad.a4 任务/队列已注册（编排派发在 T2.2 接线）。
 - **验收方法**：`python -m pytest tests/test_t21_a4.py -v`；CLI 实跑一次样例。
 
-### T2.2 审阅关①②（状态机暂停/裁决 + 局部回环）🚧 接线与裁决服务完成（2026-09-18，实测随 e2e）
+### T2.2 审阅关①②（状态机暂停/裁决 + 局部回环）✅ 完成（2026-09-18）
 
 - **目标**：gate1（IR2 后）/gate2（IR3+IR4 后）暂停—裁决—恢复/回环全流程落地；驳回走局部回算 + 下游失效，禁止整链路重跑（A-11/A-12）。
 - **设计要点**：
@@ -122,17 +122,18 @@
 - **接口契约**：
   | 方法 | 路径 | 说明 |
   |---|---|---|
-  | POST | /api/v1/workflow/sessions/{sid}/reviews/{gate} | gate ∈ gate1\|gate2\|knowledge；body `{decision: approved\|rejected, annotations?: [], rework_stage?: "A1"\|"A2"\|"A3"}`；权限 admin/reviewer；gate1/2 要求 paused 且 current_stage=gate（否则 409）；返回裁决记录 + 后续动作（resume/publish/invalidate） |
+  | POST | /api/v1/workflow/sessions/{sid}/reviews/{gate} | gate ∈ gate1\|gate2\|knowledge；body `{decision: approved\|rejected, annotations?: [], reworkStage?: "A1"\|"A2"\|"A3"}`（请求体沿用 camelCase 风格）；权限 admin/reviewer；gate1/2 要求 paused 且 current_stage=gate（否则 409）；返回裁决记录 + 后续动作（resume/publish/invalidate） |
   | GET | /api/v1/workflow/sessions/{sid}/reviews | 裁决历史（四角色可读） |
   | GET | /api/v1/workflow/sessions/{sid}/irs/{type} 与 /versions | 增返回 invalidated 标记（改造现有端点） |
 - **DoD**：
-  - [ ] 通过流实测：START→…→gate1 暂停→approve→…→gate2 暂停→approve→A5→completed——随阶段 e2e
-  - [ ] 驳回回流实测：gate2 驳回（back_to_A2）→ 下游失效标记可查 → 局部回算重跑到 gate2 再次暂停 → IR 版本递增、全程快照可追溯——随阶段 e2e
-  - [ ] 非审阅角色（designer/viewer）裁决 403；非暂停态裁决 409；并发双裁决一次成功一次 409——403 待实机 RBAC 抽查，409/并发由单测覆盖
+  - [x] 通过流实测：START→…→gate1 暂停→approve→…→gate2 暂停→approve→A5→completed（e2e 16m36s，真实 DeepSeek）
+  - [x] 驳回回流实测：gate2 驳回（reworkStage=A2）→ 下游失效标记可查（IR2–IR4 全版本 invalidated）→ 局部回算重跑到 gate1 再次暂停（新产物重新过闸）→ IR2 v2/IR3 v2/IR4 v2 版本递增、全程快照可追溯
+  - [x] 非审阅角色（designer）裁决 403（AccessDeniedException 403 处理修复后实机验证）；非暂停态裁决 409；并发双裁决由乐观更新收敛（单测覆盖）
   - [x] `mvn -pl workflow,biz test` 全绿（SessionGateDispatchTest 5 + ReviewServiceDecisionTest 10：gate 分发、双 gate 暂停、IR4 suggestion 推断重跑目标、失效范围、知识关回写/失败如实记录/409 收敛）
+- **实现备注（验收实机修正）**：a3_task 由发 COMPLETE 改发 STAGE_DONE（接线时漏改被 e2e 第 1 轮揪出）；`reworkStage` 请求体 camelCase；IR5 v1 建表 gate 列 varchar(8) 放不下 "knowledge"（V5 迁移扩至 16）。
 - **验收方法**：pytest e2e（§3 T2.7 样例）+ curl ASCII 负载走查。
 
-### T2.3 A5 知识沉淀（IR5 候选 + 知识审阅关回写）🚧 引擎完成（2026-09-17，回写实测随 e2e）
+### T2.3 A5 知识沉淀（IR5 候选 + 知识审阅关回写）✅ 完成（2026-09-18）
 
 - **目标**：从本次设计的经验中筛选可沉淀知识 → IR5 pending 候选（去重）→ 人工确认后才写 Neo4j（A-10）；图谱中已被新值取代的旧实体标 deprecated。
 - **设计要点**：
@@ -151,12 +152,12 @@
 - **DoD**：
   - [x] 候选去重单测（批内同名/KB 命中/Neo4j 查重三级证据齐备；Neo4j 不可达仅文本级）
   - [x] **未确认候选绝不入图谱**（单测断言 A5Agent 全流程零写图谱调用 + writeback 端点只传选定下标）
-  - [ ] 确认回写 + deprecated 标记实测（Neo4j 容器实连）——随阶段 e2e
+  - [x] 确认回写 + deprecated 标记实测（Neo4j 容器实连：e2e 知识关批准→3~7 条候选入图、IR5 v2 written；同名约束新版回写后旧节点 `deprecated=True + superseded_by` 实机 Cypher 验证）
   - [x] LLM 断供走确定性兜底仍产出合法 IR5（契约测试）；候选生成失败路径有界（A-13）
-- **实现备注**：driver 6.x 超时参数名回退为 connection_timeout（5.x 为 connection_timeout_s，兼容已处理）；Neo4jStore 实连本机容器（17687）探活通过；IR5 payload 结构定稿——constraint{name,expression,context}/case{name,params[],context}/relation{from,to,relation,context}，duplicate 附 dedup_refs 证据。
+- **实现备注**：driver 6.x 超时参数名回退为 connection_timeout（5.x 为 connection_timeout_s，兼容已处理）；IR5 payload 结构定稿——constraint{name,expression,context}/case{name,params[],context}/relation{from,to,relation,context}，duplicate 附 dedup_refs；候选回填 source_trace_ids 供溯源链 assign 行继承。**实机验收修正**：workflow 侧回写客户端换 JDK HttpClient 并强制 HTTP/1.1（JDK 默认 h2c Upgrade 头会被 uvicorn/h11 丢 body，422 空 body）。
 - **验收方法**：`python -m pytest tests/test_t23_a5.py -v`；Cypher 手查节点/deprecated 标记。
 
-### T2.4 溯源链（trace_id 贯穿 + 反查）
+### T2.4 溯源链（trace_id 贯穿 + 反查）✅ 完成（2026-09-18）
 
 - **目标**：参数级 trace 全程可记录、可反查：任一参数从 IR2 一路追到 IR0 需求原文与 IR1 检索引用。
 - **设计要点**：
@@ -175,10 +176,10 @@
   |---|---|---|
   | GET | /api/v1/trace/{trace_id} | 四角色；返回 `{trace_id, steps[], context:{ir0, ir1, ir2_param}}`；404 如实 |
 - **DoD**：
-  - [ ] worker 四类写入各有单测；批量插入原子
-  - [ ] 反查 API 实测：IR2 参数 trace_id → 返回链路 + IR0 原文 + IR1 检索引用（e2e 断言）
-  - [ ] 审阅裁决 confirm 行可经合成 trace_id 反查
-- **验收方法**：单测 + e2e（gate 流程中取任一参数 trace_id 反查）。
+  - [x] worker 四类写入各有单测（test_t24_trace.py 7 用例，构造器纯函数）；批量插入事务原子
+  - [x] 反查 API 实测：IR2 参数 trace_id → 返回链路（A2 derive→A3 transform→A4 validate/A5 assign 按时间序）+ IR0 原文 + IR1 检索引用（e2e 断言通过）
+  - [x] 审阅裁决 confirm 行可经合成 trace_id 反查（rv- 前缀，单测断言）
+- **实现备注（验收实机修正）**：gateway 补 `/api/v1/trace/**` 路由（此前落入 biz 兜底）；TraceController 排序改 created_at（step_no 各 actor 独立计数会碰撞，跨阶段不可用）。
 
 ## 4. 阶段管理
 
@@ -186,11 +187,11 @@
 
 | 里程碑 | 包含任务 | 判据 |
 |---|---|---|
-| M2-1 A4 引擎 | T2.1 | 四类分流单测全绿（含违例注入）+ IR4 契约扩展落地 + CLI 可跑 |
-| M2-2 A5 沉淀引擎 | T2.3 | 去重/未确认不入图/确认回写单测与实测通过 |
-| M2-3 审阅关与回环接线 | T2.2 | 通过流 + 驳回回流实测；失效标记与 RBAC 生效 |
-| M2-4 溯源链 | T2.4 | 参数级反查到 IR0 原文与检索引用 |
-| M2-5 阶段收官 | 验收 | 五步闭环 e2e（含驳回流）全过，§5 回填，roadmap/HANDOFF 同步 |
+| M2-1 A4 引擎 | T2.1 | ✅ 已达成（2026-09-17，四类分流单测 15 用例含违例注入 + SymPy 互证 + CLI 实跑） |
+| M2-2 A5 沉淀引擎 | T2.3 | ✅ 已达成（2026-09-17，去重/未确认不入图单测 + LLM 兜底契约） |
+| M2-3 审阅关与回环接线 | T2.2 | ✅ 已达成（2026-09-18，通过流 + 驳回回流 e2e 实测，失效与 RBAC 生效） |
+| M2-4 溯源链 | T2.4 | ✅ 已达成（2026-09-18，参数级反查到 IR0 原文与检索引用） |
+| M2-5 阶段收官 | 验收 | ✅ 已达成（2026-09-18，五步闭环 e2e 16m36s 全绿 + T1.7 适配版 7m14s 全绿） |
 
 ### 4.2 依赖与顺序
 
@@ -221,7 +222,11 @@ T2.1 → T2.3 → T2.2 → T2.4 → 验收。
 | 日期 | 事项 | 结论 |
 |---|---|---|
 | 2026-09-17 | T2.1 验收（四类分流单测 15 用例含违例注入 + SymPy 互证 + CLI 实跑 + IR4 契约扩展） | ✅ 通过 |
-| — | 待阶段开工后回填 | — |
+| 2026-09-17 | T2.3 引擎验收（去重/未确认绝不入图单测 13 用例 + CLI 实跑） | ✅ 通过 |
+| 2026-09-17 | T2.2 接线验收（workflow 17 单测全绿，全平台 BUILD SUCCESS） | ✅ 通过 |
+| 2026-09-18 | 实机验收：九轮 e2e 迭代（每轮揪出并修复一处真问题，见 c7a4971），最终 PHASE-002 e2e 全绿 16m36s——gate1 批→gate2 驳(rework A2)→下游失效→局部回算→gate1 二次过闸→IR2/IR3/IR4 v2→gate2 批→A5→知识关批→IR5 v2 written→trace 反查 IR0 原文+IR1 检索引用 | ✅ 通过 |
+| 2026-09-18 | RBAC 抽查（designer 裁决 403、读放行）+ Neo4j deprecated 标记实机 Cypher 验证 + T1.7 适配版 e2e 全绿 7m14s（五步管线） | ✅ 通过 |
+| — | **阶段 2 整体验收**：自动化验收全过；**待人工确认**（建议抽查：一份真实 IR4 报告的风险定级合理性；Neo4j 浏览器里看沉淀节点） | ⏳ 待人工验收 |
 
 ## 6. 修订记录
 
@@ -229,3 +234,4 @@ T2.1 → T2.3 → T2.2 → T2.4 → 验收。
 |---|---|---|
 | v0.1 | 2026-09-17 | 规划版：范围边界、四任务框架、风险识别 |
 | v1.0 | 2026-09-17 | 升级为完整版：任务级接口契约与 DoD、门语义与 STAGE_DONE 接线设计、下游失效规则（invalidated_at）、A4 确定性原则与 IR4 契约微扩、A5 回写端点与 deprecated 语义、溯源链写入矩阵、执行顺序调整（T2.3 提前于 T2.2）及理由、WS 通知收敛到阶段 4 |
+| v1.1 | 2026-09-18 | 全任务收官回填：T2.1–T2.4 DoD 勾结、里程碑 M2-1~M2-5 达成、实机验收记录（九轮 e2e 六处修复：a3 STAGE_DONE/403 语义/h2c 丢 body/trace 路由/链路排序/gate 列宽）、裁决请求体 reworkStage camelCase |
