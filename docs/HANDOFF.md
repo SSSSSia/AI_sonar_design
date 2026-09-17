@@ -17,18 +17,21 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-17 09:40 · WorkBuddy）
+## 当前状态（最后更新：2026-09-17 09:50 · WorkBuddy）
 
 | 项 | 状态 |
 |---|---|
 | 阶段 0 | T0.1 ✅ / T0.3 ✅ / T0.2 🟡待验收 / T0.4 🟡待验收（代码全部完成） |
-| git | 5 个 commit 待 push（`d118ced`→`f6fc042`），remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行** |
-| 数据底座 | compose 语法已校验，容器未起（Docker Desktop 引擎未运行） |
+| git | 多个 commit 待 push（remote git@github.com:SSSSSia/AI_sonar_design.git，**push 由用户手动执行**） |
+| 数据底座 | compose 语法已校验；**Docker 引擎已就绪（29.6.1），但镜像拉取被国内网络阻断**（Docker Hub 直连秒断，报 access denied 为误导性报错，见 devlog 2026-09-17 补充节） |
 | 阶段 1 | 未开始 |
 
 ## 下一步入口（按序）
 
-1. **用户**：启动 Docker Desktop（exe 在 `D:\Download\Docker Desktop\Docker Desktop.exe`）→ `docker compose -f deploy/docker-compose.yml --env-file .env up -d` → `ps` 确认全部 healthy → push 5 个 commit。
+1. **用户**：给 Docker 配镜像加速（二选一）——
+   - 方案 a（推荐）：Docker Desktop → Settings → Docker Engine，加 `"registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"]` → Apply & Restart；
+   - 方案 b：仓库根目录 `.env` 取消注释 `DOCKER_MIRROR=docker.m.daocloud.io/` 与 `QUAY_MIRROR=quay.m.daocloud.io/`（compose 已支持前缀变量）。
+   然后 `docker compose -f deploy/docker-compose.yml --env-file .env up -d` → `ps` 确认全部 healthy → push 全部 commit。
 2. **任一 AI**：T0.2/T0.4 验证通过后回填 roadmap「完成」+ devlog（一次 `docs:` commit）。
 3. **阶段 1 开工**：T1.1 Java 平台层骨架（Gateway 路由 + JWT/RBAC 基础 + 会话 API + 状态机 pending→running→paused→completed/failed）。开工前先写轻量阶段设计 `docs/phase/phase-1-*.md` 并登记 roadmap（宪法 §7.1 文档先行）。
 
@@ -46,7 +49,7 @@
 - **Maven**：走 aliyun 镜像；`spring-statemachine-bom` 不在 Boot BOM 内，父 pom 显式 import 且 **version 写死**（property 插值在 BOM import 处失效）。
 - **前端**：npm 慢（135 包 ≈ 9 分钟）；构建 `tsc -b && vite build` 已验证。
 - **Python**：托管 venv 在 `C:\Users\Administrator\.workbuddy\binaries\python\envs\default`（pytest/fastapi/jsonschema 已装）。
-- **Docker Desktop**：安装于 `D:\Download\Docker Desktop\`（非默认路径）；镜像拉取建议先配 registry-mirrors（约 2~3 GB）。
+- **Docker Desktop**：安装于 `D:\Download\Docker Desktop\`（非默认路径）；国内网络拉 Docker Hub 秒断（报 access denied 误导，实为网络不通）——compose 镜像已支持 `DOCKER_MIRROR`/`QUAY_MIRROR` 前缀变量（.env 控制），或配 daemon.json `registry-mirrors`；镜像总量约 2~3 GB。
 
 ## 工作约定速记（全文见宪法 CONST-001）
 
