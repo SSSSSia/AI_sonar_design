@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ir/ir1.schema.json",
+  "title": "IR1 设计目标（A1 输出）",
+  "description": "结构化设计目标 + 检索子查询 + 检索回的知识条目引用。A1 边界：不推导几何参数、不赋值（宪法 §3.1）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["objectives", "missing_items", "sub_queries", "retrieved_context"],
+  "properties": {
+    "objectives": {
+      "type": "array",
+      "description": "结构化设计目标",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "value", "explicit"],
+        "properties": {
+          "dimension": { "type": "string", "description": "目标维度，如 声阵规模/工作深度/频段" },
+          "value": {},
+          "explicit": { "type": "boolean", "description": "是否需求中显式给出" }
+        }
+      }
+    },
+    "missing_items": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "缺失项清单（如实标记，不编造，A-16）"
+    },
+    "sub_queries": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 8,
+      "items": { "type": "string" },
+      "description": "向知识库的检索子查询（P2 §4.1：规划 4~8 条）"
+    },
+    "retrieved_context": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/knowledge_ref" },
+      "description": "检索回的知识条目引用"
+    }
+  },
+  "$defs": {
+    "knowledge_ref": {
+      "type": "object",
+      "description": "知识条目引用（E2 溯源的最小单元）",
+      "additionalProperties": false,
+      "required": ["doc_id", "location", "snippet"],
+      "properties": {
+        "doc_id": { "type": "string", "description": "来源文档 ID" },
+        "location": { "type": "string", "description": "页码/章节位置（宪法 §6 ②，供溯源与引用映射）" },
+        "snippet": { "type": "string", "description": "引用片段" }
+      }
+    }
+  }
+}

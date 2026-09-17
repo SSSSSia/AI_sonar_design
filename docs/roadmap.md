@@ -21,7 +21,7 @@
 |---|---|---|
 | T0.1 | 仓库骨架：java-platform / py-engine / frontend / deploy / contracts 目录 + 前后端脚手架（Spring Boot 3、FastAPI、Vite） | 完成 |
 | T0.2 | deploy/docker-compose：PG17 + Neo4j 5 + Milvus + MinIO + Redis 7.2 + RabbitMQ + Nginx，一键起、健康检查 | 待验收 |
-| T0.3 | contracts/ir：IR0–IR5 JSON Schema 初版（按架构核心版附录）+ ws 消息 schema | 待开发 |
+| T0.3 | contracts/ir：IR0–IR5 JSON Schema 初版（按架构核心版附录）+ ws 消息 schema | 完成 |
 | T0.4 | Java 侧项目/会话/任务表结构（按总体设计方案 §7.7）+ Flyway 迁移脚本 | 待开发 |
 
 ## 阶段 1 · 纵向闭环迁移（API 级，无 UI）

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ir/ir0.schema.json",
+  "title": "IR0 原始需求",
+  "description": "A1 的输入。字段定义以本 Schema 为单一事实源（宪法 A-04），依据 P2《系统架构设计_核心版》附录 IR Schema 汇总。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["raw_text"],
+  "properties": {
+    "raw_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "用户原始自然语言需求"
+    }
+  }
+}

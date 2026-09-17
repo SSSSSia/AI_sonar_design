@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ir/ir2.schema.json",
+  "title": "IR2 方案（A2 输出 · 系统枢纽）",
+  "description": "设计文档 + 参数方案表。IR2 是全系统枢纽：向上承接需求、向下驱动 CAD、是合规校验与溯源的依据（P2 §3.2）。参数来源四分类强制（宪法 A-06）：缺来源的参数不允许进入 IR2。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["design_document", "parameters"],
+  "properties": {
+    "design_document": {
+      "type": "string",
+      "minLength": 1,
+      "description": "结构化设计文档（Markdown）"
+    },
+    "parameters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/parameter" }
+    }
+  },
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "value", "unit", "source_type", "source_ref", "derivation", "confidence", "trace_id"],
+      "properties": {
+        "id": { "type": "string", "description": "参数唯一 ID，如 P-014" },
+        "name": { "type": "string", "description": "参数名称" },
+        "value": { "description": "参数取值（公式类必须由代码计算得出，A-07：不得由 LLM 给出数值）" },
+        "unit": { "type": "string", "description": "计量单位" },
+        "source_type": {
+          "enum": ["formula", "case", "standard", "estimated"],
+          "description": "来源四分类（A-06）：formula=公式计算 / case=案例 / standard=军标 / estimated=LLM 在约束区间内提议（须附依据）"
+        },
+        "source_ref": { "type": "string", "description": "公式号 / 知识条目 ID / GJB 条目" },
+        "derivation": { "type": "string", "description": "计算过程或引用说明" },
+        "confidence": {
+          "enum": ["high", "medium"],
+          "description": "置信度（P2 附录）"
+        },
+        "trace_id": { "type": "string", "description": "溯源链 ID（E2，可经 /api/v1/trace/{trace_id} 反查）" }
+      }
+    }
+  }
+}

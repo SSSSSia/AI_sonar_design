@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ir/ir3.schema.json",
+  "title": "IR3 建模产物（A3 输出）",
+  "description": "CadQuery 脚本 + STEP 文件引用 + 特征参数表。A3 边界：严格继承 IR2 参数值，不擅自改数（宪法 A-08）；发现矛盾抛回 A2。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cadquery_script", "step_file", "features"],
+  "properties": {
+    "cadquery_script": {
+      "type": "string",
+      "description": "CadQuery 脚本（执行在 cad_engine/ 沙箱子进程，A-15；重试上限可配，A-13）"
+    },
+    "step_file": { "$ref": "#/$defs/file_ref" },
+    "features": {
+      "type": "array",
+      "description": "特征参数表（与 IR2 互为镜像，支撑 E1 参数双向联动）",
+      "items": { "$ref": "#/$defs/feature" }
+    }
+  },
+  "$defs": {
+    "file_ref": {
+      "type": "object",
+      "description": "文件引用（实体存 MinIO 分桶，IR 只存引用，P3 §8.3：不直接传递大对象）",
+      "additionalProperties": false,
+      "required": ["bucket", "object_key"],
+      "properties": {
+        "bucket": { "type": "string", "description": "MinIO 分桶，如 step-models / cad-scripts" },
+        "object_key": { "type": "string", "description": "对象键" }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature_id", "segment", "geometry", "linked_param_id"],
+      "properties": {
+        "feature_id": { "type": "string", "description": "特征 ID，如 F-07" },
+        "segment": { "type": "string", "description": "所属段" },
+        "geometry": {
+          "type": "object",
+          "description": "尺寸/位置/方向（结构随实现细化）"
+        },
+        "linked_param_id": { "type": "string", "description": "对应 IR2 的参数 id（双向联动用）" }
+      }
+    }
+  }
+}

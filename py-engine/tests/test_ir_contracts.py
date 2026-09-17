@@ -1,0 +1,139 @@
+"""IR 契约测试（宪法 §9.2）。
+
+contracts/ir/ 是单一事实源（A-04）：本测试用合法/非法示例实例校验 Schema 本身的
+约束力——A-06（缺来源的参数不允许进入 IR2）与 P2 附录字段在此固化。
+Schema 变更必须同步更新本测试（同一 commit）。
+"""
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+from jsonschema import Draft202012Validator
+
+CONTRACTS = Path(__file__).resolve().parents[2] / "contracts"
+
+
+def _load(name: str) -> dict:
+    with open(CONTRACTS / "ir" / name, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _validate(schema: dict, instance: dict) -> None:
+    Draft202012Validator.check_schema(schema)  # Schema 自身必须合法
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_all_ir_schemas_are_valid_json_schema() -> None:
+    for i in range(6):
+        _load(f"ir{i}.schema.json")
+
+
+def test_ir0_minimal() -> None:
+    _validate(_load("ir0.schema.json"), {"raw_text": "设计一型拖曳线列阵声呐"})
+
+
+def test_ir1_structure() -> None:
+    ir1 = {
+        "objectives": [
+            {"dimension": "声阵规模", "value": "64 元", "explicit": True},
+            {"dimension": "工作深度", "value": None, "explicit": False},
+        ],
+        "missing_items": ["工作深度未给出"],
+        "sub_queries": ["q1", "q2", "q3", "q4"],
+        "retrieved_context": [{"doc_id": "D-01", "location": "p.12 §3", "snippet": "..."}],
+    }
+    _validate(_load("ir1.schema.json"), ir1)
+    # 子查询必须 4~8 条
+    ir1["sub_queries"] = ["only-one"]
+    with pytest.raises(Exception):
+        _validate(_load("ir1.schema.json"), ir1)
+
+
+VALID_PARAMETER = {
+    "id": "P-014",
+    "name": "声阵段外径",
+    "value": 27,
+    "unit": "mm",
+    "source_type": "case",
+    "source_ref": "K-118",
+    "derivation": "引用拖曳阵设计案例阈值",
+    "confidence": "high",
+    "trace_id": "T-0042",
+}
+
+
+def test_ir2_parameter_requires_source() -> None:
+    schema = _load("ir2.schema.json")
+    ir2 = {"design_document": "# 方案", "parameters": [VALID_PARAMETER]}
+    _validate(schema, ir2)
+
+    # A-06：缺 source_type/source_ref/derivation/trace_id 任一项均非法
+    for missing in ("source_type", "source_ref", "derivation", "trace_id"):
+        bad = {k: v for k, v in VALID_PARAMETER.items() if k != missing}
+        with pytest.raises(Exception):
+            _validate(schema, {"design_document": "# 方案", "parameters": [bad]})
+
+    # source_type 只允许四分类
+    bad = dict(VALID_PARAMETER, source_type="guessed")
+    with pytest.raises(Exception):
+        _validate(schema, {"design_document": "# 方案", "parameters": [bad]})
+
+
+def test_ir3_feature_links_param() -> None:
+    ir3 = {
+        "cadquery_script": "import cadquery as cq\n...",
+        "step_file": {"bucket": "step-models", "object_key": "sessions/s1/rev1.step"},
+        "features": [
+            {"feature_id": "F-07", "segment": "声阵段", "geometry": {"outer_dia_mm": 27}, "linked_param_id": "P-014"}
+        ],
+    }
+    _validate(_load("ir3.schema.json"), ir3)
+
+
+def test_ir4_issue_suggestion_only_local_back() -> None:
+    schema = _load("ir4.schema.json")
+    ir4 = {
+        "overall": "fail",
+        "issues": [
+            {"constraint_id": "C-001", "severity": "error",
+             "related_params": ["P-014"], "related_features": ["F-07"],
+             "suggestion": "back_to_A2"}
+        ],
+    }
+    _validate(schema, ir4)
+    # 回退建议只允许局部回环目标（A-11）
+    bad = json.loads(json.dumps(ir4))
+    bad["issues"][0]["suggestion"] = "rerun_all"
+    with pytest.raises(Exception):
+        _validate(schema, bad)
+
+
+def test_ir5_writeback_pending_by_default() -> None:
+    schema = _load("ir5.schema.json")
+    ir5 = {
+        "candidates": [{"type": "case", "payload": {"name": "拖曳阵案例"}, "dedup_status": "new"}],
+        "writeback_status": "pending",
+    }
+    _validate(schema, ir5)
+    # 非法状态值
+    with pytest.raises(Exception):
+        _validate(schema, {"candidates": [], "writeback_status": "auto_written"})
+
+
+def test_ws_message_schema() -> None:
+    with open(CONTRACTS / "ws" / "ws-message.schema.json", encoding="utf-8") as f:
+        schema = json.load(f)
+    msg = {
+        "type": "task_progress",
+        "session_id": "s-001",
+        "task_id": "t-001",
+        "timestamp": "2026-09-17T08:00:00Z",
+        "payload": {"stage": "A3", "status": "running", "progress": 40},
+    }
+    _validate(schema, msg)
+    # 裸字符串载荷不允许（宪法 §5.5）
+    with pytest.raises(Exception):
+        _validate(schema, {"type": "task_progress", "session_id": "s", "timestamp": "2026-09-17T08:00:00Z",
+                           "payload": "running A3"})

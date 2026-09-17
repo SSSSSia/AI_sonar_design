@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ir/ir5.schema.json",
+  "title": "IR5 增量知识（A5 输出）",
+  "description": "待回写的知识条目 + 回写状态。A5 边界：不写未经验证的决策（宪法 A-10）——候选一律 pending，经知识审阅关人工确认后才写入 Neo4j。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidates", "writeback_status"],
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "writeback_status": {
+      "enum": ["pending", "confirmed", "written"],
+      "description": "回写状态：pending=等待知识审阅关确认 / confirmed=人工已确认 / written=已写入图谱"
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "payload", "dedup_status"],
+      "properties": {
+        "type": {
+          "enum": ["relation", "case", "constraint"],
+          "description": "知识类型：新参数关系 / 新案例 / 新约束经验（P3 §7.8）"
+        },
+        "payload": {
+          "type": "object",
+          "description": "知识内容（按知识图谱本体 Schema 结构化）"
+        },
+        "dedup_status": {
+          "enum": ["new", "duplicate"],
+          "description": "去重比对结果：冗余/冲突不静默覆盖（宪法 §6 ⑥）"
+        }
+      }
+    }
+  }
+}

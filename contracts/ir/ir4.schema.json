@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ir/ir4.schema.json",
+  "title": "IR4 校验报告（A4 输出）",
+  "description": "总体结论 + 逐条问题清单。A4 边界：只出报告不改参数（宪法 A-09）；不通过由编排层触发局部回环（A-11）。军标 0 条时如实标\"待补\"（A-16）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["overall", "issues"],
+  "properties": {
+    "overall": {
+      "enum": ["pass", "fail"],
+      "description": "总体结论"
+    },
+    "issues": {
+      "type": "array",
+      "description": "逐条问题清单（可为空数组）",
+      "items": { "$ref": "#/$defs/issue" }
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["constraint_id", "severity", "related_params", "related_features", "suggestion"],
+      "properties": {
+        "constraint_id": { "type": "string", "description": "违反的约束条目 ID（可反查军标/公式/约束库）" },
+        "severity": {
+          "enum": ["error", "warning"],
+          "description": "严重级别（前端校验报告按此三级风险分类展示，含 info 由实现细化）"
+        },
+        "related_params": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "涉及的参数 id（IR2）"
+        },
+        "related_features": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "涉及的特征 id（IR3）"
+        },
+        "suggestion": {
+          "enum": ["back_to_A2", "back_to_A3"],
+          "description": "回退建议（仅允许局部回环目标，禁止整链路重跑，A-11）"
+        }
+      }
+    }
+  }
+}

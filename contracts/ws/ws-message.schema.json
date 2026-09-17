@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonarcad.local/contracts/ws/ws-message.schema.json",
+  "title": "WebSocket 消息信封",
+  "description": "WS /api/v1/ws/sessions/{sid} 进度、日志与审阅请求通知的消息格式。宪法 §5.5：WS 消息必须有 schema，不允许裸字符串协议。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "session_id", "timestamp", "payload"],
+  "properties": {
+    "type": {
+      "enum": ["task_progress", "log", "review_request", "ir_updated"],
+      "description": "消息类型：任务进度 / 日志 / 审阅请求通知 / IR 版本更新"
+    },
+    "session_id": { "type": "string", "description": "设计会话 ID" },
+    "task_id": { "type": "string", "description": "关联任务 ID（task_progress/log 必带）" },
+    "trace_id": { "type": "string", "description": "溯源链 ID（可选，供前端反查）" },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC 时间戳"
+    },
+    "payload": { "$ref": "#/$defs/payloads" }
+  },
+  "$defs": {
+    "payloads": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "status", "progress"],
+          "properties": {
+            "stage": { "enum": ["A1", "A2", "A3", "A4", "A5", "review_gate_1", "review_gate_2"], "description": "当前阶段（固定管线 A-01，含审阅关节点）" },
+            "status": { "enum": ["running", "paused", "completed", "failed", "degraded"], "description": "degraded=有界终止后降级输出（A-13，如实说明）" },
+            "progress": { "type": "number", "minimum": 0, "maximum": 100 },
+            "message": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "text"],
+          "properties": {
+            "level": { "enum": ["debug", "info", "warn", "error"] },
+            "text": { "type": "string", "description": "日志文本（禁止包含密钥，宪法 §10.1）" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gate", "ir_type", "ir_version"],
+          "properties": {
+            "gate": { "enum": ["gate1", "gate2"], "description": "审阅关①（IR2 后）/ ②（IR3 后），A-11" },
+            "ir_type": { "enum": ["IR2", "IR3"] },
+            "ir_version": { "type": "string", "description": "待审阅的 IR 不可变快照版本号（A-12）" },
+            "summary": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ir_type", "ir_version"],
+          "properties": {
+            "ir_type": { "enum": ["IR1", "IR2", "IR3", "IR4", "IR5"] },
+            "ir_version": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}
