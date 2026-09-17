@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from api.authz import require_user, require_writer
 from kb import parsers
@@ -114,7 +115,7 @@ def delete_document(doc_id: str, user: str = Depends(require_writer)) -> dict:
         logger.warning("KB 原件删除失败 doc_id=%s: %s", doc_id, exc)
         cleanup["minio"] = f"failed: {exc}"
 
-    # 向量与图谱挂载点清理（T3.2 接入后生效；此处先尝试调用，模块缺失则如实跳过）
+    # 向量与图谱挂载点清理（模块缺失/不可达则如实标注，§6 ⑦）
     try:
         from kb import index_build
 
@@ -134,3 +135,113 @@ def delete_document(doc_id: str, user: str = Depends(require_writer)) -> dict:
 
     kb_store.delete_document(doc_id)
     return {"doc_id": doc_id, "deleted": True, "cleanup": cleanup}
+
+
+# ----------------------------------------------------------------------
+# T3.2 管线：分块 / 抽取 / 构建
+# ----------------------------------------------------------------------
+class ChunkRequest(BaseModel):
+    size: int | None = None      # 缺省 KB_CHUNK_SIZE
+    overlap: int | None = None   # 缺省 KB_CHUNK_OVERLAP
+
+
+@router.post("/documents/{doc_id}/chunk")
+def chunk_document(doc_id: str, req: ChunkRequest | None = None,
+                   user: str = Depends(require_writer)) -> dict:
+    """解析单元 → 可配置分块（§6 ③，章节优先/重叠可调）→ kb_chunks。"""
+    import app_config
+    from kb.chunker import chunk_units
+    from kb.parsers import ParsedUnit
+
+    doc = kb_store.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}")
+    units_raw = doc.get("parsed_units")
+    if not units_raw:
+        raise HTTPException(status_code=409, detail="文档无解析结果（先完成解析）")
+    units = [ParsedUnit(location=u["location"], text=u["text"]) for u in units_raw]
+    size = (req.size if req and req.size else app_config.KB_CHUNK_SIZE)
+    overlap = (req.overlap if req and req.overlap is not None else app_config.KB_CHUNK_OVERLAP)
+    chunks = chunk_units(units, size=size, overlap=overlap)
+    n = kb_store.replace_chunks(doc_id, chunks)
+    kb_store.update_document(doc_id, status="chunked")
+    return {"doc_id": doc_id, "chunks": n, "size": size, "overlap": overlap}
+
+
+class ExtractRequest(BaseModel):
+    entity_types: list[str] | None = None  # 缺省读 kb/settings.yaml entity_types
+
+
+@router.post("/documents/{doc_id}/extract")
+def extract_document(doc_id: str, req: ExtractRequest | None = None,
+                     user: str = Depends(require_writer)) -> dict:
+    """LLM 本体抽取（§6 ④）→ kb_extractions(pending)——人工确认后才入图（A-10 语义）。"""
+    from kb.extractor import ExtractionUnavailable, extract_from_chunks
+    from llm.adapter import llm_adapter
+
+    doc = kb_store.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}")
+    chunks = kb_store.get_chunks(doc_id)
+    if not chunks:
+        raise HTTPException(status_code=409, detail="文档无 chunks（先调用分块接口）")
+    try:
+        items = extract_from_chunks(
+            chunks, llm_adapter, req.entity_types if req else None,
+        )
+    except ExtractionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"抽取不可用（如实跳过）: {exc}") from exc
+    n = kb_store.replace_extractions(doc_id, items)
+    return {"doc_id": doc_id, "extractions": n, "status": "pending（等待人工确认）"}
+
+
+@router.get("/documents/{doc_id}/extractions")
+def list_extractions(doc_id: str, status: str | None = None) -> dict:
+    """抽取预览（§6 ④ 人工审）。"""
+    if status and status not in ("pending", "confirmed", "rejected"):
+        raise HTTPException(status_code=400, detail="status 只允许 pending|confirmed|rejected")
+    return {"extractions": kb_store.get_extractions(doc_id, status)}
+
+
+class ExtractionDecision(BaseModel):
+    status: str  # confirmed | rejected
+
+
+@router.patch("/extractions/{extraction_id}")
+def decide_extraction(extraction_id: int, req: ExtractionDecision,
+                      user: str = Depends(require_writer)) -> dict:
+    """人工裁决抽取条目（§6 ④）：confirmed 才有资格进图谱层。"""
+    try:
+        row = kb_store.set_extraction_status(extraction_id, req.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"抽取条目不存在: {extraction_id}")
+    return {"id": extraction_id, "status": row["status"]}
+
+
+class BuildRequest(BaseModel):
+    doc_ids: list[str] | None = None  # 缺省=所有未 indexed 文档（增量语义，§6 ⑥）
+
+
+@router.post("/build")
+def trigger_build(req: BuildRequest | None = None, user: str = Depends(require_writer)) -> dict:
+    """触发异步索引构建（§6 ⑤）：进度经任务状态 + 文档 build_detail 可查。"""
+    from worker.tasks import kb_build_task
+
+    task = kb_build_task.delay(req.doc_ids if req else None)
+    return {"task_id": task.id, "state": task.state,
+            "note": "构建三层（向量/图谱/语料）逐层如实记录，结果见 /kb/build/{task_id}"}
+
+
+@router.get("/build/{task_id}")
+def build_status(task_id: str) -> dict:
+    from worker.celery_app import celery_app
+
+    result = celery_app.AsyncResult(task_id)
+    payload: dict = {"task_id": task_id, "state": result.state}
+    if result.successful():
+        payload["result"] = result.result
+    elif result.failed():
+        payload["error"] = str(result.result)
+    return payload

@@ -119,15 +119,30 @@ def knowledge_search(req: SearchRequest) -> dict[str, Any]:
 
 @app.get("/knowledge/status")
 def knowledge_status() -> dict[str, Any]:
-    """知识库现状诚实上报：SDK 可用性 / 语料规模。"""
+    """知识库现状诚实上报（§6 硬性要求）：SDK/扩展层可用性 + 语料规模 + KB 管线统计。"""
     from knowledge.service import get_knowledge_service
+    from storage import kb_store
 
     svc = get_knowledge_service()
-    return {
+    status: dict[str, Any] = {
         "kb_dir": str(svc.kb_dir),
         "graphrag_sdk": svc.sdk is not None,
         "text_corpus_chars": len(svc.kb_text or ""),
+        "kb_levels_enabled": svc.enable_kb_levels,
+        "dynamic_corpus_chunks": len(svc._dynamic_sources),
     }
+    status.update(kb_store.doc_stats())
+    if svc.enable_kb_levels:
+        from kb.vector_store import ChunkVectorStore
+
+        status["milvus_available"] = ChunkVectorStore().available()
+        try:
+            from storage.neo4j_store import Neo4jStore
+
+            status["neo4j_available"] = Neo4jStore().available()
+        except Exception:
+            status["neo4j_available"] = False
+    return status
 
 
 class WritebackRequest(BaseModel):

@@ -71,11 +71,16 @@ class GraphRAGService:
         svc = GraphRAGService()
         r = svc.query("拖曳线列阵声呐的系统组成")
         r.content / r.level / r.degraded_from
+
+    A-14 三级降级（T3.2 补全，enable_kb_levels=True 时启用后两级）：
+      local(SDK 图谱) → basic(SDK 向量) → graph(自建 Neo4j 实体层) → vector(Milvus) → text(关键词)
+    测试场景可直接构造 GraphRAGService()（默认关 KB 扩展级，行为与阶段 1 一致）。
     """
 
-    def __init__(self, kb_dir: Optional[str | Path] = None):
+    def __init__(self, kb_dir: Optional[str | Path] = None, enable_kb_levels: bool = False):
         self.kb_dir = Path(kb_dir or KNOWLEDGE_KB_DIR).resolve()
         self.sdk = _load_sdk(self.kb_dir)
+        self.enable_kb_levels = enable_kb_levels
 
         # 文本级降级的语料：input 目录全部 txt（保留 (文件名, 段落) 结构供溯源）
         self.kb_text: Optional[str] = None
@@ -92,6 +97,29 @@ class GraphRAGService:
                         self._paragraph_sources.append((t.name, i, para))
             if chunks:
                 self.kb_text = "\n\n".join(chunks)
+
+        # T3.2 动态语料（KB 管线 indexed 文档的 chunks）与 KB 扩展级可用性缓存
+        self._dynamic_sources: list[tuple[str, str, str]] = []  # (doc_id, location, text)
+        self._kb_probe_cache: dict[str, tuple[bool, float]] = {}  # name -> (available, ts)
+
+    # ------------------------------------------------------------------
+    # T3.2 动态语料注册（kb_build 语料层调用）
+    # ------------------------------------------------------------------
+    def refresh_dynamic_corpus(self, sources: list[tuple[str, str, str]]) -> int:
+        """用 KB 管线 indexed 文档的 chunks 替换动态语料（doc_id, location, text）。"""
+        self._dynamic_sources = list(sources)
+        logger.info("KB 动态语料已刷新: %d chunks", len(sources))
+        return len(self._dynamic_sources)
+
+    def _all_text_sources(self) -> list[tuple[str, int, str]]:
+        """文本级检索的合并语料：静态 KB 段落 + 动态 chunks（doc_id 直接作键）。"""
+        return self._paragraph_sources + [
+            (doc_id, -1, text) for doc_id, _loc, text in self._dynamic_sources
+        ]
+
+    def _dynamic_locations(self) -> dict[str, str]:
+        """动态 chunk 的 (doc_id, text) → location 映射（溯源引用用）。"""
+        return {text: loc for doc_id, loc, text in self._dynamic_sources}
 
     # ------------------------------------------------------------------
     # 单条查询（三级降级）
@@ -112,8 +140,25 @@ class GraphRAGService:
                 return RetrievalResult(result, "basic", degraded)
             degraded.append("basic")
 
-        # 第三级 text：关键词
-        if self.kb_text:
+        if self.enable_kb_levels:
+            # 第三级 graph：自建 Neo4j 实体层（T3.2；SDK 未装时的真实图谱级）
+            hit = self._try_neo4j(query)
+            if hit is not None:
+                content, refs = hit
+                if self.sdk is None and "graphrag_sdk_unavailable" not in degraded:
+                    degraded.append("graphrag_sdk_unavailable")
+                return RetrievalResult(content, "graph", degraded, refs)
+            degraded.append("graph")
+
+            # 第四级 vector：Milvus chunk 向量检索（T3.2）
+            hit = self._try_milvus(query)
+            if hit is not None:
+                content, refs = hit
+                return RetrievalResult(content, "vector", degraded, refs)
+            degraded.append("vector")
+
+        # 兜底 text：关键词
+        if self.kb_text or self._dynamic_sources:
             if self.sdk is None and not degraded:
                 degraded.append("graphrag_sdk_unavailable")  # 如实交代为何直接落在文本级
             content, refs = self._search_text(query)
@@ -122,6 +167,67 @@ class GraphRAGService:
         return RetrievalResult(
             "知识库不可用：GraphRAG SDK 未初始化且知识库文本未加载", "unavailable", degraded
         )
+
+    # ------------------------------------------------------------------
+    # T3.2 KB 扩展级（graph / vector），带 TTL 可用性探测
+    # ------------------------------------------------------------------
+    def _probe_ok(self, name: str, probe) -> bool:
+        import time
+
+        cached = self._kb_probe_cache.get(name)
+        now = time.time()
+        if cached and now - cached[1] < 30:
+            return cached[0]
+        try:
+            ok = bool(probe())
+        except Exception:
+            ok = False
+        self._kb_probe_cache[name] = (ok, now)
+        return ok
+
+    def _try_neo4j(self, query: str) -> Optional[tuple[str, list[dict[str, str]]]]:
+        from storage.neo4j_store import Neo4jStore
+
+        if not self._probe_ok("neo4j", lambda: Neo4jStore().available()):
+            return None
+        store = Neo4jStore()
+        rows = store.find_entities_matching(query, limit=5)
+        if not rows:
+            return None
+        content = "知识图谱检索结果（Neo4j 实体层）：\n\n" + "\n\n".join(
+            f"[{r.get('label', '?')}] {r.get('name', '?')}"
+            + (f"：{r['description']}" if r.get("description") else "")
+            for r in rows
+        )
+        refs = [
+            {"doc_id": r.get("source_doc") or "kb-graph",
+             "location": f"{r.get('label', '?')}:{r.get('name', '?')}"}
+            for r in rows
+        ]
+        return content, refs
+
+    def _try_milvus(self, query: str) -> Optional[tuple[str, list[dict[str, str]]]]:
+        from kb.embeddings import embed_texts
+        from kb.vector_store import ChunkVectorStore
+
+        vs = ChunkVectorStore()
+        if not self._probe_ok("milvus", vs.available):
+            return None
+        vectors = embed_texts([query])
+        if not vectors:
+            return None
+        hits = vs.search(vectors[0], top_k=5)
+        if not hits:
+            return None
+        content = "知识库向量检索结果（Milvus chunks）：\n\n" + "\n\n---\n\n".join(
+            f"[{h.get('doc_id', '?')}#{h.get('location', '?')}]\n{h.get('text', '')}"
+            for h in hits
+        )
+        refs = [
+            {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
+            for h in hits
+        ]
+        return content, refs
 
     # ------------------------------------------------------------------
     # 批量查询（并发 + 逐条降级，A1 的 4~8 条子查询用）
@@ -198,10 +304,12 @@ class GraphRAGService:
     def _search_text(self, query: str) -> tuple[str, list[dict[str, str]]]:
         """第三级：按段落关键词匹配（迁移自旧 service._search_text）。
 
-        返回 (内容, 来源引用 [{doc_id, location}])——location 为段落序号，
-        T3 分块管线上线后升级为页码/章节。
+        语料 = 静态 KB 段落 + KB 管线动态 chunks（T3.2）。
+        返回 (内容, 来源引用 [{doc_id, location}])——静态源 location 为段落序号，
+        动态源 location 为解析页码/章节（T3 分块管线上线后已升级）。
         """
-        if not self.kb_text:
+        all_sources = self._all_text_sources()
+        if not all_sources:
             return "知识库文本不可用", []
 
         # 中英文混合：按空格 + 简单 2-gram 提关键词
@@ -210,7 +318,8 @@ class GraphRAGService:
             keywords += [query[i : i + 2] for i in range(len(query) - 1)]
 
         scored: list[tuple[int, int, str, int, str]] = []  # (score, seq, doc_id, para_idx, para)
-        for seq, (doc_id, para_idx, para) in enumerate(self._paragraph_sources):
+        dynamic_locs = self._dynamic_locations()
+        for seq, (doc_id, para_idx, para) in enumerate(all_sources):
             para_lower = para.lower()
             score = sum(1 for kw in keywords if kw in para_lower)
             if score > 0:
@@ -218,14 +327,18 @@ class GraphRAGService:
 
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         if not scored:
-            return f"未找到精确匹配。知识库概览：\n\n{self.kb_text[:1500]}...", []
+            overview = self.kb_text or "\n\n".join(p for _, _, _, _, p in all_sources[:20])
+            return f"未找到精确匹配。知识库概览：\n\n{overview[:1500]}...", []
 
         top = scored[:5]
         content = (
             "知识库搜索结果（文本降级模式）：\n\n"
             + "\n\n---\n\n".join(para for _, _, _, _, para in top)
         )
-        refs = [{"doc_id": doc_id, "location": f"段落{idx + 1}"} for _, _, doc_id, idx, _ in top]
+        refs = []
+        for _, _, doc_id, idx, para in top:
+            location = dynamic_locs.get(para, f"段落{idx + 1}")
+            refs.append({"doc_id": doc_id, "location": location})
         return content, refs
 
 
@@ -235,6 +348,18 @@ _service: Optional[GraphRAGService] = None
 def _normalize_name(s: Any) -> str:
     """去重用归一化：去空白 + 小写（中英文通用）。"""
     return "".join(str(s or "").split()).lower()
+
+
+def get_knowledge_service() -> GraphRAGService:
+    """进程内单例（索引数据加载昂贵）。KB 扩展级（graph/vector）经配置启用（T3.2）。"""
+    global _service
+    if _service is None:
+        import app_config
+
+        _service = GraphRAGService(
+            enable_kb_levels=app_config.KB_RETRIEVAL_LEVELS.lower() in ("1", "true", "yes"),
+        )
+    return _service
 
 
 def get_knowledge_service() -> GraphRAGService:

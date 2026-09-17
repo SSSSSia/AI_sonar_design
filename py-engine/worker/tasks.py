@@ -264,6 +264,20 @@ def a5_task(self, session_id: str) -> dict:
         raise
 
 
+@shared_task(bind=True, name="sonarcad.kb_build", max_retries=TASK_MAX_RETRIES)
+def kb_build_task(self, doc_ids: list[str] | None = None) -> dict:
+    """KB 索引异步构建（T3.2，§6 ⑤）：向量层/图谱层/语料层逐层如实构建。
+
+    增量语义：doc_ids 缺省只处理未 indexed 文档（§6 ⑥）。
+    与设计会话解耦——不发会话事件；进度经任务状态 + kb_documents.status/build_detail 可查。
+    """
+    from kb import index_build
+
+    result = index_build.build_documents(doc_ids)
+    logger.info("kb_build 完成: total=%s indexed=%s", result["total"], result["indexed"])
+    return result
+
+
 @shared_task(bind=True, name="sonarcad.always_fail", max_retries=0)
 def always_fail_task(self, session_id: str = "") -> dict:
     """死信队列验证任务：必然失败、不重试，Reject(requeue=False) 进入 sonarcad.dlq（A-13 验收用）。

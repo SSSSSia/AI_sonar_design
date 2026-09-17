@@ -78,3 +78,5 @@ KB_EMBED_MODEL = _env("KB_EMBED_MODEL", "BAAI/bge-m3")    # 向量模型（setti
 KB_EMBED_DIM = int(_env("KB_EMBED_DIM", "1024"))          # bge-m3 维度
 KB_MILVUS_URI = _env("KB_MILVUS_URI", f"http://localhost:{_env('MILVUS_PORT', '19530')}")
 KB_MILVUS_COLLECTION = _env("KB_MILVUS_COLLECTION", "kb_chunks")
+# 检索 KB 扩展级开关（graph=自建 Neo4j 实体层 / vector=Milvus）：A-14 三级降级的完整形态
+KB_RETRIEVAL_LEVELS = _env("KB_RETRIEVAL_LEVELS", "1")

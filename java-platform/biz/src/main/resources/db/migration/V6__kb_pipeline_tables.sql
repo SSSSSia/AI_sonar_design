@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS kb_documents (
     section_count integer,
     ocr_pending integer NOT NULL DEFAULT 0,           -- 扫描页计数（OCR 插件待接，D-14）
     parsed_units jsonb,
+    build_detail jsonb,                               -- 各层构建结果如实明细（向量/图谱/语料）
     error text,
     uploaded_by varchar(64),
     created_at timestamptz NOT NULL DEFAULT now(),

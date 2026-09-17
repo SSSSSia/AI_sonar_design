@@ -54,6 +54,20 @@ def _safe_rel_type(rel: str) -> str:
     return cleaned or "RELATED_TO"
 
 
+def _match_terms(query: str, max_terms: int = 12) -> list[str]:
+    """查询词提取：空格词 + 中文 2-gram，去重、长短语优先，限制条数（防 Cypher 参数爆炸）。"""
+    seen: list[str] = []
+    raw = [t for t in str(query or "").split() if len(t) > 1]
+    if any("\u4e00" <= ch <= "\u9fff" for ch in (query or "")):
+        raw += [query[i:i + 2] for i in range(len(query) - 1)]
+    for t in sorted(set(raw), key=len, reverse=True):
+        if t not in seen:
+            seen.append(t)
+        if len(seen) >= max_terms:
+            break
+    return seen
+
+
 class Neo4jStore:
     """neo4j driver 薄封装。driver 惰性创建；测试可注入 fake。"""
 
@@ -117,6 +131,24 @@ class Neo4jStore:
             )
             record = result.single()
             return record["c"] if record else 0
+
+    def find_entities_matching(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """检索图谱级（T3.2）：query 关键词与实体名互相包含即命中（非 deprecated 优先）。"""
+        terms = _match_terms(query)
+        if not terms:
+            return []
+        conditions = " OR ".join(f"e.name CONTAINS $t{i}" for i in range(len(terms)))
+        params: dict[str, Any] = {f"t{i}": t for i, t in enumerate(terms)}
+        params["limit"] = limit
+        with self._get_driver().session() as session:
+            return session.run(
+                f"MATCH (e) WHERE ({conditions}) AND e.key IS NOT NULL "
+                "AND coalesce(e.deprecated, false) = false "
+                "RETURN labels(e)[0] AS label, e.name AS name, "
+                "e.description AS description, e.source_doc AS source_doc "
+                "ORDER BY e.deprecated SKIP 0 LIMIT $limit",
+                **params,
+            ).data()
 
     # ------------------------------------------------------------------
     def write_candidates(self, candidates: list[dict[str, Any]], session_id: str) -> dict[str, Any]:
