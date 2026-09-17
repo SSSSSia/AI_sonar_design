@@ -48,6 +48,7 @@
 - **前端**：npm 慢（135 包 ≈ 9 分钟）；构建 `tsc -b && vite build` 已验证。
 - **Python**：托管 venv 在 `C:\Users\Administrator\.workbuddy\binaries\python\envs\default`（pytest/fastapi/jsonschema 已装）。
 - **Docker Desktop**：安装于 `D:\Download\Docker Desktop\`（非默认路径）；国内网络拉 Docker Hub 秒断（报 access denied 误导，实为网络不通）——已配 daocloud registry-mirrors 解决；镜像总量约 2~3 GB。
+- **代理与 Docker**：用户常挂梯子，但系统代理对 Docker daemon 不自动生效，且客户端分流规则常把 docker.io/registry-1.docker.io 设为 DIRECT——"挂着梯子也连不上"属正常现象；Docker 拉取以 registry-mirrors 为准，不要试图依赖梯子。
 - **Docker 镜像坑**：`minio/minio` 官方镜像已被 MinIO 从 Docker Hub 全量下架（2026-02，社区版转 source-only），各加速源 403/not found 属上游不存在；已切换社区重建 `elestio/minio`。Docker 引擎运行中时本沙箱可直接执行 docker 命令（含 compose/一次性容器）。
 - **端口冲突**：本机常驻 `release-openspg-*` 容器占 7474/7687/9000/9001 → 本套 host 端口已覆盖（Neo4j 17474/17687、MinIO 19000/19001，见 `.env`）；busybox wget 的 healthcheck 必须用 `127.0.0.1` 不能用 `localhost`（IPv6 解析坑）。
 
