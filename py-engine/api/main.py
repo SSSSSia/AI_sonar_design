@@ -16,15 +16,17 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app_config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, KNOWLEDGE_KB_DIR, WORKFLOW_BASE_URL
+from api.kb import router as kb_router
 from llm.adapter import active_provider, llm_adapter, reload_providers
 from worker.celery_app import celery_app
 from worker.tasks import always_fail_task, echo_task
 
 app = FastAPI(
     title="Sonar-CAD v2 算力层",
-    version="0.2.0",
-    description="A1–A5 Agent / CAD 执行 / 约束求解 / 检索（T1.2：worker 骨架 + LLM 适配器）",
+    version="0.3.0",
+    description="A1–A5 Agent / CAD 执行 / 约束求解 / 检索 / 知识治理（T1.2 骨架 → T3 治理）",
 )
+app.include_router(kb_router)
 
 
 def _mask(url: str) -> str:

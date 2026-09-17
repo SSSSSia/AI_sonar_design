@@ -24,3 +24,10 @@ cadquery>=2.5
 # T2.3：A5 知识回写 Neo4j 驱动（图谱直连，容器 17687 覆盖端口；driver 5.x/6.x 超时参数兼容已处理）
 neo4j>=5.0
 
+# T3.1：知识文档解析五格式（PDF/Word/Excel/Markdown/TXT）+ FastAPI multipart 上传
+#      （OCR 引擎 MinerU/PP-Structure 为可选插件，D-14，未安装时扫描页如实标注待接）
+pypdf>=5.0
+python-docx>=1.1
+openpyxl>=3.1
+python-multipart>=0.0.9
+

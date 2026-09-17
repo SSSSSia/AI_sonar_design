@@ -107,6 +107,17 @@ class Neo4jStore:
             ).data()
         return records
 
+    def deprecate_by_source_doc(self, doc_id: str) -> int:
+        """文档删除的图谱同步（§6 ⑦）：该文档来源的实体不删、标 deprecated。"""
+        with self._get_driver().session() as session:
+            result = session.run(
+                "MATCH (e) WHERE e.source_doc = $doc_id AND coalesce(e.deprecated, false) = false "
+                "SET e.deprecated = true RETURN count(e) AS c",
+                doc_id=doc_id,
+            )
+            record = result.single()
+            return record["c"] if record else 0
+
     # ------------------------------------------------------------------
     def write_candidates(self, candidates: list[dict[str, Any]], session_id: str) -> dict[str, Any]:
         """写入确认候选。返回 {"written": n, "deprecated": m, "details": [...]}。

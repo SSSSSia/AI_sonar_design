@@ -49,7 +49,7 @@
 
 | 任务 | 内容 | 状态 |
 |---|---|---|
-| T3.1 | 文档上传与解析：PDF/Word/Excel/MD/TXT + OCR（MinerU/PP-Structure），保留页码/章节位置 | 待开发 |
+| T3.1 | 文档上传与解析：PDF/Word/Excel/MD/TXT + OCR（MinerU/PP-Structure），保留页码/章节位置 | 完成（OCR 插件化后置，扫描页如实计数标注） |
 | T3.2 | 清洗分块 + 结构化抽取（本体 Schema）+ GraphRAG/Milvus 索引构建 + 增量更新 | 待开发 |
 | T3.3 | 公式/约束/军标库管理（录入/启停/可信度分层），首样：用 towed_array_cad_knowledge.txt 全流程入库 | 待开发 |
 | T3.4 | 图谱可视化（力导向 + 邻域）数据接口 | 待开发 |

@@ -68,3 +68,13 @@ NEO4J_USER = _env("NEO4J_USER") or (_neo4j_auth.split("/", 1)[0] if "/" in _neo4
 NEO4J_PASSWORD = _env("NEO4J_PASSWORD") or (_neo4j_auth.split("/", 1)[1] if "/" in _neo4j_auth else "")
 # 连接/查询超时（秒）：不可达时快速失败、如实上报（A-16）
 NEO4J_TIMEOUT_S = int(_env("NEO4J_TIMEOUT_S", "5"))
+
+# ---- 知识文档管线（T3.1–T3.3，宪法 §6）----
+BUCKET_KB_DOCS = "kb-docs"                                # 知识库原文件桶
+KB_UPLOAD_MAX_BYTES = int(_env("KB_UPLOAD_MAX_BYTES", str(50 * 1024 * 1024)))  # 上传大小上限（§10.4）
+KB_CHUNK_SIZE = int(_env("KB_CHUNK_SIZE", "800"))         # 分块目标字符数（章节优先）
+KB_CHUNK_OVERLAP = int(_env("KB_CHUNK_OVERLAP", "150"))   # 分块重叠字符数（§6 ③ 可调）
+KB_EMBED_MODEL = _env("KB_EMBED_MODEL", "BAAI/bge-m3")    # 向量模型（settings.yaml 同款）
+KB_EMBED_DIM = int(_env("KB_EMBED_DIM", "1024"))          # bge-m3 维度
+KB_MILVUS_URI = _env("KB_MILVUS_URI", f"http://localhost:{_env('MILVUS_PORT', '19530')}")
+KB_MILVUS_COLLECTION = _env("KB_MILVUS_COLLECTION", "kb_chunks")

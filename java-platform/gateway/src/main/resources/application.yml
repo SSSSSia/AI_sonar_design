@@ -21,6 +21,11 @@ spring:
           uri: http://${WORKFLOW_HOST:localhost}:8082
           predicates:
             - Path=/api/v1/trace/**
+        # T3.1 知识治理（§6，宿主 py-engine 8090；经 gateway JWT 后信任头转发）
+        - id: py-engine-kb
+          uri: http://${PY_ENGINE_HOST:localhost}:8090
+          predicates:
+            - Path=/api/v1/kb/**
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:

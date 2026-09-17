@@ -54,7 +54,7 @@
 
 > 执行顺序：T3.1 → T3.2 → T3.3 → T3.4 → e2e 验收。
 
-### T3.1 文档上传与解析
+### T3.1 文档上传与解析 ✅ 完成（2026-09-18）
 
 - **目标**：五格式上传建档 + 按格式路由解析，解析产物保留页码/章节位置（§6 ①②）。
 - **设计要点**：
@@ -69,10 +69,11 @@
   | GET | /api/v1/kb/documents/{doc_id} | 详情（含解析摘要 + error） |
   | DELETE | /api/v1/kb/documents/{doc_id} | 删除并同步清理（§6 ⑦） |
 - **DoD**：
-  - [ ] 五格式各一真实样例解析通过且带位置信息（单测内置样例 + 真实 KB txt）
-  - [ ] 扫描件 OCR 降级路径实测（构造空文本页 PDF → ocr_pending 如实计数）
-  - [ ] 解析失败不中断服务（坏文件 → failed + error，列表可查）
-  - [ ] 超限/非法格式 413/400
+  - [x] 五格式各一真实样例解析通过且带位置信息（test_t31_kb.py 13 用例：txt 段落/md 章节树/docx 标题路径/xlsx 工作表行/pdf 页码）
+  - [x] 扫描件 OCR 降级路径实测（pypdf 空白页 PDF → ocr_pending=2 如实计数，无伪造文本）
+  - [x] 解析失败不中断服务（注入异常 → doc=failed + error，接口仍 200）
+  - [x] 超限/非法格式 413/400；上传/删除鉴权（401 无信任头 / 403 非 writer 角色）
+- **实现备注**：gateway 新增 `/api/v1/kb/**` → py-engine:8090 路由；py-engine `api/authz.py` 轻量信任头校验（X-User-Id 必带、writer 角色检查——收紧阶段 2 遗留点）；MinIO 新桶 `kb-docs`（对象键 `{doc_id}/{filename}`）；V6 迁移 kb_documents/kb_chunks/kb_extractions（chunks/extractions 对 doc 级联删除）。
 
 ### T3.2 清洗分块 + 结构化抽取 + 索引构建 + 增量
 
