@@ -25,6 +25,9 @@ backend/knowledge/kb/output/
 backend/knowledge/kb/cache/
 backend/knowledge/kb/logs/
 
+# py-engine 运行日志（sdk 写入）
+py-engine/logs/
+
 # ===== Java =====
 target/
 *.class
