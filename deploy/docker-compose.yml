@@ -9,6 +9,9 @@
 # - MinIO 分桶（step-models / cad-scripts / design-docs / validation-reports / knowledge-dumps）
 #   由应用启动时创建，不在本文件内。
 # - Milvus standalone 依赖独立 etcd + 内部 MinIO（官方标准拓扑，不占用业务 MinIO 端口）。
+# - MinIO 镜像说明：官方 minio/minio 已于 2026-02 从 Docker Hub 全量下架（社区版转 source-only），
+#   各加速源对其均 403/not found。改用社区重建镜像 elestio/minio（开发环境可用；
+#   其 latest 含 1 个 HIGH CVE-2025-62506，生产部署前必须评估替代，届时走 ADR）。
 # - 国内网络拉取 Docker Hub 失败时两种解法：
 #   a) Docker Desktop Settings → Docker Engine 配 registry-mirrors（推荐，一次配好全局生效）；
 #   b) 在 .env 设 DOCKER_MIRROR=docker.m.daocloud.io/ 与 QUAY_MIRROR=quay.m.daocloud.io/
@@ -97,7 +100,7 @@ services:
     restart: unless-stopped
 
   milvus-minio:
-    image: ${DOCKER_MIRROR:-}minio/minio:RELEASE.2024-09-22T00-33-43Z
+    image: ${DOCKER_MIRROR:-}elestio/minio:latest
     container_name: sonar-milvus-minio
     environment:
       MINIO_ACCESS_KEY: minioadmin
@@ -141,7 +144,7 @@ services:
 
   # ---------- 文件存储（业务 MinIO，D-10 分桶） ----------
   minio:
-    image: ${DOCKER_MIRROR:-}minio/minio:RELEASE.2024-09-22T00-33-43Z
+    image: ${DOCKER_MIRROR:-}elestio/minio:latest
     container_name: sonar-minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sonarcad}
