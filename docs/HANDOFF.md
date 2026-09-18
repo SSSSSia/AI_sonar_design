@@ -29,6 +29,7 @@
 | **阶段 2** | **全部 4 任务完成**（T2.1–T2.4），五步闭环 + 审阅关驳回流 e2e 全绿（16m36s，真实 DeepSeek）；**待人工验收**（PHASE-002 v1.1） |
 | **阶段 3** | **全部 4 任务完成**（T3.1–T3.4），首样 e2e 全绿（12m12s）：上传→解析→分块 97→抽取 849 条→三层构建（Milvus 向量 97 / Neo4j 518 实体 / 动态语料）→检索命中 graph 级；**待人工验收**（PHASE-003 v1.1） |
 | KB 语料 | **4 文档 / 439 chunks / 2939 条确认抽取**（首样 + 声呐技术 + 水声学原理 + 潜艇拖曳总体设计，导入脚本 `knowledge/import_corpus.py`）；检索验证查询全部命中 graph 级 |
+| OCR 插件 | **已接**（D-14 落地）：PaddlePaddle/PaddleOCR-VL-1.5（SiliconFlow），`kb/ocr.py`；扫描页自动识别，单文档页数预算 KB_OCR_MAX_PAGES=20，真实 API 用例门控 KB_OCR_REALTEST=1 |
 | 管线现状 | START → A1→A2→**gate1**→A3→A4→**gate2**→A5→completed；驳回=局部回算+下游失效（ir_snapshots.invalidated_at）；知识关（gate=knowledge）人工确认后回写 Neo4j；`GET /api/v1/trace/{trace_id}` 反查。IR0–IR5 全量快照 API 齐 |
 | Flyway | V1~V8 已应用（V4 快照失效 / V5 gate 列宽 / V6 KB 管线三表 / V7 知识资产三库 / V8 graph_key 列宽） |
 | LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**；流式适配器；阶段 2 e2e 两次全链真实跑通 |
@@ -88,6 +89,10 @@
   - **同名函数定义两次后者覆盖前者**（get_knowledge_service 踩过）：重构后 grep 确认唯一定义
   - **kb_extractions.graph_key 列宽**：关系组合键 src16->dst16=34 字符 > varchar(32)（V8 扩至 64）——新列按最长可能值定宽
   - Milvus pymilvus 3.x：`MilvusClient.create_schema` 是类方法，局部 import 后再调用（ensure_collection 踩过 NameError）
+- **OCR 插件实机事实（2026-09-18）**：
+  - PaddleOCR-VL-1.5 走 SiliconFlow chat 接口（OpenAI 兼容），图片 base64 data URL；**输出带 `<|LOC_x|>` 版面标记（每行四个角点）必须清洗**（kb/ocr.py strip_layout_markers）
+  - 请求务必带 `temperature: 0`（否则同一图像识别结果不稳定）；单页 ~1250 vision tokens、~2s
+  - 测试造"扫描件"：PIL 黑白模式（"1"）多页图像直接 save 成 PDF（RGB 模式的 PDF 保存需要 JPEG 编码器，本机 Pillow 没有）
 
 ## 工作约定速记（全文见宪法 CONST-001）
 

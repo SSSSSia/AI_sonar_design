@@ -214,7 +214,7 @@ def test_upload_oversized_413(client, fake_store, monkeypatch):
 def test_parse_failure_marks_failed_not_raise(client, fake_store, monkeypatch):
     """解析失败不中断服务（§6 ①）：doc=failed + error 如实，接口仍 200。"""
     monkeypatch.setattr(parsers, "parse_document",
-                        lambda filename, data: (_ for _ in ()).throw(RuntimeError("坏文档")))
+                        lambda filename, data, **kwargs: (_ for _ in ()).throw(RuntimeError("坏文档")))
     r = client.post("/api/v1/kb/documents", headers=AUTH,
                     files={"file": ("坏.txt", b"data", "text/plain")})
     assert r.status_code == 200

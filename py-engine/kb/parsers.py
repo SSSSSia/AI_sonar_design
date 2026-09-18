@@ -8,8 +8,14 @@ PDF 空文本页（扫描页）如实计入 ocr_pending 并标注，绝不伪造
 from __future__ import annotations
 
 import io
+import logging
 import re
 from dataclasses import dataclass, field
+from typing import Callable, Any
+
+import logging
+
+logger = logging.getLogger("sonarcad.kb.parsers")
 
 SUPPORTED_FORMATS = ("pdf", "docx", "xlsx", "md", "txt")
 
@@ -38,17 +44,24 @@ class ParsedUnit:
 @dataclass
 class ParseResult:
     units: list[ParsedUnit] = field(default_factory=list)
-    ocr_pending: int = 0      # 扫描页计数（仅 pdf；OCR 插件待接，D-14 如实标注）
+    ocr_pending: int = 0      # 未识别的扫描页计数（OCR 失败/超出页数预算，D-14 如实标注）
+    ocr_pages: int = 0        # 已 OCR 识别的扫描页计数（T3.1 OCR 插件，D-14 落地）
     page_count: int = 0       # pdf 页数
     section_count: int = 0    # md/docx 章节数
 
 
-def parse_document(filename: str, data: bytes) -> ParseResult:
-    """按扩展名路由解析器。任何格式解析异常由调用方处理（doc 状态=failed，不中断服务）。"""
+def parse_document(filename: str, data: bytes, ocr_page: Callable[[Any], str | None] | None = None,
+                   ocr_max_pages: int = 0) -> ParseResult:
+    """按扩展名路由解析器。
+
+    ocr_page: 扫描页识别回调（页对象 → 文本；None/失败=该页降级为 ocr_pending）；
+    ocr_max_pages: 单文档 OCR 页数预算（0=不限）。任何格式解析异常由调用方处理。
+    """
     fmt = detect_format(filename)
     parser = {
-        "txt": _parse_txt, "md": _parse_md, "pdf": _parse_pdf,
-        "docx": _parse_docx, "xlsx": _parse_xlsx,
+        "txt": _parse_txt, "md": _parse_md, "xlsx": _parse_xlsx,
+        "docx": _parse_docx,
+        "pdf": lambda d: _parse_pdf(d, ocr_page=ocr_page, ocr_max_pages=ocr_max_pages),
     }[fmt]
     return parser(data)
 
@@ -90,18 +103,47 @@ def _parse_md(data: bytes) -> ParseResult:
     return result
 
 
-def _parse_pdf(data: bytes) -> ParseResult:
-    """PDF：pypdf 逐页提取，location=第N页；空文本页=扫描页，计入 ocr_pending（D-14）。"""
+def _parse_pdf(data: bytes, ocr_page: Callable[[Any], str | None] | None = None,
+               ocr_max_pages: int = 0) -> ParseResult:
+    """PDF：pypdf 逐页提取，location=第N页。
+
+    空文本页（扫描页）：OCR 插件（D-14）识别——识别成功出文本单元，
+    失败/超出页数预算则计入 ocr_pending 如实降级（不伪造文本，A-16）。
+    """
+    import io as _io
+
     from pypdf import PdfReader
 
-    reader = PdfReader(io.BytesIO(data))
+    reader = PdfReader(_io.BytesIO(data))
     result = ParseResult(page_count=len(reader.pages))
+    ocr_budget = ocr_max_pages if ocr_max_pages and ocr_max_pages > 0 else float("inf")
+    pdfium_doc = None
+    if ocr_page is not None:
+        try:
+            import pypdfium2 as pdfium
+
+            pdfium_doc = pdfium.PdfDocument(_io.BytesIO(data))
+        except Exception as exc:
+            logger.warning("pypdfium2 打开失败，OCR 降级不可用: %s", exc)
+
     for i, page in enumerate(reader.pages, 1):
         text = (page.extract_text() or "").strip()
         if text:
             result.units.append(ParsedUnit(location=f"第{i}页", text=text))
+            continue
+        if ocr_page is None or pdfium_doc is None or result.ocr_pages >= ocr_budget:
+            result.ocr_pending += 1  # 未识别扫描页：如实计数（OCR 未启用/失败/超预算）
+            continue
+        try:
+            ocr_text = (ocr_page(pdfium_doc[i - 1]) or "").strip()
+        except Exception as exc:
+            logger.warning("第%d页 OCR 异常，如实降级: %s", i, exc)
+            ocr_text = ""
+        if ocr_text:
+            result.ocr_pages += 1
+            result.units.append(ParsedUnit(location=f"第{i}页", text=ocr_text))
         else:
-            result.ocr_pending += 1   # 扫描页：OCR 插件待接（D-14），如实计数不伪造
+            result.ocr_pending += 1  # OCR 后仍无内容（空白页/识别失败）
     return result
 
 

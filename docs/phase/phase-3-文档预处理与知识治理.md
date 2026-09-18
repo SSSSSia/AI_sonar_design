@@ -74,6 +74,7 @@
   - [x] 解析失败不中断服务（注入异常 → doc=failed + error，接口仍 200）
   - [x] 超限/非法格式 413/400；上传/删除鉴权（401 无信任头 / 403 非 writer 角色）
 - **实现备注**：gateway 新增 `/api/v1/kb/**` → py-engine:8090 路由；py-engine `api/authz.py` 轻量信任头校验（X-User-Id 必带、writer 角色检查——收紧阶段 2 遗留点）；MinIO 新桶 `kb-docs`（对象键 `{doc_id}/{filename}`）；V6 迁移 kb_documents/kb_chunks/kb_extractions（chunks/extractions 对 doc 级联删除）。
+- **OCR 插件落地（D-14，2026-09-18 补充）**：`kb/ocr.py` 接 PaddlePaddle/PaddleOCR-VL-1.5（SiliconFlow chat 接口，图片 base64 data URL）；pypdfium2 渲染扫描页位图；输出清洗 `<|LOC_x|>` 版面标记；temperature=0 确定性转写；单文档页数预算 `KB_OCR_MAX_PAGES`（默认 20，成本护栏）超出/失败如实降级回 ocr_pending；`temperature` 与识别提示词经实调校准。实机验收：图像版 PDF（2 页）上传 → ocr_pages=2、正文完整入解析单元；真实 API 用例经 `KB_OCR_REALTEST=1` 门控。
 
 ### T3.2 清洗分块 + 结构化抽取 + 索引构建 + 增量 ✅ 完成（2026-09-18）
 
@@ -177,3 +178,4 @@ T3.1 → T3.2 → T3.3 → T3.4 → 收官。T3.3 的 A4 接线依赖 T3.2 的�
 | v0.1 | 2026-09-17 | 规划版：§6 硬性要求映射、四任务框架、风险识别 |
 | v1.0 | 2026-09-18 | 升级为完整版：KB API 落 py-engine + gateway 路由 + 信任头校验；存储与表结构（V6/V7）；解析路由与 OCR 插件化决策；抽取人工确认门；kb_build 异步任务与增量语义；检索三级补全（自建 Neo4j 图谱层）；三库 + A4 接线 + LLM 供应商管理；图谱接口契约；GraphRAG SDK 全量构建后置的理由 |
 | v1.1 | 2026-09-18 | 全任务收官回填：T3.1–T3.4 DoD 勾结、里程碑 M3-1~M3-5 达成、首样 e2e 12m12s 全绿（检索命中 graph 级）、抽取改异步任务、V8 修复 graph_key 列宽、图谱节点双来源（source_doc/source_session） |
+| v1.2 | 2026-09-18 | OCR 插件（D-14）落地：PaddleOCR-VL-1.5 接入 `kb/ocr.py`，扫描页自动识别（页数预算+如实降级），真扫描件实机验收通过；文献语料导入 3 份（import_corpus 脚本，KB 达 4 文档/439 chunks/2939 条抽取） |

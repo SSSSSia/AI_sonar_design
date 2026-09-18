@@ -61,7 +61,14 @@ def upload_document(
     )
 
     try:
-        parsed = parsers.parse_document(filename, data)
+        import app_config
+        from kb.ocr import OCR_MAX_PAGES, make_page_ocr
+
+        parsed = parsers.parse_document(
+            filename, data,
+            ocr_page=make_page_ocr(),            # OCR 插件（D-14 落地）：未启用/无供应商时为 None
+            ocr_max_pages=OCR_MAX_PAGES,         # 页数预算护栏，超出如实 pending
+        )
         kb_store.update_document(
             doc_id,
             status="parsed",
@@ -76,13 +83,20 @@ def upload_document(
         return {"doc_id": doc_id, "filename": filename, "status": "failed",
                 "error": f"{type(exc).__name__}: {exc}"}
 
+    if parsed.ocr_pending:
+        note = f"{parsed.ocr_pending} 页扫描件未识别（OCR 失败或超出单文档页数预算），已如实计数"
+    elif parsed.ocr_pages:
+        note = f"{parsed.ocr_pages} 页扫描件已经 PaddleOCR-VL 识别（D-14 插件）"
+    else:
+        note = None
     return {
         "doc_id": doc_id, "filename": filename, "format": fmt,
         "status": "parsed", "units": len(parsed.units),
         "page_count": parsed.page_count or None,
         "section_count": parsed.section_count or None,
+        "ocr_pages": parsed.ocr_pages,
         "ocr_pending": parsed.ocr_pending,
-        "note": "扫描页 OCR 插件待接（D-14），已如实计数" if parsed.ocr_pending else None,
+        "note": note,
     }
 
 

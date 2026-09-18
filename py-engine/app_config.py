@@ -82,3 +82,10 @@ KB_MILVUS_COLLECTION = _env("KB_MILVUS_COLLECTION", "kb_chunks")
 KB_RETRIEVAL_LEVELS = _env("KB_RETRIEVAL_LEVELS", "1")
 # LLM 抽取并行度（大文档异步抽取任务用；对供应商限流友好）
 KB_EXTRACT_WORKERS = int(_env("KB_EXTRACT_WORKERS", "4"))
+
+# ---- OCR 插件（D-14 落地）：扫描页 → PaddleOCR-VL-1.5（SiliconFlow）----
+KB_OCR_ENABLED = _env("KB_OCR_ENABLED", "1").lower() in ("1", "true", "yes")
+KB_OCR_MODEL = _env("KB_OCR_MODEL", "PaddlePaddle/PaddleOCR-VL-1.5")
+KB_OCR_MAX_PAGES = int(_env("KB_OCR_MAX_PAGES", "20"))      # 单文档 OCR 页数上限（成本护栏，超出如实 pending）
+KB_OCR_TIMEOUT_S = int(_env("KB_OCR_TIMEOUT_S", "60"))      # 单页识别超时
+KB_OCR_RENDER_SCALE = float(_env("KB_OCR_RENDER_SCALE", "2.0"))  # pdfium 渲染倍率（清晰度/体积权衡）
