@@ -54,19 +54,23 @@ class A4Agent:
 
     # ------------------------------------------------------------------
     def _check_formula(self, params: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """formula 参数：SymPy 复算（无法定位/解析的出 info 请人工复核，不硬失败）。"""
+        """formula 参数：SymPy 复算。定位顺序：solver REGISTRY → kb_formulas 业务库（T3.3）；
+        都无法定位的出 info 请人工复核，不硬失败。"""
         issues: list[dict[str, Any]] = []
         for p in params:
             if p.get("source_type") != "formula":
                 continue
             key = recompute.resolve_formula_key(p.get("source_ref", ""))
+            db_row = None
             if key is None:
-                issues.append(_issue(
-                    "CHK-FORMULA-RECOMPUTE", "info",
-                    f"formula 参数「{p.get('name')}」无法定位注册公式"
-                    f"（source_ref={p.get('source_ref')}），未复算，请人工复核",
-                    [p["id"]]))
-                continue
+                db_row = self._match_db_formula(p)
+                if db_row is None:
+                    issues.append(_issue(
+                        "CHK-FORMULA-RECOMPUTE", "info",
+                        f"formula 参数「{p.get('name')}」无法定位注册公式"
+                        f"（source_ref={p.get('source_ref')}），未复算，请人工复核",
+                        [p["id"]]))
+                    continue
             inputs = recompute.parse_inputs_from_derivation(p.get("derivation", ""))
             if not inputs:
                 issues.append(_issue(
@@ -75,7 +79,15 @@ class A4Agent:
                     [p["id"]]))
                 continue
             try:
-                result = recompute.recompute(key, inputs)
+                if key is not None:
+                    result = recompute.recompute(key, inputs)
+                else:
+                    symbols = db_row.get("symbols") or []
+                    result = recompute.recompute_dynamic(
+                        expr=db_row["expr"], symbols=symbols, defaults={},
+                        inputs=inputs, formula_name=db_row["name"], unit=db_row.get("unit", "-"),
+                        formula_key=f"kb_formulas:{db_row['key']}",
+                    )
             except KeyError as exc:
                 issues.append(_issue(
                     "CHK-FORMULA-RECOMPUTE", "info",
@@ -95,6 +107,21 @@ class A4Agent:
                     f"{result.derivation}（依据 {p.get('source_ref')}）",
                     [p["id"]], suggestion="back_to_A2"))
         return issues
+
+    @staticmethod
+    def _match_db_formula(p: dict[str, Any]) -> dict[str, Any] | None:
+        """业务库 kb_formulas 定位（T3.3）：key 出现在 source_ref 或名称一致；库不可达→None。"""
+        try:
+            from storage import registry_store
+
+            for row in registry_store.list_rows_cached("formulas"):
+                if row.get("key") and str(row["key"]) in str(p.get("source_ref") or ""):
+                    return row
+                if row.get("name") and str(row["name"]) == str(p.get("name")):
+                    return row
+        except Exception:
+            return None
+        return None
 
     # ------------------------------------------------------------------
     def _check_case(self, params: list[dict[str, Any]]) -> list[dict[str, Any]]:

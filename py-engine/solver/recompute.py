@@ -60,23 +60,45 @@ def values_match(a: float, b: float, rel: float = REL_TOL, abs_: float = ABS_TOL
 def recompute(formula_key: str, inputs: dict[str, float]) -> RecomputeResult:
     """SymPy 精确代入。缺必需符号抛 KeyError；结果与 compute 闭包同值（单测互证）。"""
     spec: FormulaSpec = REGISTRY[formula_key]
+    return recompute_dynamic(
+        expr=spec.expr,
+        symbols=spec.symbols,
+        defaults=spec.defaults or {},
+        inputs=inputs,
+        formula_name=spec.name,
+        unit=spec.unit,
+        formula_key=formula_key,
+    )
+
+
+def recompute_dynamic(
+    expr: str,
+    symbols: dict[str, str] | list[str],
+    defaults: dict[str, float],
+    inputs: dict[str, float],
+    formula_name: str,
+    unit: str,
+    formula_key: str = "dynamic",
+) -> RecomputeResult:
+    """对任意 SymPy 表达式做精确代入（T3.3：支持 kb_formulas 库内公式复算）。"""
+    symbol_names = list(symbols.keys()) if isinstance(symbols, dict) else list(symbols)
     subs: dict[str, sympy.Expr] = {}
     used: dict[str, float] = {}
-    for s in spec.symbols:
+    for s in symbol_names:
         if s in inputs:
             subs[s] = sympy.Rational(str(inputs[s]))
             used[s] = inputs[s]
-        elif s in (spec.defaults or {}):
-            subs[s] = sympy.Rational(str(spec.defaults[s]))
-            used[s] = float(spec.defaults[s])
+        elif s in defaults:
+            subs[s] = sympy.Rational(str(defaults[s]))
+            used[s] = float(defaults[s])
         else:
-            raise KeyError(f"公式 {formula_key} 缺少输入符号 {s}")
-    value = float(sympy.sympify(spec.expr).subs(subs).evalf(12))
-    used_text = ", ".join(f"{s}={used[s]}" for s in spec.symbols)
+            raise KeyError(f"公式 {formula_name} 缺少输入符号 {s}")
+    value = float(sympy.sympify(expr).subs(subs).evalf(12))
+    used_text = ", ".join(f"{s}={used[s]}" for s in symbol_names)
     return RecomputeResult(
         formula_key=formula_key,
         value=value,
-        unit=spec.unit,
+        unit=unit,
         inputs=used,
-        derivation=f"SymPy 复算 {spec.name}: {used_text} → 代入得 {value} {spec.unit}",
+        derivation=f"SymPy 复算 {formula_name}: {used_text} → 代入得 {value} {unit}",
     )

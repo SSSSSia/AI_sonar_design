@@ -245,3 +245,140 @@ def build_status(task_id: str) -> dict:
     elif result.failed():
         payload["error"] = str(result.result)
     return payload
+
+
+# ----------------------------------------------------------------------
+# T3.3 知识资产库：公式 / 约束 / 军标（录入/启停/可信度分层，§6 + 5.14）
+# ----------------------------------------------------------------------
+@router.get("/registry/{kind}")
+def list_registry(kind: str) -> dict:
+    if kind not in ("formulas", "constraints", "standards"):
+        raise HTTPException(status_code=404, detail=f"未知资产库: {kind}")
+    from storage import registry_store
+
+    return {"kind": kind, "rows": registry_store.list_rows(kind)}
+
+
+class RegistryRow(BaseModel):
+    fields: dict
+
+
+@router.post("/registry/{kind}")
+def create_registry_row(kind: str, req: RegistryRow,
+                        user: str = Depends(require_writer)) -> dict:
+    from solver import standards
+
+    if kind not in ("formulas", "constraints", "standards"):
+        raise HTTPException(status_code=404, detail=f"未知资产库: {kind}")
+    from storage import registry_store
+
+    try:
+        row = registry_store.create_row(kind, req.fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    standards.reset_cache()  # 军标库变更即时生效（A4 热路径缓存）
+    return {"row": row}
+
+
+@router.patch("/registry/{kind}/{row_id}")
+def update_registry_row(kind: str, row_id: int, req: RegistryRow,
+                        user: str = Depends(require_writer)) -> dict:
+    from solver import standards
+
+    if kind not in ("formulas", "constraints", "standards"):
+        raise HTTPException(status_code=404, detail=f"未知资产库: {kind}")
+    from storage import registry_store
+
+    try:
+        row = registry_store.update_row(kind, row_id, req.fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"条目不存在: {row_id}")
+    standards.reset_cache()
+    return {"row": row}
+
+
+@router.delete("/registry/{kind}/{row_id}")
+def delete_registry_row(kind: str, row_id: int, user: str = Depends(require_writer)) -> dict:
+    from solver import standards
+
+    if kind not in ("formulas", "constraints", "standards"):
+        raise HTTPException(status_code=404, detail=f"未知资产库: {kind}")
+    from storage import registry_store
+
+    deleted = registry_store.delete_row(kind, row_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"条目不存在: {row_id}")
+    standards.reset_cache()
+    return {"deleted": True, "id": row_id}
+
+
+# ----------------------------------------------------------------------
+# T3.3 LLM 供应商管理（5.16，D-12 数据面；api_key 只写不读——序列化一律脱敏）
+# ----------------------------------------------------------------------
+@router.get("/llm-providers")
+def list_llm_providers() -> dict:
+    from storage import registry_store
+
+    return {"providers": registry_store.list_providers()}  # 不含 api_key 字段
+
+
+class ProviderCreate(BaseModel):
+    name: str
+    base_url: str
+    api_key: str           # 只写不读
+    model: str
+    priority: int = 0
+    timeout_s: int = 300
+    enabled: bool = True
+
+
+@router.post("/llm-providers")
+def create_llm_provider(req: ProviderCreate, user: str = Depends(require_writer)) -> dict:
+    from llm.adapter import reload_providers
+    from storage import registry_store
+
+    row = registry_store.create_provider(
+        name=req.name, base_url=req.base_url, api_key=req.api_key, model=req.model,
+        priority=req.priority, timeout_s=req.timeout_s, enabled=req.enabled,
+    )
+    reload_providers()  # D-12 热切换
+    return {"provider": row, "reloaded": True}
+
+
+class ProviderPatch(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    priority: int | None = None
+    timeout_s: int | None = None
+    enabled: bool | None = None
+
+
+@router.patch("/llm-providers/{name}")
+def update_llm_provider(name: str, req: ProviderPatch,
+                        user: str = Depends(require_writer)) -> dict:
+    from llm.adapter import reload_providers
+    from storage import registry_store
+
+    try:
+        row = registry_store.update_provider(name, req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"供应商不存在: {name}")
+    reload_providers()
+    return {"provider": row, "reloaded": True}
+
+
+@router.delete("/llm-providers/{name}")
+def delete_llm_provider(name: str, user: str = Depends(require_writer)) -> dict:
+    from llm.adapter import reload_providers
+    from storage import registry_store
+
+    deleted = registry_store.delete_provider(name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"供应商不存在: {name}")
+    reload_providers()
+    return {"deleted": True, "name": name, "reloaded": True}
