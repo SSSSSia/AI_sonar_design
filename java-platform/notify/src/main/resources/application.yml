@@ -4,3 +4,7 @@ server:
 spring:
   application:
     name: sonarcad-notify
+
+# 与 gateway 共享同一 JWT 密钥（HS512）：WS 建连时校验 ?token= 的签名与有效期
+jwt:
+  secret: ${JWT_SECRET}

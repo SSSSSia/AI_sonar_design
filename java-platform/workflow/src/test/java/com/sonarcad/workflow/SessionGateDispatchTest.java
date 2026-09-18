@@ -1,6 +1,7 @@
 package com.sonarcad.workflow;
 
 import com.sonarcad.workflow.mq.TaskPublisher;
+import com.sonarcad.workflow.notify.NotifyClient;
 import com.sonarcad.workflow.session.DesignSessionEntity;
 import com.sonarcad.workflow.session.DesignSessionMapper;
 import com.sonarcad.workflow.session.IrSnapshotMapper;
@@ -31,7 +32,10 @@ class SessionGateDispatchTest {
         sessionMapper = mock(DesignSessionMapper.class);
         irSnapshotMapper = mock(IrSnapshotMapper.class);
         taskPublisher = mock(TaskPublisher.class);
-        service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher);
+        taskPublisher = mock(TaskPublisher.class);
+        // 真实 NotifyClient：发布为异步 fire-and-forget，测试中连不上只记日志、不影响断言
+        service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
+                new NotifyClient("http://127.0.0.1:1"));
     }
 
     private DesignSessionEntity session(String id, String status, String stage) {

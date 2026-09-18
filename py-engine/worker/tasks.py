@@ -47,6 +47,28 @@ def _record_trace(session_id: str, steps_builder) -> None:
         logger.exception("session %s 溯源链写入失败（快照为权威出处，链路降级）", session_id)
 
 
+def _notify_ir_updated(session_id: str, ir_type: str, version: int) -> None:
+    """T4.1：快照落库后向 notify 发布 ir_updated（WS 推送为增强，失败仅记日志不拖垮管线）。"""
+    try:
+        from datetime import datetime, timezone
+
+        from app_config import NOTIFY_BASE_URL
+
+        httpx.post(
+            f"{NOTIFY_BASE_URL}/internal/sessions/{session_id}/messages",
+            headers=SERVICE_AUTH_HEADERS,
+            json={
+                "type": "ir_updated",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "payload": {"ir_type": ir_type, "ir_version": str(version)},
+            },
+            timeout=3,
+        )
+    except Exception as exc:
+        logger.warning("session %s ir_updated 发布失败（不影响管线）: %s", session_id, exc)
+
+
 def _a2_trace(ir2: dict, session_id: str) -> list[dict]:
     from storage import ir_store, trace_steps
 
@@ -107,6 +129,7 @@ def a1_task(self, session_id: str) -> dict:
 
         version = ir_store.save_snapshot(session_id, "IR1", ir1, created_by="A1")
         ir_store.update_stage(session_id, "A1")
+        _notify_ir_updated(session_id, "IR1", version)
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR1", "version": version}
     except Exception as exc:
@@ -137,6 +160,7 @@ def a2_task(self, session_id: str) -> dict:
         version = ir_store.save_snapshot(session_id, "IR2", ir2, created_by="A2")
         _record_trace(session_id, lambda: _a2_trace(ir2, session_id))
         ir_store.update_stage(session_id, "A2")
+        _notify_ir_updated(session_id, "IR2", version)
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR2", "version": version}
     except Exception as exc:
@@ -172,6 +196,7 @@ def a3_task(self, session_id: str) -> dict:
         version = ir_store.save_snapshot(session_id, "IR3", ir3, created_by="A3")
         _record_trace(session_id, lambda: _a3_trace(ir3, ir2, session_id))
         ir_store.update_stage(session_id, "A3")
+        _notify_ir_updated(session_id, "IR3", version)
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR3", "version": version}
     except Exception as exc:
@@ -206,6 +231,7 @@ def a4_task(self, session_id: str) -> dict:
         version = ir_store.save_snapshot(session_id, "IR4", ir4, created_by="A4")
         _record_trace(session_id, lambda: _a4_trace(ir4, ir2, session_id))
         ir_store.update_stage(session_id, "A4")
+        _notify_ir_updated(session_id, "IR4", version)
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR4", "version": version}
     except Exception as exc:
@@ -253,6 +279,7 @@ def a5_task(self, session_id: str) -> dict:
         version = ir_store.save_snapshot(session_id, "IR5", ir5, created_by="A5")
         _record_trace(session_id, lambda: _a5_trace(ir5, session_id))
         ir_store.update_stage(session_id, "A5")
+        _notify_ir_updated(session_id, "IR5", version)
         _fire_session_event(session_id, "COMPLETE")
         return {
             "session_id": session_id, "ir": "IR5", "version": version,

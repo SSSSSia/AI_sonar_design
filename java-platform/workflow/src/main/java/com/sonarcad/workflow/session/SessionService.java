@@ -3,6 +3,8 @@ package com.sonarcad.workflow.session;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sonarcad.workflow.mq.TaskPublisher;
+import com.sonarcad.workflow.notify.NotifyClient;
+import com.sonarcad.workflow.notify.NotifyMessages;
 import com.sonarcad.workflow.statemachine.PipelineEvent;
 import com.sonarcad.workflow.statemachine.PipelineStatus;
 import com.sonarcad.workflow.statemachine.PipelineTransitions;
@@ -16,6 +18,7 @@ import java.util.Map;
 /**
  * 会话服务：状态转移按 PipelineTransitions 裁决后落库（乐观 where 条件防并发双写）。
  * T1.7 起 START 事件同时投递 MQ 任务给 py-engine（本期先落状态）。
+ * T4.1 起关键转移同时向 notify 发布 WS 进度/审阅请求（失败仅告警，推送是增强不是权威）。
  */
 @Service
 public class SessionService {
@@ -23,11 +26,14 @@ public class SessionService {
     private final DesignSessionMapper mapper;
     private final IrSnapshotMapper irSnapshotMapper;
     private final TaskPublisher taskPublisher;
+    private final NotifyClient notifyClient;
 
-    public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper, TaskPublisher taskPublisher) {
+    public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper,
+                          TaskPublisher taskPublisher, NotifyClient notifyClient) {
         this.mapper = mapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
+        this.notifyClient = notifyClient;
     }
 
     /**
@@ -86,10 +92,14 @@ public class SessionService {
             String stage = s.getCurrentStage();
             if ("A1".equals(stage)) {
                 taskPublisher.publishA2Task(id);
+                notifyClient.publish(id, NotifyMessages.taskProgress("A2", "running",
+                        NotifyMessages.stageProgress("A2"), "A2 方案生成中"));
             } else if ("A2".equals(stage)) {
                 pauseAtGate(id, "gate1");
             } else if ("A3".equals(stage)) {
                 taskPublisher.publishA4Task(id);
+                notifyClient.publish(id, NotifyMessages.taskProgress("A4", "running",
+                        NotifyMessages.stageProgress("A4"), "A4 合规校验中"));
             } else if ("A4".equals(stage)) {
                 pauseAtGate(id, "gate2");
             }
@@ -113,6 +123,17 @@ public class SessionService {
         // START 成功后投递首个管线任务（A1 需求解析；echo 保留为 /debug 联通性任务）
         if (event == PipelineEvent.START) {
             taskPublisher.publishA1Task(id);
+            notifyClient.publish(id, NotifyMessages.taskProgress("A1", "running",
+                    NotifyMessages.stageProgress("A1"), "A1 需求解析已派发"));
+        } else if (event == PipelineEvent.COMPLETE || event == PipelineEvent.FAIL) {
+            String stage = s.getCurrentStage() == null ? "A5" : s.getCurrentStage();
+            notifyClient.publish(id, NotifyMessages.taskProgress(NotifyMessages.contractStage(stage),
+                    event == PipelineEvent.COMPLETE ? "completed" : "failed",
+                    event == PipelineEvent.COMPLETE ? 100 : NotifyMessages.stageProgress(stage), null));
+        } else if (event == PipelineEvent.PAUSE) {
+            String stage = s.getCurrentStage() == null ? "A1" : s.getCurrentStage();
+            notifyClient.publish(id, NotifyMessages.taskProgress(NotifyMessages.contractStage(stage),
+                    "paused", NotifyMessages.stageProgress(stage), "已手动暂停"));
         }
         s.setPipelineStatus(target.name());
         return s;
@@ -141,6 +162,11 @@ public class SessionService {
         DesignSessionEntity s = get(id);
         s.setPipelineStatus(PipelineStatus.paused.name());
         s.setCurrentStage(gate);
+        String irType = "gate1".equals(gate) ? "IR2" : "IR3";
+        notifyClient.publish(id, NotifyMessages.taskProgress(NotifyMessages.contractStage(gate), "paused",
+                NotifyMessages.stageProgress(gate), "等待人工裁决"));
+        notifyClient.publish(id, NotifyMessages.reviewRequest(gate, irType,
+                latestVersion(id, irType), s.getTitle()));
         return s;
     }
 
@@ -156,5 +182,17 @@ public class SessionService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "审阅关恢复失败：会话不在 paused 状态（可能已被并发裁决）");
         }
+        notifyClient.publish(id, NotifyMessages.taskProgress(nextStage, "running",
+                NotifyMessages.stageProgress(nextStage), null));
+    }
+
+    private String latestVersion(String sessionId, String irType) {
+        IrSnapshotEntity latest = irSnapshotMapper.selectList(new LambdaQueryWrapper<IrSnapshotEntity>()
+                        .eq(IrSnapshotEntity::getSessionId, sessionId)
+                        .eq(IrSnapshotEntity::getIrType, irType)
+                        .orderByDesc(IrSnapshotEntity::getVersion)
+                        .last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        return latest == null ? "0" : String.valueOf(latest.getVersion());
     }
 }

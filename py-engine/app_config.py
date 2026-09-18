@@ -18,6 +18,8 @@ CELERY_RESULT_BACKEND = _env("CELERY_RESULT_BACKEND", "redis://localhost:6379/0"
 
 # ---- 平台层回调（worker → workflow 状态推进）----
 WORKFLOW_BASE_URL = _env("WORKFLOW_BASE_URL", "http://localhost:8082")
+# ---- WS 推送（T4.1，worker → notify；失败仅记日志）----
+NOTIFY_BASE_URL = _env("NOTIFY_BASE_URL", "http://localhost:8084")
 # 服务间身份：workflow 的 TrustedHeaderAuthFilter 按信任头还原（仅限内网直连）
 SERVICE_AUTH_HEADERS = {"X-User-Id": "py-engine-worker", "X-User-Roles": "admin"}
 
