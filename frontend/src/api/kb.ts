@@ -114,7 +114,7 @@ export function deleteProvider(name: string) {
 
 // ---- 图谱 ----
 export interface GraphData {
-  nodes: { key: string; label: string; type?: string; deprecated?: boolean; source_doc?: string; source_session?: string }[]
+  nodes: { key: string; label: string; name?: string; type?: string; deprecated?: boolean; source_doc?: string; source_session?: string }[]
   edges: { source: string; target: string; relation?: string }[]
   truncated?: boolean
 }

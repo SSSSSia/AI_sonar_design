@@ -69,6 +69,31 @@ def _notify_ir_updated(session_id: str, ir_type: str, version: int) -> None:
         logger.warning("session %s ir_updated 发布失败（不影响管线）: %s", session_id, exc)
 
 
+def _publish_log(session_id: str, level: str, message: str) -> None:
+    """T4.x 优化项：worker 关键步向 notify 发布 log 消息（工作台实时日志面板）。
+
+    日志不落库（快照/trace 才是权威记录），发布失败仅记本地日志、不拖垮管线。
+    """
+    try:
+        from datetime import datetime, timezone
+
+        from app_config import NOTIFY_BASE_URL
+
+        httpx.post(
+            f"{NOTIFY_BASE_URL}/internal/sessions/{session_id}/messages",
+            headers=SERVICE_AUTH_HEADERS,
+            json={
+                "type": "log",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "payload": {"level": level, "text": message},  # 契约字段名：contracts/ws ws-message.schema.json
+            },
+            timeout=3,
+        )
+    except Exception as exc:
+        logger.warning("session %s log 发布失败（不影响管线）: %s", session_id, exc)
+
+
 def _a2_trace(ir2: dict, session_id: str) -> list[dict]:
     from storage import ir_store, trace_steps
 
@@ -119,6 +144,7 @@ def a1_task(self, session_id: str) -> dict:
         ir0 = ir_store.get_latest_snapshot(session_id, "IR0")
         if ir0 is None:
             raise RuntimeError(f"session {session_id} 缺少 IR0 快照，无法执行 A1")
+        _publish_log(session_id, "info", "A1 开始：读取 IR0，检索知识库并解析需求")
 
         agent = A1Agent(llm=llm_adapter, kb_batch=get_knowledge_service().query_batch)
         try:
@@ -130,10 +156,12 @@ def a1_task(self, session_id: str) -> dict:
         version = ir_store.save_snapshot(session_id, "IR1", ir1, created_by="A1")
         ir_store.update_stage(session_id, "A1")
         _notify_ir_updated(session_id, "IR1", version)
+        _publish_log(session_id, "ok", f"A1 完成：IR1 v{version}（{len(ir1.get('sub_queries', []))} 条子查询）")
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR1", "version": version}
     except Exception as exc:
         logger.exception("a1 任务失败 session=%s", session_id)
+        _publish_log(session_id, "error", f"A1 失败：{exc}")
         _fire_session_event(session_id, "FAIL")
         raise
 
@@ -150,6 +178,7 @@ def a2_task(self, session_id: str) -> dict:
         ir1 = ir_store.get_latest_snapshot(session_id, "IR1")
         if ir1 is None:
             raise RuntimeError(f"session {session_id} 缺少 IR1 快照，无法执行 A2")
+        _publish_log(session_id, "info", "A2 开始：由 IR1 生成参数方案（公式参数走 solver 计算）")
 
         ir2 = A2Agent(llm=llm_adapter).run(ir1)
         # A-06 补强断言：契约校验外再确认四件套非空（防御未来 schema 放松）
@@ -161,10 +190,12 @@ def a2_task(self, session_id: str) -> dict:
         _record_trace(session_id, lambda: _a2_trace(ir2, session_id))
         ir_store.update_stage(session_id, "A2")
         _notify_ir_updated(session_id, "IR2", version)
+        _publish_log(session_id, "ok", f"A2 完成：IR2 v{version}（{len(ir2['parameters'])} 参数，四件套齐全）")
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR2", "version": version}
     except Exception as exc:
         logger.exception("a2 任务失败 session=%s", session_id)
+        _publish_log(session_id, "error", f"A2 失败：{exc}")
         _fire_session_event(session_id, "FAIL")
         raise
 
@@ -186,6 +217,7 @@ def a3_task(self, session_id: str) -> dict:
         ir2 = ir_store.get_latest_snapshot(session_id, "IR2")
         if ir2 is None:
             raise RuntimeError(f"session {session_id} 缺少 IR2 快照，无法执行 A3")
+        _publish_log(session_id, "info", "A3 开始：生成 CadQuery 脚本并在沙箱执行（失败自动进入修复循环）")
 
         ir3 = A3Agent(
             llm=llm_adapter,
@@ -197,10 +229,13 @@ def a3_task(self, session_id: str) -> dict:
         _record_trace(session_id, lambda: _a3_trace(ir3, ir2, session_id))
         ir_store.update_stage(session_id, "A3")
         _notify_ir_updated(session_id, "IR3", version)
+        step = ir3.get("step_file") or {}
+        _publish_log(session_id, "ok", f"A3 完成：IR3 v{version}（STEP 已落 MinIO：{step.get('object_key', '—')}）")
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR3", "version": version}
     except Exception as exc:
         logger.exception("a3 任务失败 session=%s", session_id)
+        _publish_log(session_id, "error", f"A3 失败：{exc}")
         _fire_session_event(session_id, "FAIL")
         raise
 
@@ -232,10 +267,16 @@ def a4_task(self, session_id: str) -> dict:
         _record_trace(session_id, lambda: _a4_trace(ir4, ir2, session_id))
         ir_store.update_stage(session_id, "A4")
         _notify_ir_updated(session_id, "IR4", version)
+        issues = ir4.get("issues") or []
+        n_err = sum(1 for i in issues if i.get("severity") == "error")
+        n_warn = sum(1 for i in issues if i.get("severity") == "warning")
+        level = "error" if ir4.get("overall") == "fail" else "ok"
+        _publish_log(session_id, level, f"A4 完成：IR4 v{version}（overall={ir4.get('overall', '—')}，error={n_err} warning={n_warn}）")
         _fire_session_event(session_id, "STAGE_DONE")
         return {"session_id": session_id, "ir": "IR4", "version": version}
     except Exception as exc:
         logger.exception("a4 任务失败 session=%s", session_id)
+        _publish_log(session_id, "error", f"A4 失败：{exc}")
         _fire_session_event(session_id, "FAIL")
         raise
 
@@ -267,7 +308,10 @@ def a5_task(self, session_id: str) -> dict:
         graph = Neo4jStore()
         if not graph.available():
             logger.warning("A5：Neo4j 不可达，知识去重仅 KB 文本级（如实降级）")
+            _publish_log(session_id, "warn", "A5：Neo4j 不可达，知识去重降级为 KB 文本级比对")
             graph = None
+        else:
+            _publish_log(session_id, "info", "A5 开始：从 IR1/IR2/IR4 提炼知识候选（pending，不入图）")
 
         try:
             ir5 = A5Agent(
@@ -280,6 +324,7 @@ def a5_task(self, session_id: str) -> dict:
         _record_trace(session_id, lambda: _a5_trace(ir5, session_id))
         ir_store.update_stage(session_id, "A5")
         _notify_ir_updated(session_id, "IR5", version)
+        _publish_log(session_id, "ok", f"A5 完成：IR5 v{version}（{len(ir5['candidates'])} 条候选待人工确认）")
         _fire_session_event(session_id, "COMPLETE")
         return {
             "session_id": session_id, "ir": "IR5", "version": version,
@@ -287,6 +332,7 @@ def a5_task(self, session_id: str) -> dict:
         }
     except Exception as exc:
         logger.exception("a5 任务失败 session=%s", session_id)
+        _publish_log(session_id, "error", f"A5 失败：{exc}")
         _fire_session_event(session_id, "FAIL")
         raise
 

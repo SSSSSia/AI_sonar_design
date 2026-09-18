@@ -11,7 +11,7 @@ export interface TaskProgressPayload {
 }
 
 export interface LogPayload {
-  level: 'debug' | 'info' | 'warn' | 'error'
+  level: 'debug' | 'info' | 'ok' | 'warn' | 'error'
   text: string
 }
 

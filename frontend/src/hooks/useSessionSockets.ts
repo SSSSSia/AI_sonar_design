@@ -4,13 +4,15 @@ import { SessionSocket, type SocketStatus } from '../ws/wsClient'
 import { useAuthStore } from '../stores/authStore'
 import { useProgressStore, useWsStatusStore } from '../stores/progressStore'
 import { useNotifyStore } from '../stores/notifyStore'
+import { useLogStore } from '../stores/logStore'
 
 const GATE_LABEL: Record<string, string> = { gate1: '审阅关①', gate2: '审阅关②' }
 
 /**
  * 为一组会话建立 WS 订阅（仪表盘的活跃会话 / 工作台的当前会话）。
  * 推送落地：task_progress → progressStore；review_request → 通知中心 + 会话列表失效；
- * ir_updated → 对应 IR 查询失效（HTTP 对账）。重连由 SessionSocket 自管（指数退避）。
+ * ir_updated → 对应 IR 查询失效（HTTP 对账）；log → logStore（工作台实时日志面板）。
+ * 重连由 SessionSocket 自管（指数退避）。
  */
 export function useSessionSockets(sids: string[]) {
   const queryClient = useQueryClient()
@@ -36,6 +38,12 @@ export function useSessionSockets(sids: string[]) {
           } else if (m.type === 'ir_updated') {
             void queryClient.invalidateQueries({ queryKey: ['ir', m.session_id] })
             void queryClient.invalidateQueries({ queryKey: ['session', m.session_id] })
+          } else if (m.type === 'log') {
+            useLogStore.getState().push(m.session_id, {
+              at: Date.parse(m.timestamp) || Date.now(),
+              level: m.payload.level,
+              text: m.payload.text,
+            })
           }
         },
         (status: SocketStatus, attempt: number) => {

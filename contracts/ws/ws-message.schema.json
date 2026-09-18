@@ -40,7 +40,7 @@
           "additionalProperties": false,
           "required": ["level", "text"],
           "properties": {
-            "level": { "enum": ["debug", "info", "warn", "error"] },
+            "level": { "enum": ["debug", "info", "ok", "warn", "error"] },
             "text": { "type": "string", "description": "日志文本（禁止包含密钥，宪法 §10.1）" }
           }
         },

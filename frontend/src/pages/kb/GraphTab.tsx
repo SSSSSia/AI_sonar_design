@@ -4,14 +4,19 @@ import { Button, Card, Input, Select, Space, Tag, Typography } from 'antd'
 import * as d3 from 'd3'
 import { getGraph, getNeighborhood, type GraphData } from '../../api/kb'
 
+// 实体类型键 = Neo4j label（与后端图谱写入一致，2026-09-18 实测采样对齐）；图表数据编码色，非交互蓝
 const TYPE_COLOR: Record<string, string> = {
-  SonarSystem: '#6e56cf', DesignCase: '#b7791f', DesignConstraint: '#c92a2a',
-  DesignParameter: '#d97706', Formula: '#2b8a3e', StructuralModule: '#0e8088',
-  Standard: '#57606a', AcousticParameter: '#0e8088',
+  SonarSystem: '#1f2329', DesignCase: '#b7791f', DesignConstraint: '#c92a2a',
+  DesignParameter: '#d97706', PerformanceIndicator: '#0e8088', Algorithm: '#2b8a3e',
+  Component: '#47698c', StructuralModule: '#6e56cf', CADModelingStandard: '#57606a',
+}
+
+function nodeType(n: { label?: string; type?: string }): string {
+  return n.label ?? n.type ?? 'Entity'
 }
 
 interface Node extends d3.SimulationNodeDatum {
-  key: string; label: string; type?: string; deprecated?: boolean
+  key: string; label: string; name?: string; type?: string; deprecated?: boolean
 }
 interface Link { source: string | Node; target: string | Node; relation?: string }
 
@@ -79,10 +84,10 @@ export function GraphTab() {
 
     node.append('circle')
       .attr('r', 7)
-      .attr('fill', (d) => (d.deprecated ? '#c6cbd1' : TYPE_COLOR[d.type ?? ''] ?? '#57606a'))
+      .attr('fill', (d) => (d.deprecated ? '#c6cbd1' : TYPE_COLOR[nodeType(d)] ?? '#8b949e'))
       .attr('stroke', '#fff').attr('stroke-width', 1.5)
     node.append('text')
-      .text((d) => d.label.slice(0, 10))
+      .text((d) => (d.name || d.label).slice(0, 10))
       .attr('x', 0).attr('y', 18)
       .attr('text-anchor', 'middle')
       .attr('font-size', 9.5)
@@ -127,7 +132,8 @@ export function GraphTab() {
       <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f1f3', minHeight: 64 }}>
         {selected ? (
           <div style={{ fontSize: 12.5 }}>
-            <b>{selected.label}</b> <Tag style={{ marginInlineEnd: 6 }}>{selected.type ?? '未知'}</Tag>
+            <b>{selected.name || selected.label}</b>{' '}
+            <Tag style={{ marginInlineEnd: 6 }}>{nodeType(selected)}</Tag>
             {selected.deprecated && <Tag color="default">deprecated</Tag>}
             <div style={{ color: '#57606a', marginTop: 4 }}>
               来源：{selected.source_doc ? <a>{selected.source_doc}</a> : '—'}
