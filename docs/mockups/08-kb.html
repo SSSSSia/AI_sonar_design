@@ -90,8 +90,8 @@
           </tbody>
         </table>
         <div class="card-b" style="border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;">
-          <div class="note" style="margin:0;"><b>删除即级联清理</b>：MinIO 原件、Milvus 向量、图谱来源节点标 deprecated，页面回显清理结果，不虚报成功（A-16）。</div>
-          <div class="note warn" style="margin:0;"><b>OCR 如实列</b>：ocr_pages = 已自动识别页数；若存在识别失败或超出预算（默认 20 页）的扫描页，计 ocr_pending 并在此列提示，不静默丢弃。</div>
+          <div class="note" style="margin:0;"><b>删除即级联清理</b>：MinIO 原件、向量、图谱来源标 deprecated，结果如实回显。</div>
+          <div class="note warn" style="margin:0;"><b>OCR 如实列</b>：超预算或识别失败的页计 ocr_pending，不静默丢弃。</div>
         </div>
       </div>
 
@@ -130,7 +130,7 @@
         </table>
         <div class="card-b" style="border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;">
           <a class="btn sm" href="#">全部确认（本页 12 条）</a>
-          <span class="h-sub">抽取任务异步执行（4 并发），失败可重试；抽取为空时如实提示，不造数。</span>
+          <span class="h-sub">抽取异步执行，失败可重试；为空时如实提示。</span>
         </div>
       </div>
 
@@ -159,7 +159,7 @@
         </table>
         <div class="card-b" style="border-top:1px solid var(--border);">
           <div class="note warn" style="margin:0;">
-            <b>军标库空态（如实）：</b>当前 0 条军标条目，A4 对 standard 来源参数的相关检查将如实标「待补」，不臆断符合性；录入条目（含检查逻辑登记）后即自动参与校验。
+            <b>军标库空态（如实）：</b>当前 0 条，A4 相关检查如实标「待补」；录入后自动参与校验。
           </div>
         </div>
       </div>
@@ -187,7 +187,7 @@
             </tr>
           </tbody>
         </table>
-        <div class="card-b" style="border-top:1px solid var(--border);"><div class="help" style="margin:0;">密钥仅存 .env / 数据库（git 不入库，日志脱敏）；列表页永远只显示尾 4 位。</div></div>
+        <div class="card-b" style="border-top:1px solid var(--border);"><div class="help" style="margin:0;">密钥只写不回显，列表仅显示尾 4 位；保存后热重载。</div></div>
       </div>
 
       <!-- ===== 页签 5：图谱 ===== -->
@@ -244,7 +244,7 @@
         </div>
       </div>
 
-      <p class="help" style="margin-top:14px;">以上数字为当前知识库真实规模的示例快照（4 文档 / 439 块 / 2939 已确认抽取 / 图谱 1240 实体 + 807 关系）；页面数据一律来自后端接口，不做前端假数（A-16）。</p>
+      <p class="help" style="margin-top:14px;">页面数字一律来自后端接口，不做前端假数（A-16）。</p>
     </div>
   </div>
 </div>

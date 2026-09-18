@@ -84,7 +84,7 @@
         <div class="card-b" style="border-top:1px solid var(--border);display:flex;align-items:center;gap:12px;">
           <span class="h-sub">统计：1 错误 · 1 警告 · 2 提示</span>
           <span class="spacer" style="flex:1"></span>
-          <span class="h-sub">存在任一错误即 fail；整改走审阅关②驳回（局部回环，A-11）</span>
+          <span class="h-sub">任一错误即 fail，整改走审阅关②驳回</span>
           <a class="btn sm" href="05-review.html">前往裁决</a>
         </div>
       </div>
@@ -121,7 +121,7 @@
           </table>
           <div class="card-b" style="border-top:1px solid var(--border);">
             <div class="note">
-              <b>知识审阅关（A-10）：</b>以上候选全部为 pending 状态，<b>未经人工确认不会写入知识图谱</b>。重复项不静默覆盖，确认时可选择「仍写入（新版并标注取代）」或「放弃」。
+              <b>知识审阅关（A-10）：</b>候选全部 pending，<b>未经人工确认不写入图谱</b>；重复项不静默覆盖。
             </div>
           </div>
         </div>
@@ -143,7 +143,7 @@
             <div class="row" style="justify-content:flex-end;">
               <button class="btn primary">提交裁决</button>
             </div>
-            <div class="help">裁决后：确认项写入图谱并带 source_doc / source_session 溯源；写入失败会如实记录在批注，不会虚报成功（A-16）。</div>
+            <div class="help">确认项写入图谱并带来源溯源；写入失败如实记录，不虚报成功（A-16）。</div>
           </div>
         </div>
       </div>

@@ -42,7 +42,7 @@
       </div>
 
       <div class="note warn" style="margin-bottom:16px;">
-        <b>审阅关② 待裁决：</b>待审对象为 <b>IR3 v1（建模产物）</b> 与 <b>IR4 v1（校验报告）</b>。批准后进入 A5 知识沉淀；驳回则按所选回退目标做<b>局部回算</b>（下游版本标记失效，不整链重跑，A-11）。
+        <b>审阅关② 待裁决：</b>待审对象 <b>IR3 v1 + IR4 v1</b>。批准进入 A5；驳回按所选目标<b>局部回算</b>（A-11）。
       </div>
 
       <div class="grid-32">
@@ -117,7 +117,7 @@
                   <label class="radio-line"><input type="radio" name="rw" checked> <b>A2 方案生成</b>&nbsp;<span class="badge warn">IR4 建议</span></label>
                   <label class="radio-line"><input type="radio" name="rw"> <b>A3 CAD 建模</b></label>
                 </div>
-                <div class="help">IR4 建议：CHK-GEO-001 阵列孔径与特征包络不一致（suggestion: back_to_A2）。回退后 IR2–IR4 现行版本将标记失效。</div>
+                <div class="help">IR4 建议回退 A2：CHK-GEO-001 孔径与特征包络不一致。回退后现行 IR2–IR4 标记失效。</div>
               </div>
 
               <div class="field">
@@ -188,7 +188,7 @@
       <div class="box">SymPy 复算 <span class="mono-ref">16.81 dB</span>，与 IR2 偏差 0.014%，容差内 · <span class="badge ok">pass</span></div>
     </div>
 
-    <div class="note" style="margin-top:6px;">IR 快照是权威出处，链路可随时由快照重建；本抽屉数据来自 <span class="mono-ref">GET /api/v1/trace/{trace_id}</span>。</div>
+    <div class="note" style="margin-top:6px;">快照是权威出处，链路可随时重建；数据来自 <span class="mono-ref">GET /api/v1/trace/{trace_id}</span>。</div>
   </div>
 </div>
 </body>

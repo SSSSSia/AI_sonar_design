@@ -100,8 +100,7 @@
               </svg>
             </div>
             <div class="note" style="margin-top:12px;">
-              转换链路：IR3 快照 → MinIO 取 STEP → cadquery 镶嵌 → GLB 缓存（<span class="mono-ref">cad-previews/{session}/{ir_version}.glb</span>）。
-              版本变更自动重转；转换失败如实报错并保留 STEP 下载入口。
+              转换链路：IR3 快照 → STEP → cadquery 镶嵌 → GLB 缓存；版本变更自动重转，失败如实报错并保留 STEP 下载。
             </div>
           </div>
         </div>
@@ -130,7 +129,7 @@
               </tbody>
             </table>
             <div class="card-b" style="border-top:1px solid var(--border);">
-              <div class="help" style="margin:0;">下载经后端预签名 URL（15 分钟有效），未登录请求返回 401；「点击三维模型反向定位参数」为规划内暂缓项，本期不做。</div>
+              <div class="help" style="margin:0;">下载走预签名 URL（15 分钟），未登录 401；「模型点击反向定位参数」暂缓不做。</div>
             </div>
           </div>
 
@@ -140,7 +139,7 @@
               <div class="row"><span class="mono-ref" style="width:36px;">F-02</span><span>声阵段 48 元 ← 联动 <a href="#">P-001 阵元间距</a></span></div>
               <div class="row"><span class="mono-ref" style="width:36px;">F-03</span><span>孔径包络 ← 联动 <a href="#">P-002 阵列孔径</a> <span class="badge err">gate2 时点不一致</span></span></div>
               <div class="row"><span class="mono-ref" style="width:36px;">F-01</span><span>湿端段 ← 联动 <a href="#">P-004 湿端直径</a></span></div>
-              <div class="help" style="margin:0;">参数双向联动（E1）：修改参数触发受影响特征重算与下游失效，全链快照可溯。</div>
+              <div class="help" style="margin:0;">参数双向联动（E1）：改参数触发受影响特征重算与下游失效，全链可溯。</div>
             </div>
           </div>
         </div>

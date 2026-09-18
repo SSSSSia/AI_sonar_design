@@ -85,7 +85,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .card-h .h-title { font-weight: 600; font-size: 13.5px; }
 .card-h .h-sub { color: var(--text-3); font-size: 12px; }
 .card-h .spacer { flex: 1; }
-.card-b { padding: 16px; }
+.card-b { padding: 18px; }
 .card-b.tight { padding: 8px 0 0; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -348,3 +348,21 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
   font-family: var(--mono); font-size: 11.5px; line-height: 1.8; color: var(--text-2); overflow: auto; max-height: 220px;
 }
 .kw { color: var(--purple); } .fn { color: var(--blue); } .num { color: var(--teal); } .cm { color: var(--text-3); }
+
+/* ---------- 响应式断点（与实现约定一致：AntD 栅格简化版） ---------- */
+@media (max-width: 1180px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .health { grid-template-columns: repeat(2, 1fr); }
+  .grid-32, .grid-23, .grid-2 { grid-template-columns: 1fr; }
+  .graph-wrap { grid-template-columns: 1fr; }
+  .graph-view { border-right: none; border-bottom: 1px solid var(--border); }
+}
+@media (max-width: 860px) {
+  /* 原型示意：窄屏侧栏收起（实现中为可展开抽屉 Drawer，非直接消失） */
+  .sidebar { display: none; }
+  .idx-grid { grid-template-columns: 1fr; }
+  .content { padding: 14px 12px 32px; }
+  .stat-grid { grid-template-columns: 1fr; }
+  .drawer { width: 100vw; }
+  .topbar .crumb { display: none; }
+}
