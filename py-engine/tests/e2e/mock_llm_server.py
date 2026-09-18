@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 
 from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 
 app = FastAPI(title="sonarcad-mock-llm")
 
@@ -201,6 +202,25 @@ async def chat(request: Request):
         content = DESIGN_DOC
     else:
         content = "{}"
+
+    # 适配器已流式化（llm/adapter.py stream:true + SSE delta 解析）：
+    # stream 请求必须回 SSE，否则适配器解析为空内容（2026-09-18 e2e 复跑踩中）
+    if body.get("stream"):
+        def sse():
+            step = 64
+            for i in range(0, len(content), step):
+                chunk = {
+                    "id": "mock-completion", "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "finish_reason": None,
+                                 "delta": {"content": content[i:i + step]}}],
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+            done = {"id": "mock-completion", "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}]}
+            yield f"data: {json.dumps(done)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(sse(), media_type="text/event-stream")
 
     return {
         "id": "mock-completion",
