@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -427,3 +428,32 @@ def graph(limit: int = 300) -> dict:
 @router.get("/graph/neighborhood")
 def graph_neighborhood(key: str, depth: int = 2, limit: int = 100) -> dict:
     return _graph_store().neighborhood(key=key, depth=depth, limit=min(max(limit, 1), 300))
+
+
+@router.get("/status")
+def kb_status(user: str = Depends(require_user)) -> dict[str, Any]:
+    """知识库现状诚实上报（网关可达版 /knowledge/status，T4.4 系统管理页用）。"""
+    from knowledge.service import get_knowledge_service
+    from storage import kb_store
+
+    svc = get_knowledge_service()
+    status: dict[str, Any] = {
+        "kb_levels_enabled": svc.enable_kb_levels,
+        "graphrag_sdk": svc.sdk is not None,
+        "dynamic_corpus_chunks": len(svc._dynamic_sources),
+    }
+    status.update(kb_store.doc_stats())
+    if svc.enable_kb_levels:
+        try:
+            from kb.vector_store import ChunkVectorStore
+
+            status["milvus_available"] = ChunkVectorStore().available()
+        except Exception:
+            status["milvus_available"] = False
+        try:
+            from storage.neo4j_store import Neo4jStore
+
+            status["neo4j_available"] = Neo4jStore().available()
+        except Exception:
+            status["neo4j_available"] = False
+    return status

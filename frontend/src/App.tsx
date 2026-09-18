@@ -4,10 +4,11 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import RequirementInputPage from './pages/RequirementInputPage'
 import SessionPage from './pages/session/SessionPage'
-import { StubPage } from './pages/StubPage'
+import KnowledgePage from './pages/kb/KnowledgePage'
+import AdminPage from './pages/AdminPage'
 import { useAuthStore } from './stores/authStore'
 
-/** 骨架路由（阶段 4）。页面逐任务交付：T4.1 仪表盘 → T4.2 审阅 → T4.3 三维 → T4.4 知识库。 */
+/** 阶段 4 路由。 */
 export default function App() {
   const token = useAuthStore((s) => s.token)
   return (
@@ -17,8 +18,8 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/sessions/new" element={<RequirementInputPage />} />
         <Route path="/sessions/:id" element={<SessionPage />} />
-        <Route path="/kb" element={<StubPage title="知识库管理" phase="T4.4" note="后端 /api/v1/kb 全套 API 已就绪" />} />
-        <Route path="/admin" element={<StubPage title="系统管理" phase="T4.4" />} />
+        <Route path="/kb" element={<KnowledgePage />} />
+        <Route path="/admin" element={<AdminPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
