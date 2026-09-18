@@ -26,3 +26,19 @@ export function stageLabel(stage?: string | null): string {
   if (!stage) return '—'
   return STAGE_LABEL[stage] ?? stage
 }
+
+/** 裁决批注归一化：后端可能是数组/JSON 字符串/null（jsonb 映射差异）。 */
+export function annotationsText(a: unknown): string {
+  if (Array.isArray(a)) {
+    return a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('；')
+  }
+  if (typeof a === 'string') {
+    try {
+      return annotationsText(JSON.parse(a))
+    } catch {
+      return a
+    }
+  }
+  if (a == null) return ''
+  return JSON.stringify(a)
+}

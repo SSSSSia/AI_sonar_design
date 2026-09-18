@@ -17,7 +17,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = []
   onopen: (() => void) | null = null
   onmessage: ((ev: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((ev?: { code: number; wasClean: boolean }) => void) | null = null
   onerror: (() => void) | null = null
   closed = false
   constructor(public url: string) {
@@ -26,6 +26,7 @@ class FakeWebSocket {
   close() {
     this.closed = true
   }
+  fireClose = () => this.onclose?.({ code: 1000, wasClean: true })
 }
 
 const progressMsg: WsMessage = {
@@ -70,7 +71,7 @@ describe('SessionSocket', () => {
     socket.connect()
     const ws = FakeWebSocket.instances[0]
     ws.onopen?.()
-    ws.onclose?.()
+    ;(ws as FakeWebSocket).fireClose()
     expect(statuses).toEqual(['connecting', 'connected', 'reconnecting'])
     vi.advanceTimersByTime(backoffMs(1))
     expect(FakeWebSocket.instances).toHaveLength(2)
@@ -84,7 +85,7 @@ describe('SessionSocket', () => {
     socket.connect()
     const ws = FakeWebSocket.instances[0]
     socket.close()
-    ws.onclose?.()
+    ws.fireClose()
     vi.advanceTimersByTime(60_000)
     expect(FakeWebSocket.instances).toHaveLength(1)
     vi.useRealTimers()

@@ -20,7 +20,9 @@ public class DesignSessionEntity {
     private OffsetDateTime updatedAt;
 
     public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
+
+    /** 归一化去横线（T4.2）：id 列为原生 uuid，PG 读回归一化为带横线形态——统一为 32 位无横线，保证 API/WS 频道键一致。 */
+    public void setId(String id) { this.id = id == null ? null : id.replace("-", ""); }
     public String getProjectId() { return projectId; }
     public void setProjectId(String projectId) { this.projectId = projectId; }
     public String getTitle() { return title; }
