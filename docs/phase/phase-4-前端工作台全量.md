@@ -83,6 +83,14 @@
 - `<768px`：单列堆叠，数据表格转为卡片列表（每个实体一张卡），顶栏操作收敛进「更多」菜单；
 - 布局必须随窗口尺寸动态重排（flex/grid，禁止固定像素宽表格横向溢出不处理）；三维视口与图谱容器随父容器自适应。
 
+**实现落地（2026-09-18 视觉打磨，依据 anthropics/skills · frontend-design）**：
+- `frontend/src/styles/theme.css`：mockup.css token 同源落地（CSS 变量 + AntD 细节校准 + 工具类 `.mono/.page-head/.row`）；系统字体栈不引网络字体；`prefers-reduced-motion` 全局尊重；`:focus-visible` 焦点可见。
+- `main.tsx` ConfigProvider：灰阶/语义色/边框发丝线/13px 密度/controlHeight 30 整体映射进 AntD token（Layout/Menu/Table/Card/Statistic/Tabs 等组件级）。
+- 品牌细节：石墨底声呐同心环标记（装饰非蓝）、mono `v2` 章、顶栏 sticky、内容区 max-width 1320 居中；`<768` 侧栏收进 Drawer 抽屉导航（对齐 mockup 批注）；通知铃铛图标化。
+- 登录页身份时刻：左侧品牌面板 = 中性灰声呐扫描纹样（同心环 + 9s 缓扫，reduced-motion 静止）+ 一句产品陈述 + mono 管线链徽章；`≤1100px` 品牌回退进卡片。蓝色仅「登录」按钮。
+- 管线时间线（产品身份所在）：颜色即状态语义（蓝=进行/通过，琥珀=待裁决+gate-pulse 脉冲，红=失败，灰=未到），节点码/百分比 mono，连接线 pending 降为发丝灰。
+- 自审对齐 skill 反模板清单：无渐变、无 ALL-CAPS 眉题、无阴影卡片套件（边框优先）、无装饰蓝、间隔点元信息改为逗号句读。
+
 ### 2.6 T4.3 后端小增量（唯一新增端点，随 T4.3 commit）
 
 - **spike 先行**：验证 cadquery `Shape.tessellate()` → 自组 glTF 2.0 GLB（无新 Python 依赖；量级小）。不可行再评估 assimp 管线，不引入新重服务。
@@ -164,6 +172,7 @@ mockup 一次全量确认（用户已选定该方式）→ T4.1 → T4.2 → T4.
 | 2026-09-18 | T4.3 实机验收 | **通过**：STEP→glTF 转换服务（py-engine /api/v1/cad/*，gateway 新路由）+ R3F 预览 + 预签名下载。**性能实测驱动架构**：OCC 导入仅 1.6s，但大装配镶嵌对容差不敏感（0.5mm→18min/394万面；25.9mm→12min/169万面）→ 采用「POST 触发后台线程转换 + GET 轮询 + MinIO cad-previews/{sid}/{version}.glb 按版本缓存」，首次转换数分钟如实提示，之后秒开。实机走查：48 元拖曳阵模型（86m 全展开）浏览器可交互预览（旋转/线框），STEP 预签名下载（15min）与脚本 data-url 下载带 JWT 校验。依赖决策：改用 trimesh 组 GLB（原计划手写，可靠性优先，轻量纯库）；⚠ gateway yml 改动必须重新 package（jar 内配置不热更） |
 | 2026-09-18 | T4.4 实机验收 | **通过**：知识库管理五页签实机走查——文档库（4 个真实文档 indexed、OCR 如实列、级联删除、增量构建）、抽取确认（按文档/状态过滤 + 逐条确认驳回）、三库管理（公式库真实 SymPy 表达式 + 启停 + 军标空态如实）、LLM 供应商（掩码回显 + 热重载）、D3 力导向图谱（真实 Neo4j 采样 + 邻域查询 + 图例）；系统管理页（经网关真实探测四服务 + /api/v1/kb/status 知识库现状 + 待接项如实）。后端补 GET /api/v1/kb/status（路由前缀曾双写 /kb/kb 已修）。图谱节点 type 着色未完全映射（数据键名差异）记优化项 |
 | 2026-09-18 | 阶段 4 收官 | 代码/测试/文档全部推送至 306e254+；测试基线：notify 5 + workflow 19 + 前端 vitest 13 全绿；**阶段 4 待人工验收**（建议走查项见 HANDOFF） |
+| 2026-09-18 | 视觉打磨（frontend-design skill） | **通过**：安装 anthropics/skills（vendor 克隆 + frontend-design/webapp-testing/theme-factory 装入用户 skills 目录），按其原则落地 §2.5「实现落地」清单——主题 token 全量映射、品牌声呐环标记、登录页扫描纹样（中性灰非蓝、reduced-motion 静止）、管线时间线状态配色、`<768` 抽屉导航。浏览器实测 1440/1024/800/640 四档截图走查（登录/仪表盘/工作台/审阅参数表）；tsc + vitest 13 + vite build 全绿。修复页头 `.row` 工具类缺失导致的换行 |
 
 ## 6. 修订记录
 
@@ -171,3 +180,4 @@ mockup 一次全量确认（用户已选定该方式）→ T4.1 → T4.2 → T4.
 |---|---|---|
 | v0.1 | 2026-09-17 | 规划版：任务分解框架 + DoD 框架 |
 | v1.0 | 2026-09-17 | 完整版：页面/路由/API 契约、WS 消费约定、视觉基调锁定（浅色中性，用户确认）、T4.3 后端小增量设计、风险表 |
+| v1.1 | 2026-09-18 | 视觉打磨：§2.5 增「实现落地」（anthropics/skills · frontend-design 原则 + theme.css/token 映射清单）；§5 增验收行 |

@@ -35,47 +35,75 @@ export function buildTimeline(currentStage: string | null | undefined, status: s
   })
 }
 
+/** 颜色即状态语义：蓝=进行中/已通过，琥珀=待人工裁决，红=失败，灰=未到。 */
+const C = {
+  track: '#e5e7eb',
+  progressed: '#2563eb',
+  gate: '#d97706',
+  failed: '#c92a2a',
+  text1: '#1f2329',
+  text3: '#8b949e',
+}
+
 export function PipelineTimeline({ nodes, percent }: { nodes: PipelineNodeState[]; percent?: number }) {
   return (
-    <div style={{ padding: '8px 4px 2px' }}>
+    <div style={{ padding: '10px 4px 2px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', overflowX: 'auto' }}>
-        {nodes.map((n, i) => (
-          <div key={n.key} style={{ flex: 1, minWidth: 92, textAlign: 'center', position: 'relative' }}>
-            {i > 0 && (
-              <span
+        {nodes.map((n, i) => {
+          const active = n.state === 'active'
+          const gateActive = active && n.gate
+          const filled = n.state === 'done' || gateActive || n.state === 'failed'
+          return (
+            <div key={n.key} style={{ flex: 1, minWidth: 92, textAlign: 'center', position: 'relative' }}>
+              {i > 0 && (
+                <span
+                  style={{
+                    position: 'absolute', top: 13, left: '-50%', width: '100%', height: 2, borderRadius: 1,
+                    background: n.state === 'pending' ? C.track : C.progressed,
+                  }}
+                />
+              )}
+              <div
+                className={gateActive ? 'gate-pulse' : undefined}
                 style={{
-                  position: 'absolute', top: 14, left: '-50%', width: '100%', height: 2,
-                  background: n.state === 'pending' ? '#d1d5db' : '#2563eb',
+                  width: 26, height: 26, borderRadius: '50%', margin: '0 auto', position: 'relative', zIndex: 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: n.gate ? 11 : 10.5, fontWeight: 600, fontFamily: 'var(--mono)',
+                  background: n.state === 'done' ? C.progressed : gateActive ? C.gate
+                    : n.state === 'failed' ? C.failed : '#fff',
+                  border: `2px solid ${
+                    n.state === 'pending' ? C.track
+                      : n.state === 'failed' ? C.failed
+                      : gateActive ? C.gate : C.progressed}`,
+                  color: filled ? '#fff' : active ? C.progressed : C.text3,
+                  boxShadow: active && !n.gate ? '0 0 0 3px rgba(37,99,235,.15)' : undefined,
                 }}
-              />
-            )}
-            <div
-              style={{
-                width: 28, height: 28, borderRadius: '50%', margin: '0 auto', position: 'relative', zIndex: 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600,
-                background: n.state === 'done' ? '#2563eb' : n.state === 'active' && n.gate ? '#d97706'
-                  : n.state === 'failed' ? '#c92a2a' : '#fff',
-                border: `2px solid ${n.state === 'pending' ? '#d1d5db' : n.state === 'failed' ? '#c92a2a'
-                  : n.state === 'active' && n.gate ? '#d97706' : '#2563eb'}`,
-                color: n.state === 'done' || (n.state === 'active' && n.gate) || n.state === 'failed' ? '#fff'
-                  : n.state === 'active' ? '#2563eb' : '#8b949e',
-                boxShadow: n.state === 'active' && !n.gate ? '0 0 0 3px rgba(37,99,235,.15)' : undefined,
-              }}
-            >
-              {n.state === 'done' ? <CheckCircleFilled /> : n.state === 'active' && n.gate ? <PauseCircleFilled />
-                : n.state === 'failed' ? <ExclamationCircleFilled /> : n.key}
+              >
+                {n.state === 'done' ? <CheckCircleFilled />
+                  : gateActive ? <PauseCircleFilled />
+                  : n.state === 'failed' ? <ExclamationCircleFilled />
+                  : n.key}
+              </div>
+              <div
+                style={{
+                  marginTop: 6, fontSize: 12,
+                  color: n.state === 'pending' ? C.text3 : active ? C.text1 : '#57606a',
+                  fontWeight: active ? 600 : 400,
+                }}
+              >
+                {n.label}
+              </div>
+              {n.sub && <div className="mono" style={{ fontSize: 10.5, color: C.text3, marginTop: 1 }}>{n.sub}</div>}
             </div>
-            <div style={{ marginTop: 6, fontSize: 12, color: n.state === 'pending' ? '#8b949e' : '#1f2329', fontWeight: n.state === 'active' ? 600 : 400 }}>
-              {n.label}
-            </div>
-            {n.sub && <div style={{ fontSize: 11, color: '#8b949e', marginTop: 1 }}>{n.sub}</div>}
-          </div>
-        ))}
+          )
+        })}
       </div>
       {percent !== undefined && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 4px 0' }}>
           <Progress percent={Math.round(percent)} size="small" style={{ flex: 1, marginBottom: 0 }} showInfo={false} />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{Math.round(percent)}%</Typography.Text>
+          <Typography.Text type="secondary" className="mono" style={{ fontSize: 12 }}>
+            {Math.round(percent)}%
+          </Typography.Text>
         </div>
       )}
     </div>

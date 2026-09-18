@@ -138,7 +138,7 @@ export default function DashboardPage() {
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto' }}>
       <div className="row" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>仪表盘</Typography.Title>
+        <div className="page-head">仪表盘</div>
         <span style={{ flex: 1 }} />
         {wsSummary && (
           <Tag color={wsSummary.tone === 'default' ? undefined : wsSummary.tone}>{wsSummary.text}</Tag>

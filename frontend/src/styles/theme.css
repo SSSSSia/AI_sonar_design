@@ -1,0 +1,130 @@
+/* ============================================================
+   Sonar-CAD v2 · 全局视觉基线（PHASE-004 §2.5；宪法 §7.3）
+   基调：浅色中性生产力美学；蓝 #2563EB 仅用于交互语义，禁止装饰性用蓝。
+   Token 与 docs/mockups/mockup.css 同源，两侧改动需同步。
+   ============================================================ */
+
+:root {
+  --bg: #f5f6f8;           /* 内容区底 */
+  --panel: #fafbfc;        /* 侧栏/品牌面板底 */
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --hairline: #f0f1f3;
+  --text-1: #1f2329;
+  --text-2: #57606a;
+  --text-3: #8b949e;
+  --blue: #2563eb;         /* 仅按钮/链接/激活/可点击 */
+  --blue-hover: #1d4ed8;
+  --blue-bg: #eef2fe;
+  --ok: #2b8a3e;
+  --warn: #d97706;
+  --err: #c92a2a;
+  /* 系统字体栈：中文界面优先本机渲染，不引入网络字体 */
+  --font-sans: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text-1);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: #e2e5ea; }
+
+/* 数据读数一律等宽 + 表格数字（仪器感）；ID/哈希/版本号用 .mono */
+.mono { font-family: var(--mono); }
+.num, .ant-statistic-content-value, .ant-table-tbody > tr > td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 焦点可见性（质量底线） */
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* 细滚动条（中性灰） */
+* { scrollbar-width: thin; scrollbar-color: #d3d6db transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: #d3d6db; border-radius: 4px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: #b9bec6; }
+
+/* ---------- AntD 细节校准（组件 token 覆盖不到处） ---------- */
+.ant-table-wrapper .ant-table-thead > tr > th { font-weight: 500; }
+.ant-tag { margin-inline-end: 0; }
+.ant-card-head { min-height: 44px; }
+.ant-modal .ant-modal-content,
+.ant-popover .ant-popover-inner { border: 1px solid var(--border); }
+.ant-drawer-content { border-left: 1px solid var(--border); }
+
+/* 页头统一（16px/600，替代默认 h4 的 20px 压迫感） */
+.page-head { font-size: 16px; font-weight: 600; line-height: 1.4; }
+/* 页头行工具类（各页 className="row" 依赖） */
+.row { display: flex; align-items: center; gap: 12px; }
+
+/* ---------- 门禁节点脉冲（仅 gate 激活态，信息性动效） ---------- */
+@keyframes gate-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(217, 119, 6, .16); }
+  50%      { box-shadow: 0 0 0 6px rgba(217, 119, 6, .08); }
+}
+.gate-pulse { animation: gate-pulse 1.6s ease-in-out infinite; }
+
+/* ---------- 登录页品牌面板 · 声呐扫描纹样 ----------
+   主题根植：声呐 = 同心扫描环。中性灰绘制，非交互元素不使用蓝。 */
+.login-split { min-height: 100vh; display: flex; background: var(--bg); }
+.login-brand {
+  flex: 1.15; min-width: 0; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 44px 52px; background: var(--panel); border-right: 1px solid var(--border);
+}
+.login-brand .motif {
+  position: absolute; top: -140px; right: -160px;
+  width: 620px; height: 620px; pointer-events: none;
+}
+.login-brand .motif .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--border); }
+.login-brand .motif .ring.r2 { inset: 78px; }
+.login-brand .motif .ring.r3 { inset: 156px; border-color: var(--border-strong); }
+.login-brand .motif .ring.r4 { inset: 234px; }
+.login-brand .motif .core {
+  position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
+  margin: -3px 0 0 -3px; border-radius: 50%; background: var(--border-strong);
+}
+.login-brand .motif .sweep {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    rgba(209, 213, 219, 0) 0deg, rgba(185, 190, 198, .5) 42deg, rgba(209, 213, 219, 0) 50deg);
+  animation: sonar-sweep 9s linear infinite;
+}
+@keyframes sonar-sweep { to { transform: rotate(360deg); } }
+.login-main {
+  flex: 1; min-width: 0; display: flex;
+  align-items: center; justify-content: center; padding: 24px;
+}
+/* 管线链条（mono 徽章 + 发丝线连接，表达产品主干） */
+.pipe-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.pipe-chips .chip {
+  font-family: var(--mono); font-size: 11px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; background: var(--card);
+}
+/* 窄屏回退：品牌移入卡片 */
+.login-compact { display: none; }
+@media (max-width: 1100px) {
+  .login-brand { display: none; }
+  .login-compact { display: flex; justify-content: center; gap: 8px; align-items: center; margin-bottom: 22px; }
+}
+
+/* ---------- 动效尊重系统偏好（质量底线） ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

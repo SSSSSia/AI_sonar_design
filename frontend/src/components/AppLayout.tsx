@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Avatar, Badge, Button, Dropdown, Grid, Layout, List, Menu, Popover, Space, Tag, Typography } from 'antd'
 import {
-  DashboardOutlined, DatabaseOutlined, EditOutlined, LogoutOutlined, SettingOutlined, UserOutlined,
+  Avatar, Badge, Button, Drawer, Dropdown, Grid, Layout, List, Menu, Popover, Space, Tag, Typography,
+} from 'antd'
+import {
+  BellOutlined, DashboardOutlined, DatabaseOutlined, EditOutlined, LogoutOutlined,
+  MenuOutlined, SettingOutlined, UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -22,6 +25,57 @@ const MENU_ITEMS = [
 
 const ROLE_LABEL: Record<string, string> = {
   admin: '管理员', designer: '设计', reviewer: '审阅', viewer: '只读',
+}
+
+/** 品牌标记：石墨底声呐同心环。中性灰绘制，装饰不占用交互蓝。 */
+function SonarMark({ size = 24 }: { size?: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size, height: size, borderRadius: Math.max(5, size * 0.22), background: '#1f2329',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+      }}
+    >
+      <span
+        style={{
+          width: size * 0.6, height: size * 0.6, borderRadius: '50%',
+          border: '1.5px solid rgba(255,255,255,.82)',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <span style={{ width: size * 0.16, height: size * 0.16, borderRadius: '50%', background: '#fff' }} />
+      </span>
+    </span>
+  )
+}
+
+function Brand({ collapsed = false }: { collapsed?: boolean }) {
+  return (
+    <div
+      style={{
+        padding: collapsed ? '16px 0 12px' : '13px 16px 11px',
+        borderBottom: '1px solid var(--hairline)',
+        display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 9,
+      }}
+    >
+      <SonarMark />
+      {!collapsed && (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+            Sonar-CAD
+            <span
+              className="mono"
+              style={{ fontSize: 10, color: 'var(--text-2)', background: 'var(--hairline)', padding: '0 5px', borderRadius: 4, lineHeight: '16px' }}
+            >
+              v2
+            </span>
+          </div>
+          <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 1 }}>智能辅助声呐装备设计系统</div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function NotificationBell() {
@@ -66,7 +120,7 @@ function NotificationBell() {
   return (
     <Popover content={content} trigger="click" placement="bottomRight">
       <Badge count={unread} size="small">
-        <Button type="text" aria-label="通知中心">🔔</Button>
+        <Button type="text" icon={<BellOutlined />} aria-label="通知中心" />
       </Badge>
     </Popover>
   )
@@ -77,12 +131,13 @@ export default function AppLayout() {
   const location = useLocation()
   const screens = Grid.useBreakpoint()
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileNav, setMobileNav] = useState(false)
   const username = useAuthStore((s) => s.username)
   const displayName = useAuthStore((s) => s.displayName)
   const roles = useAuthStore((s) => s.roles)
   const clear = useAuthStore((s) => s.clear)
 
-  // 响应式（PHASE-004 §2.5）：<1200 侧栏收窄为图标栏，<768 隐藏侧栏
+  // 响应式（PHASE-004 §2.5）：<768 侧栏收进抽屉；<1200 自动折叠为图标栏
   const hideSider = screens.md === false
   const autoCollapse = screens.xl === false
 
@@ -98,16 +153,9 @@ export default function AppLayout() {
           collapsible
           collapsed={autoCollapse || collapsed}
           onCollapse={setCollapsed}
-          style={{ borderRight: '1px solid #e5e7eb' }}
+          style={{ borderRight: '1px solid var(--border)' }}
         >
-          <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #e5e7eb' }}>
-            {!collapsed && (
-              <>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>Sonar-CAD v2</div>
-                <div style={{ color: '#8b949e', fontSize: 11, marginTop: 3 }}>智能辅助声呐装备设计系统</div>
-              </>
-            )}
-          </div>
+          <Brand collapsed={autoCollapse || collapsed} />
           <Menu
             mode="inline"
             style={{ borderInlineEnd: 'none', paddingTop: 8 }}
@@ -117,14 +165,43 @@ export default function AppLayout() {
           />
         </Sider>
       )}
+      <Drawer
+        placement="left"
+        width={264}
+        open={mobileNav}
+        onClose={() => setMobileNav(false)}
+        title={<Brand />}
+        styles={{ body: { padding: '8px 0' }, header: { padding: 0, border: 'none' } }}
+      >
+        <Menu
+          mode="inline"
+          style={{ borderInlineEnd: 'none' }}
+          selectedKeys={[selectedKey]}
+          items={MENU_ITEMS}
+          onClick={({ key }) => {
+            navigate(key)
+            setMobileNav(false)
+          }}
+        />
+      </Drawer>
       <Layout>
         <Header
           style={{
-            background: '#fff', borderBottom: '1px solid #e5e7eb', padding: screens.md ? '0 24px' : '0 12px',
-            display: 'flex', alignItems: 'center', gap: 12, height: 52, lineHeight: '52px',
+            background: '#fff', borderBottom: '1px solid var(--border)',
+            padding: screens.md ? '0 24px' : '0 12px',
+            display: 'flex', alignItems: 'center', gap: 12, lineHeight: '52px',
+            position: 'sticky', top: 0, zIndex: 20,
           }}
         >
-          {hideSider && <span style={{ fontWeight: 700 }}>Sonar-CAD v2</span>}
+          {hideSider && (
+            <>
+              <Button type="text" icon={<MenuOutlined />} onClick={() => setMobileNav(true)} aria-label="打开导航" />
+              <Space size={8}>
+                <SonarMark size={22} />
+                <span style={{ fontWeight: 600, fontSize: 13.5 }}>Sonar-CAD</span>
+              </Space>
+            </>
+          )}
           <span style={{ flex: 1 }} />
           <NotificationBell />
           <Dropdown
@@ -155,8 +232,10 @@ export default function AppLayout() {
             </Space>
           </Dropdown>
         </Header>
-        <Content style={{ padding: screens.md ? '20px 24px 40px' : '12px 12px 32px' }}>
-          <Outlet />
+        <Content style={{ padding: screens.md ? '20px 24px 48px' : '12px 12px 32px' }}>
+          <div style={{ maxWidth: 1320, margin: '0 auto' }}>
+            <Outlet />
+          </div>
         </Content>
       </Layout>
     </Layout>

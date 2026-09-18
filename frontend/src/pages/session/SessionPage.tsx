@@ -56,10 +56,10 @@ export default function SessionPage() {
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto' }}>
       <div className="row" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>{session.title}</Typography.Title>
+        <div className="page-head">{session.title}</div>
         <Badge status={session.pipelineStatus === 'running' ? 'processing' : session.pipelineStatus === 'paused' ? 'warning' : session.pipelineStatus === 'completed' ? 'success' : session.pipelineStatus === 'failed' ? 'error' : 'default'} text={tag.text} />
         <span style={{ flex: 1 }} />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>会话 {session.id}</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>会话 <span className="mono">{session.id}</span></Typography.Text>
       </div>
 
       <Card styles={{ body: { padding: '8px 16px 14px' } }}>
