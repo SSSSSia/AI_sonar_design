@@ -28,6 +28,7 @@
 | 阶段 1 | **全部 7 任务完成**（T1.1–T1.7），e2e 需求→STEP 落 MinIO 通过；**待人工验收**（PHASE-001 v2.1） |
 | **阶段 2** | **全部 4 任务完成**（T2.1–T2.4），五步闭环 + 审阅关驳回流 e2e 全绿（16m36s，真实 DeepSeek）；**待人工验收**（PHASE-002 v1.1） |
 | **阶段 3** | **全部 4 任务完成**（T3.1–T3.4），首样 e2e 全绿（12m12s）：上传→解析→分块 97→抽取 849 条→三层构建（Milvus 向量 97 / Neo4j 518 实体 / 动态语料）→检索命中 graph 级；**待人工验收**（PHASE-003 v1.1） |
+| KB 语料 | **4 文档 / 439 chunks / 2939 条确认抽取**（首样 + 声呐技术 + 水声学原理 + 潜艇拖曳总体设计，导入脚本 `knowledge/import_corpus.py`）；检索验证查询全部命中 graph 级 |
 | 管线现状 | START → A1→A2→**gate1**→A3→A4→**gate2**→A5→completed；驳回=局部回算+下游失效（ir_snapshots.invalidated_at）；知识关（gate=knowledge）人工确认后回写 Neo4j；`GET /api/v1/trace/{trace_id}` 反查。IR0–IR5 全量快照 API 齐 |
 | Flyway | V1~V8 已应用（V4 快照失效 / V5 gate 列宽 / V6 KB 管线三表 / V7 知识资产三库 / V8 graph_key 列宽） |
 | LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**；流式适配器；阶段 2 e2e 两次全链真实跑通 |
