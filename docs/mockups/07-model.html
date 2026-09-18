@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>07 三维预览+交付物 · Sonar-CAD v2 Mockup</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">Sonar-CAD v2</div><div class="sub">智能辅助声呐装备设计系统</div></div>
+    <nav class="nav">
+      <div class="group">工作台</div>
+      <a class="active" href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
+      <a href="03-requirement.html"><span class="ico">✎</span> 需求输入</a>
+      <div class="group">知识</div>
+      <a href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
+      <div class="group">系统</div>
+      <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="title">某型拖曳线列阵声呐方案设计</span>
+      <span class="crumb">TLA-2026</span>
+      <span class="spacer"></span>
+      <span class="badge ok"><span class="dot"></span> 完成</span>
+    </div>
+
+    <div class="content">
+      <div class="mock-banner" style="margin-bottom:16px;">Mockup 07 / 09 · <a class="back" href="index.html">← 返回目录</a>&nbsp;&nbsp;（视口为占位示意；实现后为 React Three Fiber 可交互视图：轨道旋转 / 缩放 / 线框切换）</div>
+
+      <div class="tabs">
+        <span class="tab"><a href="04-workbench.html" style="color:inherit;">总览</a></span>
+        <span class="tab"><a href="05-review.html" style="color:inherit;">审阅与参数</a></span>
+        <span class="tab"><a href="06-report.html" style="color:inherit;">校验报告</a></span>
+        <span class="tab active">三维与交付物</span>
+      </div>
+
+      <div class="grid-32">
+        <div class="card" style="margin:0;">
+          <div class="card-h">
+            <span class="h-title">三维预览</span>
+            <span class="h-sub">STEP → glTF（后端转换缓存 · IR3 v1）</span>
+            <span class="spacer"></span>
+            <a href="#" style="font-size:12px;">在新窗口打开</a>
+          </div>
+          <div class="card-b">
+            <div class="viewer">
+              <div class="v-toolbar">
+                <button class="btn sm">⟲ 旋转</button>
+                <button class="btn sm">⤢ 缩放</button>
+                <button class="btn sm">⊞ 线框</button>
+                <button class="btn sm">重置视角</button>
+              </div>
+              <div class="v-status">IR3 v1 · 12,480 tris · glb 1.8 MB · 转换 1.2 s（缓存命中 &lt;0.1 s）</div>
+              <!-- 占位：等距示意拖曳阵（湿端段 + 48 元声阵段 + 尾段） -->
+              <svg viewBox="0 0 760 380" width="100%" style="display:block;">
+                <defs>
+                  <linearGradient id="cyl" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#e7eaee"/><stop offset=".5" stop-color="#c9ced6"/><stop offset="1" stop-color="#aab1bc"/>
+                  </linearGradient>
+                  <pattern id="grid" width="38" height="38" patternUnits="userSpaceOnUse">
+                    <path d="M38 0H0V38" fill="none" stroke="#e3e5e9" stroke-width="1"/>
+                  </pattern>
+                </defs>
+                <rect width="760" height="380" fill="url(#grid)"/>
+                <ellipse cx="380" cy="330" rx="300" ry="26" fill="#dfe2e7" opacity=".6"/>
+                <!-- 尾缆 -->
+                <rect x="30" y="186" width="90" height="8" rx="4" fill="url(#cyl)"/>
+                <!-- 湿端段 -->
+                <path d="M120 160 q-14 24 0 48 l80 0 0 -48 z" fill="#b7bec9"/>
+                <rect x="200" y="160" width="120" height="48" rx="8" fill="url(#cyl)"/>
+                <text x="238" y="150" font-size="11" fill="#8b949e">湿端段 Ø63</text>
+                <!-- 声阵段（48 元示意：刻度） -->
+                <rect x="320" y="160" width="260" height="48" rx="8" fill="url(#cyl)"/>
+                <g stroke="#8f97a3" stroke-width="1.4">
+                  <line x1="332" y1="164" x2="332" y2="176"/><line x1="352" y1="164" x2="352" y2="176"/>
+                  <line x1="372" y1="164" x2="372" y2="176"/><line x1="392" y1="164" x2="392" y2="176"/>
+                  <line x1="412" y1="164" x2="412" y2="176"/><line x1="432" y1="164" x2="432" y2="176"/>
+                  <line x1="452" y1="164" x2="452" y2="176"/><line x1="472" y1="164" x2="472" y2="176"/>
+                  <line x1="492" y1="164" x2="492" y2="176"/><line x1="512" y1="164" x2="512" y2="176"/>
+                  <line x1="532" y1="164" x2="532" y2="176"/><line x1="552" y1="164" x2="552" y2="176"/>
+                  <line x1="568" y1="164" x2="568" y2="176"/>
+                </g>
+                <text x="360" y="150" font-size="11" fill="#8b949e">声阵段 48 元 · 间距 500 mm（P-001）</text>
+                <!-- 尾段 -->
+                <rect x="580" y="164" width="60" height="40" rx="6" fill="url(#cyl)"/>
+                <path d="M640 170 l58 -16 0 60 -58 -16 z" fill="#b7bec9"/>
+                <path d="M668 162 l24 -30 10 6 -22 28 z" fill="#98a0ac"/>
+                <text x="600" y="150" font-size="11" fill="#8b949e">尾段 + 稳定翼</text>
+                <!-- 尺寸线 -->
+                <line x1="320" y1="236" x2="580" y2="236" stroke="#8b949e" stroke-width="1"/>
+                <line x1="320" y1="230" x2="320" y2="242" stroke="#8b949e" stroke-width="1"/>
+                <line x1="580" y1="230" x2="580" y2="242" stroke="#8b949e" stroke-width="1"/>
+                <text x="415" y="256" font-size="11" fill="#8b949e">孔径 23 500 mm（P-002）</text>
+              </svg>
+            </div>
+            <div class="note" style="margin-top:12px;">
+              转换链路：IR3 快照 → MinIO 取 STEP → cadquery 镶嵌 → GLB 缓存（<span class="mono-ref">cad-previews/{session}/{ir_version}.glb</span>）。
+              版本变更自动重转；转换失败如实报错并保留 STEP 下载入口。
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" style="margin:0;">
+            <div class="card-h"><span class="h-title">交付物下载</span><span class="spacer"></span><span class="badge pending">预签名 15 min</span></div>
+            <table class="tbl">
+              <tbody>
+                <tr>
+                  <td><div><b>STEP 模型</b></div><div class="sub mono-ref">step-models/…/ir3_v1.step · 2.4 MB</div></td>
+                  <td class="actions"><a class="btn primary sm" href="#">下载</a></td>
+                </tr>
+                <tr>
+                  <td><div><b>CadQuery 脚本</b></div><div class="sub mono-ref">cad-scripts/…/ir3_v1.py · 214 行</div></td>
+                  <td class="actions"><a href="#" style="margin-right:12px;">查看</a><a class="btn sm" href="#">下载</a></td>
+                </tr>
+                <tr>
+                  <td><div><b>参数方案表（IR2）</b></div><div class="sub">10 参数 · 四件套齐全</div></td>
+                  <td class="actions"><a class="btn sm" href="#">下载 JSON</a></td>
+                </tr>
+                <tr>
+                  <td><div><b>校验报告（IR4）</b></div><div class="sub">v1 · fail（1 错）</div></td>
+                  <td class="actions"><a class="btn sm" href="#">下载 JSON</a></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="card-b" style="border-top:1px solid var(--border);">
+              <div class="help" style="margin:0;">下载经后端预签名 URL（15 分钟有效），未登录请求返回 401；「点击三维模型反向定位参数」为规划内暂缓项，本期不做。</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="card-h"><span class="h-title">特征与参数联动</span></div>
+            <div class="card-b" style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;color:var(--text-2);line-height:1.9;">
+              <div class="row"><span class="mono-ref" style="width:36px;">F-02</span><span>声阵段 48 元 ← 联动 <a href="#">P-001 阵元间距</a></span></div>
+              <div class="row"><span class="mono-ref" style="width:36px;">F-03</span><span>孔径包络 ← 联动 <a href="#">P-002 阵列孔径</a> <span class="badge err">gate2 时点不一致</span></span></div>
+              <div class="row"><span class="mono-ref" style="width:36px;">F-01</span><span>湿端段 ← 联动 <a href="#">P-004 湿端直径</a></span></div>
+              <div class="help" style="margin:0;">参数双向联动（E1）：修改参数触发受影响特征重算与下游失效，全链快照可溯。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

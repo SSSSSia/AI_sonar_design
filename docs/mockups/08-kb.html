@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>08 知识库管理 · Sonar-CAD v2 Mockup</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">Sonar-CAD v2</div><div class="sub">智能辅助声呐装备设计系统</div></div>
+    <nav class="nav">
+      <div class="group">工作台</div>
+      <a href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
+      <a href="03-requirement.html"><span class="ico">✎</span> 需求输入</a>
+      <div class="group">知识</div>
+      <a class="active" href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
+      <div class="group">系统</div>
+      <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="title">知识库管理</span>
+      <span class="crumb">文档入库 · 抽取确认 · 三库 · 供应商 · 图谱</span>
+      <span class="spacer"></span>
+      <span class="badge ok"><span class="dot"></span> 检索服务正常</span>
+    </div>
+
+    <div class="content">
+      <div class="mock-banner" style="margin-bottom:16px;">Mockup 08 / 09 · <a class="back" href="index.html">← 返回目录</a>&nbsp;&nbsp;（5 个页签内容顺次附后，便于静态审阅；实现为页内切换）</div>
+
+      <div class="tabs">
+        <span class="tab active">文档库<span class="cnt">4</span></span>
+        <span class="tab">抽取确认<span class="cnt">12 待审</span></span>
+        <span class="tab">三库管理</span>
+        <span class="tab">LLM 供应商</span>
+        <span class="tab">图谱</span>
+      </div>
+
+      <!-- ===== 页签 1：文档库 ===== -->
+      <div class="card" style="margin:0;">
+        <div class="card-h">
+          <span class="h-title">文档库</span>
+          <span class="h-sub">状态机 uploaded → parsed → chunked → indexed（增量构建，只处理未 indexed 文档）</span>
+          <span class="spacer"></span>
+          <button class="btn primary sm">构建索引（增量）</button>
+        </div>
+        <div class="card-b" style="border-bottom:1px solid var(--border);">
+          <div style="border:1.5px dashed var(--border-strong);border-radius:8px;padding:22px;text-align:center;color:var(--text-3);font-size:12.5px;background:#fcfcfd;">
+            拖拽或 <a href="#">点击上传</a> 文档（PDF / Word / Excel / Markdown / TXT，单文件 ≤ 50 MB）
+            <div class="help" style="margin-top:6px;">上传即同步解析：保留页码/章节位置；扫描页自动 OCR（PaddleOCR-VL-1.5，超预算页如实计 ocr_pending）</div>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>文档</th><th>状态</th><th>分块</th><th>抽取</th><th>OCR</th><th>上传时间</th><th class="actions" style="width:150px">操作</th></tr></thead>
+          <tbody>
+            <tr class="clickable">
+              <td><div>towed_array_cad_knowledge.txt</div><div class="sub mono-ref">doc_9f21ab</div></td>
+              <td><span class="badge done"><span class="dot"></span> indexed</span></td>
+              <td>18</td><td>46</td><td>—</td>
+              <td>2026-09-15</td>
+              <td class="actions"><a href="#">预览</a><a href="#" style="color:var(--err)">删除</a></td>
+            </tr>
+            <tr class="clickable">
+              <td><div>声呐设计手册.pdf</div><div class="sub mono-ref">doc_3c88d0 · 86 页</div></td>
+              <td><span class="badge done"><span class="dot"></span> indexed</span></td>
+              <td>128</td><td>214</td>
+              <td><span class="badge warn">OCR 2 页</span></td>
+              <td>2026-09-16</td>
+              <td class="actions"><a href="#">预览</a><a href="#" style="color:var(--err)">删除</a></td>
+            </tr>
+            <tr class="clickable">
+              <td><div>水声传播原理摘录.docx</div><div class="sub mono-ref">doc_71bae2</div></td>
+              <td><span class="badge pending">chunked</span></td>
+              <td>96</td><td class="mono-ref">0</td><td>—</td>
+              <td>2026-09-17</td>
+              <td class="actions"><a href="#">抽取 →</a><a href="#" style="color:var(--err)">删除</a></td>
+            </tr>
+            <tr class="clickable">
+              <td><div>GJB 目录清单.xlsx</div><div class="sub mono-ref">doc_44f019 · sheet1!A2 起</div></td>
+              <td><span class="badge pending">parsed</span></td>
+              <td class="mono-ref">0</td><td class="mono-ref">0</td><td>—</td>
+              <td>2026-09-17</td>
+              <td class="actions"><a href="#">分块 →</a><a href="#" style="color:var(--err)">删除</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="card-b" style="border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;">
+          <div class="note" style="margin:0;"><b>删除即级联清理</b>：MinIO 原件、Milvus 向量、图谱来源节点标 deprecated，页面回显清理结果，不虚报成功（A-16）。</div>
+          <div class="note warn" style="margin:0;"><b>OCR 如实列</b>：ocr_pages = 已自动识别页数；若存在识别失败或超出预算（默认 20 页）的扫描页，计 ocr_pending 并在此列提示，不静默丢弃。</div>
+        </div>
+      </div>
+
+      <!-- ===== 页签 2：抽取确认 ===== -->
+      <div class="card" style="margin-top:24px;">
+        <div class="card-h">
+          <span class="h-title">页签 · 抽取确认</span>
+          <span class="h-sub">LLM 按本体 8 类抽取，人工确认后才可构建入图</span>
+          <span class="spacer"></span>
+          <span class="badge pending">pending 12</span>
+          <span class="badge ok">confirmed 2939</span>
+          <span class="badge err">rejected 5</span>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>类型</th><th>内容</th><th>来源位置</th><th>所属文档</th><th class="actions" style="width:130px">操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge blue">实体</span></td>
+              <td><div>SonarSystem · 拖曳线列阵声呐</div><div class="sub">属性：type=towed_array</div></td>
+              <td class="mono-ref">§1 概述</td><td>towed_array_cad_knowledge.txt</td>
+              <td class="actions"><a class="btn primary sm" href="#">确认</a><a class="btn danger sm" href="#">驳回</a></td>
+            </tr>
+            <tr>
+              <td><span class="badge blue">关系</span></td>
+              <td><div>阵元间距 —<b>决定</b>→ 栅瓣间隔</div></td>
+              <td class="mono-ref">§2.1 阵列设计</td><td>towed_array_cad_knowledge.txt</td>
+              <td class="actions"><a class="btn primary sm" href="#">确认</a><a class="btn danger sm" href="#">驳回</a></td>
+            </tr>
+            <tr>
+              <td><span class="badge blue">实体</span></td>
+              <td><div>Parameter · 阵列增益 <span class="mono-ref">AG = 10·lg(N)</span></div></td>
+              <td class="mono-ref">第 41 页 · §2.3</td><td>声呐设计手册.pdf</td>
+              <td class="actions"><a class="btn primary sm" href="#">确认</a><a class="btn danger sm" href="#">驳回</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="card-b" style="border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;">
+          <a class="btn sm" href="#">全部确认（本页 12 条）</a>
+          <span class="h-sub">抽取任务异步执行（4 并发），失败可重试；抽取为空时如实提示，不造数。</span>
+        </div>
+      </div>
+
+      <!-- ===== 页签 3：三库管理 ===== -->
+      <div class="card" style="margin-top:24px;">
+        <div class="card-h">
+          <span class="h-title">页签 · 三库管理</span>
+          <span class="h-sub">公式 / 约束 / 军标 —— A4 校验优先读库（启停与可信度分层）</span>
+          <span class="spacer"></span>
+          <button class="btn primary sm">＋ 新增条目</button>
+        </div>
+        <div class="card-b" style="padding-bottom:0;">
+          <div class="tabs" style="margin-bottom:0;">
+            <span class="tab active">公式库<span class="cnt">8</span></span>
+            <span class="tab">约束库<span class="cnt">5</span></span>
+            <span class="tab">军标库<span class="cnt">0</span></span>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>编号</th><th>名称</th><th>表达式</th><th>单位</th><th>可信度</th><th>启用</th><th class="actions" style="width:110px">操作</th></tr></thead>
+          <tbody>
+            <tr><td class="mono-ref">F-01</td><td>半波长间距</td><td class="mono-ref">d = c / (2·f_max)</td><td>m</td><td><span class="badge ok">high</span></td><td><span class="badge ok">启用</span></td><td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">停用</a></td></tr>
+            <tr><td class="mono-ref">F-03</td><td>阵列增益</td><td class="mono-ref">AG = 10·lg(N)</td><td>dB</td><td><span class="badge ok">high</span></td><td><span class="badge ok">启用</span></td><td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">停用</a></td></tr>
+            <tr><td class="mono-ref">F-07</td><td>传播损失（球面扩展）</td><td class="mono-ref">TL = 20·lg(r)</td><td>dB</td><td><span class="badge pending">medium</span></td><td><span class="badge ok">启用</span></td><td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">停用</a></td></tr>
+          </tbody>
+        </table>
+        <div class="card-b" style="border-top:1px solid var(--border);">
+          <div class="note warn" style="margin:0;">
+            <b>军标库空态（如实）：</b>当前 0 条军标条目，A4 对 standard 来源参数的相关检查将如实标「待补」，不臆断符合性；录入条目（含检查逻辑登记）后即自动参与校验。
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 页签 4：LLM 供应商 ===== -->
+      <div class="card" style="margin-top:24px;">
+        <div class="card-h">
+          <span class="h-title">页签 · LLM 供应商</span>
+          <span class="h-sub">多供应商热切换 · api_key 只写不回显 · 保存后热重载</span>
+          <span class="spacer"></span>
+          <button class="btn primary sm">＋ 新增供应商</button>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>名称</th><th>Base URL</th><th>默认模型</th><th>优先级</th><th>超时</th><th>API Key</th><th>状态</th><th class="actions" style="width:110px">操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>deepseek</b></td><td class="mono-ref">https://api.deepseek.com</td><td class="mono-ref">deepseek-chat</td>
+              <td>1</td><td>300s</td><td class="mono-ref">sk-****7f3a</td><td><span class="badge ok">启用</span></td>
+              <td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">删除</a></td>
+            </tr>
+            <tr>
+              <td><b>siliconflow</b></td><td class="mono-ref">https://api.siliconflow.cn</td><td class="mono-ref">PaddleOCR-VL-1.5（OCR 插件）</td>
+              <td>2</td><td>120s</td><td class="mono-ref">sk-****c21e</td><td><span class="badge ok">启用</span></td>
+              <td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">删除</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="card-b" style="border-top:1px solid var(--border);"><div class="help" style="margin:0;">密钥仅存 .env / 数据库（git 不入库，日志脱敏）；列表页永远只显示尾 4 位。</div></div>
+      </div>
+
+      <!-- ===== 页签 5：图谱 ===== -->
+      <div class="card" style="margin-top:24px;">
+        <div class="card-h">
+          <span class="h-title">页签 · 知识图谱</span>
+          <span class="h-sub">力导向布局 · 全图采样 ≤300 · 节点带来源可反跳</span>
+          <span class="spacer"></span>
+          <span class="mono-ref">采样 300 / 1240 实体 · 807 关系</span>
+        </div>
+        <div class="graph-wrap">
+          <div class="graph-view">
+            <!-- 边（示意定位） -->
+            <div class="gedge" style="left:24%;top:34%;width:16%;transform:rotate(18deg);"></div>
+            <div class="gedge" style="left:40%;top:41%;width:13%;transform:rotate(-24deg);"></div>
+            <div class="gedge" style="left:24%;top:34%;width:22%;transform:rotate(52deg);"></div>
+            <div class="gedge" style="left:52%;top:26%;width:14%;transform:rotate(14deg);"></div>
+            <div class="gedge" style="left:52%;top:26%;width:18%;transform:rotate(70deg);"></div>
+            <div class="gedge" style="left:30%;top:66%;width:12%;transform:rotate(-18deg);"></div>
+            <!-- 节点 -->
+            <div class="gnode" style="left:24%;top:34%;"><div class="gc" style="background:#6e56cf;width:20px;height:20px;"></div><div class="gl"><b>拖曳线列阵声呐</b></div></div>
+            <div class="gnode" style="left:40%;top:41%;"><div class="gc" style="background:#0e8088;width:16px;height:16px;"></div><div class="gl">声阵段</div></div>
+            <div class="gnode" style="left:52%;top:26%;"><div class="gc" style="background:#d97706;width:14px;height:14px;"></div><div class="gl">阵元间距 d</div></div>
+            <div class="gnode" style="left:66%;top:36%;"><div class="gc" style="background:#2b8a3e;width:14px;height:14px;"></div><div class="gl">F-01 半波长间距</div></div>
+            <div class="gnode" style="left:56%;top:58%;"><div class="gc" style="background:#c92a2a;width:14px;height:14px;"></div><div class="gl">d ≤ λ/2</div></div>
+            <div class="gnode" style="left:30%;top:66%;"><div class="gc" style="background:#b7791f;width:14px;height:14px;"></div><div class="gl">CASE-007 拖阵</div></div>
+            <div class="gnode" style="left:14%;top:52%;"><div class="gc" style="background:#57606a;width:14px;height:14px;"></div><div class="gl">GJB 585-91</div></div>
+            <div style="position:absolute;left:12px;bottom:10px;display:flex;gap:10px;flex-wrap:wrap;background:rgba(255,255,255,.9);border:1px solid var(--border);border-radius:6px;padding:5px 10px;">
+              <span class="sw"><i style="background:#6e56cf"></i>系统</span><span class="sw"><i style="background:#0e8088"></i>结构模块</span><span class="sw"><i style="background:#d97706"></i>参数</span><span class="sw"><i style="background:#2b8a3e"></i>公式</span><span class="sw"><i style="background:#c92a2a"></i>约束</span><span class="sw"><i style="background:#b7791f"></i>案例</span><span class="sw"><i style="background:#57606a"></i>军标</span>
+            </div>
+          </div>
+          <div class="graph-side">
+            <div class="field">
+              <label>邻域查询</label>
+              <input class="input" value="阵元间距 d">
+              <div class="help">按实体名/图键检索，展开 N 跳子图</div>
+            </div>
+            <div class="field">
+              <label>展开深度</label>
+              <select class="select"><option>1 跳</option><option selected>2 跳</option><option>3 跳</option></select>
+            </div>
+            <button class="btn primary" style="width:100%;justify-content:center;">查询子图</button>
+            <div style="border-top:1px solid var(--border);margin:14px 0;padding-top:12px;">
+              <div class="h-sub" style="margin-bottom:8px;">选中节点</div>
+              <div class="kv">
+                <span class="k">名称</span><span class="v"><b>阵元间距 d</b> <span class="badge pending">Parameter</span></span>
+                <span class="k">度</span><span class="v">7（入 3 / 出 4）</span>
+                <span class="k">状态</span><span class="v"><span class="badge ok">有效</span></span>
+                <span class="k">来源</span><span class="v"><div><a href="#">towed_array_cad_knowledge.txt · §2.1</a></div><div><a href="#">会话 TLA-2026（IR5 候选 #2）</a></div></span>
+              </div>
+              <div class="note warn" style="margin-top:10px;">被新版取代的节点标 <b>deprecated</b> 并保留 superseded_by 指针，不物理删除。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="help" style="margin-top:14px;">以上数字为当前知识库真实规模的示例快照（4 文档 / 439 块 / 2939 已确认抽取 / 图谱 1240 实体 + 807 关系）；页面数据一律来自后端接口，不做前端假数（A-16）。</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

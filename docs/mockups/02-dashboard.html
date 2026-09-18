@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02 仪表盘 · Sonar-CAD v2 Mockup</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">Sonar-CAD v2</div><div class="sub">智能辅助声呐装备设计系统</div></div>
+    <nav class="nav">
+      <div class="group">工作台</div>
+      <a class="active" href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
+      <a href="03-requirement.html"><span class="ico">✎</span> 需求输入</a>
+      <div class="group">知识</div>
+      <a href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
+      <div class="group">系统</div>
+      <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="title">仪表盘</span>
+      <span class="crumb">首页</span>
+      <span class="spacer"></span>
+      <span class="badge ok"><span class="dot"></span> WS 已连接</span>
+      <a class="btn primary sm" href="03-requirement.html">＋ 新建设计会话</a>
+    </div>
+
+    <div class="content">
+      <div class="mock-banner" style="margin-bottom:16px;">Mockup 02 / 09 · <a class="back" href="index.html">← 返回目录</a></div>
+
+      <div class="stat-grid">
+        <div class="stat"><div class="num">12</div><div class="lbl">设计会话</div><div class="trend">2 个项目 · 本周新增 4</div></div>
+        <div class="stat"><div class="num">3</div><div class="lbl">进行中</div><div class="trend">A2 生成中 ×1 · CAD 建模 ×1 · 知识沉淀 ×1</div></div>
+        <div class="stat"><div class="num" style="color:var(--warn)">2</div><div class="lbl">待人工审阅</div><div class="trend">审阅关① ×1 · 审阅关② ×1</div></div>
+        <div class="stat"><div class="num">4</div><div class="lbl">知识文档</div><div class="trend">439 块 · 图谱 1240 实体</div></div>
+      </div>
+
+      <div class="grid-32">
+        <div class="card" style="margin:0;">
+          <div class="card-h">
+            <span class="h-title">设计会话</span>
+            <span class="h-sub">实时状态经 WebSocket 推送</span>
+            <span class="spacer"></span>
+            <a href="#" style="font-size:12px;">全部项目</a>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>会话</th><th>状态</th><th style="width:170px">当前阶段</th><th style="width:110px">更新时间</th><th class="actions" style="width:130px">操作</th></tr></thead>
+            <tbody>
+              <tr class="clickable">
+                <td><div>某型拖曳线列阵声呐方案设计</div><div class="sub">TLA-2026 · 拖曳线列阵声呐预研</div></td>
+                <td><span class="badge warn"><span class="dot"></span> 暂停</span></td>
+                <td><div>审阅关② <span class="badge pending">gate2</span></div><div class="sub">等待人工裁决</div></td>
+                <td>10 分钟前</td>
+                <td class="actions"><a href="05-review.html">去审阅</a></td>
+              </tr>
+              <tr class="clickable">
+                <td><div>深海声呐浮标总体方案</div><div class="sub">BUOY-2026 · 深海浮标预研</div></td>
+                <td><span class="badge run"><span class="dot pulse"></span> 运行中</span></td>
+                <td>
+                  <div class="row" style="gap:8px"><span>A2 方案生成</span><span class="mono-ref">47%</span></div>
+                  <div class="prog" style="margin-top:4px"><i style="width:47%"></i></div>
+                </td>
+                <td>刚刚</td>
+                <td class="actions"><a href="04-workbench.html">查看</a></td>
+              </tr>
+              <tr class="clickable">
+                <td><div>声呐导流罩结构设计</div><div class="sub">TLA-2026 · 拖曳线列阵声呐预研</div></td>
+                <td><span class="badge done"><span class="dot"></span> 完成</span></td>
+                <td><div>知识沉淀已写入</div><div class="sub">IR5 v2 · 图谱 3 节点</div></td>
+                <td>昨天</td>
+                <td class="actions"><a href="07-model.html">交付物</a></td>
+              </tr>
+              <tr class="clickable">
+                <td><div>某型声呐基阵骨架建模</div><div class="sub">ARRAY-2025 · 基阵结构</div></td>
+                <td><span class="badge fail"><span class="dot"></span> 失败</span></td>
+                <td><div>A3 CAD 建模</div><div class="sub">重试 3 次后降级终止</div></td>
+                <td>2 天前</td>
+                <td class="actions"><a href="04-workbench.html">日志</a></td>
+              </tr>
+              <tr class="clickable">
+                <td><div>换能器基阵优化设计</div><div class="sub">ARRAY-2025 · 基阵结构</div></td>
+                <td><span class="badge degraded">降级完成</span></td>
+                <td><div>A2 局部回算</div><div class="sub">2 项估算参数如实标注</div></td>
+                <td>3 天前</td>
+                <td class="actions"><a href="06-report.html">报告</a></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="card-b" style="padding-top:10px;padding-bottom:10px;border-top:1px solid var(--border);text-align:center;">
+            <a href="#" style="font-size:12px;">查看全部 12 个会话</a>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" style="margin:0 0 16px;">
+            <div class="card-h">
+              <span class="h-title">实时任务进度</span>
+              <span class="spacer"></span>
+              <span class="badge ok"><span class="dot"></span> 已连接</span>
+            </div>
+            <div class="card-b" style="display:flex;flex-direction:column;gap:14px;">
+              <div>
+                <div class="row" style="margin-bottom:5px;">
+                  <span style="font-weight:600;">深海声呐浮标总体方案</span>
+                  <span class="spacer" style="flex:1"></span>
+                  <span class="mono-ref">A2 · 47%</span>
+                </div>
+                <div class="prog"><i style="width:47%"></i></div>
+                <div class="help">正在检索公式库并推导参数（LLM 调用 2/3）</div>
+              </div>
+              <div>
+                <div class="row" style="margin-bottom:5px;">
+                  <span style="font-weight:600;">换能器基阵优化设计</span>
+                  <span class="spacer" style="flex:1"></span>
+                  <span class="mono-ref">A5 · 100%</span>
+                </div>
+                <div class="prog"><i style="width:100%"></i></div>
+                <div class="help">候选知识 3 条已生成，等待知识审阅关确认</div>
+              </div>
+              <div class="note" style="font-size:11px;">
+                连接断开时此卡片显示「重连中（第 N 次）」，恢复后自动对账刷新；超过 30s 未恢复降级为 5s 轮询并如实标注。
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin:0;">
+            <div class="card-h">
+              <span class="h-title">通知中心</span>
+              <span class="h-sub">2 条未读</span>
+              <span class="spacer"></span>
+              <a href="#" style="font-size:12px;">全部已读</a>
+            </div>
+            <div class="notif unread">
+              <div class="n-ico" style="background:var(--warn-bg);color:var(--warn);">⏸</div>
+              <div>
+                <div class="n-t">审阅关② 待裁决：某型拖曳线列阵声呐方案设计</div>
+                <div class="n-m">IR3 v1 + IR4 v1 已生成 · 校验结论 fail（1 项 error）</div>
+              </div>
+              <span class="n-time">10 分钟前</span>
+            </div>
+            <div class="notif unread">
+              <div class="n-ico" style="background:var(--blue-bg);color:var(--blue);">✓</div>
+              <div>
+                <div class="n-t">知识索引构建完成：声呐设计手册.pdf</div>
+                <div class="n-m">向量 128 块 · 图谱新增 47 实体 · 语料已刷新</div>
+              </div>
+              <span class="n-time">1 小时前</span>
+            </div>
+            <div class="notif">
+              <div class="n-ico" style="background:var(--info-bg);color:var(--text-2);">ⓘ</div>
+              <div>
+                <div class="n-t">A2 降级完成：换能器基阵优化设计</div>
+                <div class="n-m">检索向量层不可用，已降级文本级（有界重试后）</div>
+              </div>
+              <span class="n-time">昨天</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

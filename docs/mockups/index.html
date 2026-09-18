@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sonar-CAD v2 · 前端 Mockup 目录（阶段 4）</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="idx-wrap">
+  <div class="mock-banner" style="margin-bottom:20px;">
+    ⚠ 静态原型 · 宪法 §7.3 审批用 —— 数据为拖曳阵样例虚构，非真实系统截图。确认后按本视觉基调实现 React 工作台。
+  </div>
+
+  <h1 style="font-size:20px;margin:0 0 6px;">Sonar-CAD v2 · 前端工作台 Mockup（9 页全量）</h1>
+  <p style="color:var(--text-2);margin:0;">智能辅助声呐装备设计系统 · 阶段 4 · 2026-09-17 · <a href="https://github.com/SSSSSia/AI_sonar_design/blob/main/docs/phase/phase-4-%E5%89%8D%E7%AB%AF%E5%B7%A5%E4%BD%9C%E5%8F%B0%E5%85%A8%E9%87%8F.md" target="_blank">PHASE-004 v1.0</a></p>
+
+  <div class="card" style="margin-top:18px;">
+    <div class="card-h"><span class="h-title">设计基线（已锁定）</span></div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="row" style="flex-wrap:wrap;gap:8px;">
+        <span class="sw"><i style="background:#2563eb"></i> 主蓝 #2563EB · 仅交互语义（按钮/链接/激活）</span>
+        <span class="sw"><i style="background:#1f2329"></i> 主文字 #1F2329</span>
+        <span class="sw"><i style="background:#57606a"></i> 次文字 #57606A</span>
+        <span class="sw"><i style="background:#f5f6f8;border:1px solid #e5e7eb"></i> 内容区 #F5F6F8</span>
+        <span class="sw"><i style="background:#6e56cf"></i> formula 徽标·紫</span>
+        <span class="sw"><i style="background:#0e8088"></i> case 徽标·青</span>
+        <span class="sw"><i style="background:#2b8a3e"></i> standard 徽标·绿</span>
+        <span class="sw"><i style="background:#d97706"></i> estimated 徽标·橙</span>
+      </div>
+      <div class="note blue">
+        <b>规则：</b>浅色中性生产力美学（Zotero/Notion 式），拒绝装饰化；主蓝仅出现在可操作元素（按钮/链接/激活态/输入聚焦）；
+        source_type 四色徽标与主蓝区分（参数行点击溯源时以链接 affordance 表达可点击，而非徽标变蓝）。
+        全中文界面；等宽字体仅用于代码 / trace_id / 对象键。
+      </div>
+    </div>
+  </div>
+
+  <div class="idx-grid">
+    <a class="idx-card" href="01-login.html"><span class="no">01</span><div class="t">登录页</div><div class="d">账号密码登录 · 角色提示 · JWT 会话</div></a>
+    <a class="idx-card" href="02-dashboard.html"><span class="no">02</span><div class="t">仪表盘（T4.1）</div><div class="d">项目/会话总览 · WS 实时任务进度 · 通知中心 · 断线重连状态</div></a>
+    <a class="idx-card" href="03-requirement.html"><span class="no">03</span><div class="t">需求输入（T4.2）</div><div class="d">新建设计会话 · 提交即固化为 IR0 · 自动启动 A1</div></a>
+    <a class="idx-card" href="04-workbench.html"><span class="no">04</span><div class="t">工作台·总览（T4.2）</div><div class="d">管线状态机时间线（A1→A2→gate1→A3→A4→gate2→A5）· IR 版本条 · 实时日志</div></a>
+    <a class="idx-card" href="05-review.html"><span class="no">05</span><div class="t">审阅 + 参数表 + 裁决（T4.2）</div><div class="d">gate2 暂停态 · source_type 四色徽标参数表 · 溯源反查抽屉（打开态）· 批准/驳回+回退阶段</div></a>
+    <a class="idx-card" href="06-report.html"><span class="no">06</span><div class="t">校验报告 + 知识沉淀（T4.2）</div><div class="d">IR4 三级风险分组 · 军标待补如实态 · IR5 候选确认 · 知识审阅关</div></a>
+    <a class="idx-card" href="07-model.html"><span class="no">07</span><div class="t">三维预览 + 交付物（T4.3）</div><div class="d">STEP→glTF R3F 预览（占位示意）· 交付物下载（带权限）</div></a>
+    <a class="idx-card" href="08-kb.html"><span class="no">08</span><div class="t">知识库管理（T4.4）</div><div class="d">文档管线（含 OCR 如实列）· 抽取确认 · 三库管理 · LLM 供应商 · D3 图谱</div></a>
+    <a class="idx-card" href="09-admin.html"><span class="no">09</span><div class="t">系统管理基础（T4.4）</div><div class="d">服务健康指标 · 知识库现状 · 日志/备份如实「待接」（A-16）</div></a>
+  </div>
+
+  <p class="help" style="margin-top:18px;">
+    审阅建议：逐页打开，重点关注 ②仪表盘信息密度是否合适、⑤参数表与溯源抽屉的交互动线、⑥风险分级呈现、⑧知识库五个页签的划分。
+    任何配色/布局/字段增减意见都可提出，确认后统一修订再进入编码。
+  </p>
+</div>
+</body>
+</html>
