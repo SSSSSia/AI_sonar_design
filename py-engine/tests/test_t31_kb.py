@@ -177,7 +177,7 @@ AUTH = {"X-User-Id": "tester", "X-User-Roles": "admin"}
 
 
 def test_upload_txt_happy_path(client, fake_store):
-    r = client.post("/kb/documents", headers=AUTH,
+    r = client.post("/api/v1/kb/documents", headers=AUTH,
                     files={"file": ("样例.txt", "第一段。\n\n第二段。".encode("utf-8"), "text/plain")})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -186,18 +186,18 @@ def test_upload_txt_happy_path(client, fake_store):
 
 
 def test_upload_requires_writer_role(client, fake_store):
-    r = client.post("/kb/documents", headers={"X-User-Id": "viewer", "X-User-Roles": "viewer"},
+    r = client.post("/api/v1/kb/documents", headers={"X-User-Id": "viewer", "X-User-Roles": "viewer"},
                     files={"file": ("a.txt", b"x", "text/plain")})
     assert r.status_code == 403
-    r = client.post("/kb/documents", files={"file": ("a.txt", b"x", "text/plain")})
+    r = client.post("/api/v1/kb/documents", files={"file": ("a.txt", b"x", "text/plain")})
     assert r.status_code == 401
 
 
 def test_upload_bad_format_and_empty(client, fake_store):
-    r = client.post("/kb/documents", headers=AUTH,
+    r = client.post("/api/v1/kb/documents", headers=AUTH,
                     files={"file": ("a.exe", b"MZ", "application/octet-stream")})
     assert r.status_code == 400
-    r = client.post("/kb/documents", headers=AUTH,
+    r = client.post("/api/v1/kb/documents", headers=AUTH,
                     files={"file": ("empty.txt", b"", "text/plain")})
     assert r.status_code == 400
 
@@ -206,7 +206,7 @@ def test_upload_oversized_413(client, fake_store, monkeypatch):
     import app_config
 
     monkeypatch.setattr(app_config, "KB_UPLOAD_MAX_BYTES", 10)
-    r = client.post("/kb/documents", headers=AUTH,
+    r = client.post("/api/v1/kb/documents", headers=AUTH,
                     files={"file": ("big.txt", b"x" * 100, "text/plain")})
     assert r.status_code == 413
 
@@ -215,7 +215,7 @@ def test_parse_failure_marks_failed_not_raise(client, fake_store, monkeypatch):
     """解析失败不中断服务（§6 ①）：doc=failed + error 如实，接口仍 200。"""
     monkeypatch.setattr(parsers, "parse_document",
                         lambda filename, data: (_ for _ in ()).throw(RuntimeError("坏文档")))
-    r = client.post("/kb/documents", headers=AUTH,
+    r = client.post("/api/v1/kb/documents", headers=AUTH,
                     files={"file": ("坏.txt", b"data", "text/plain")})
     assert r.status_code == 200
     body = r.json()
@@ -223,9 +223,9 @@ def test_parse_failure_marks_failed_not_raise(client, fake_store, monkeypatch):
 
 
 def test_delete_document_cleans_up(client, fake_store):
-    client.post("/kb/documents", headers=AUTH,
+    client.post("/api/v1/kb/documents", headers=AUTH,
                 files={"file": ("样例.txt", "内容".encode("utf-8"), "text/plain")})
-    r = client.delete("/kb/documents/abc1234567890def", headers=AUTH)
+    r = client.delete("/api/v1/kb/documents/abc1234567890def", headers=AUTH)
     assert r.status_code == 200 and r.json()["deleted"] is True
-    r = client.delete("/kb/documents/abc1234567890def", headers=AUTH)
+    r = client.delete("/api/v1/kb/documents/abc1234567890def", headers=AUTH)
     assert r.status_code == 404

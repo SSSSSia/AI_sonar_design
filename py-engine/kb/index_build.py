@@ -131,7 +131,9 @@ def build_one(doc_id: str) -> dict[str, Any]:
         logger.exception("图谱层构建失败 doc_id=%s", doc_id)
         detail["graph"] = f"failed: {exc}"
 
-    # ③ 语料层（最后统一刷新；任何一次构建后都全量重挂动态语料）
+    # ③ 语料层：先落 indexed 状态再刷新（all_indexed_chunks 只取 indexed 文档）
+    if ok_layers > 0:
+        kb_store.update_document(doc_id, status="indexed")
     try:
         detail["corpus"] = {"chunks": _refresh_text_corpus()}
         ok_layers += 1

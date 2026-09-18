@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-18 03:50 · ZCode）
+## 当前状态（最后更新：2026-09-18 10:20 · ZCode）
 
 | 项 | 状态 |
 |---|---|
@@ -27,20 +27,20 @@
 | MinIO 供应链 | 已切换 Chainguard digest 固定镜像（0 CVE，见 ADR-002），真实凭据 S3 回环验证通过 |
 | 阶段 1 | **全部 7 任务完成**（T1.1–T1.7），e2e 需求→STEP 落 MinIO 通过；**待人工验收**（PHASE-001 v2.1） |
 | **阶段 2** | **全部 4 任务完成**（T2.1–T2.4），五步闭环 + 审阅关驳回流 e2e 全绿（16m36s，真实 DeepSeek）；**待人工验收**（PHASE-002 v1.1） |
+| **阶段 3** | **全部 4 任务完成**（T3.1–T3.4），首样 e2e 全绿（12m12s）：上传→解析→分块 97→抽取 849 条→三层构建（Milvus 向量 97 / Neo4j 518 实体 / 动态语料）→检索命中 graph 级；**待人工验收**（PHASE-003 v1.1） |
 | 管线现状 | START → A1→A2→**gate1**→A3→A4→**gate2**→A5→completed；驳回=局部回算+下游失效（ir_snapshots.invalidated_at）；知识关（gate=knowledge）人工确认后回写 Neo4j；`GET /api/v1/trace/{trace_id}` 反查。IR0–IR5 全量快照 API 齐 |
-| Flyway | V1~V5 已应用（V4=ir_snapshots.invalidated_at；V5=review_records.gate varchar(16)） |
+| Flyway | V1~V8 已应用（V4 快照失效 / V5 gate 列宽 / V6 KB 管线三表 / V7 知识资产三库 / V8 graph_key 列宽） |
 | LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**；流式适配器；阶段 2 e2e 两次全链真实跑通 |
-| py-engine | 任务 sonarcad.a1~a5 + echo/always_fail（队列 sonarcad.a1~a5）；`POST /knowledge/writeback`（8090）；neo4j driver 已入 requirements |
+| py-engine | 任务 sonarcad.a1~a5 + kb_build/kb_extract + echo/always_fail（队列 sonarcad.a1~a5/kb）；KB 治理 API `/api/v1/kb/**`（gateway 直转 8090，信任头校验）；检索三级：graph(Neo4j 实体层)→vector(Milvus kb_chunks)→text；`POST /knowledge/writeback`；neo4j/pymilvus 已入 requirements |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET；gateway 另有 `/api/v1/trace/**` → workflow 路由） |
 | 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改）；另有验收用 **rbac_designer / admin123**（designer 角色，RBAC 抽查用，可删） |
 
 ## 下一步入口（按序）
 
-1. **用户**：阶段 1 + 阶段 2 人工验收（PHASE-001 §5 / PHASE-002 §5）——建议抽查：一份真实 IR4 报告的风险定级；Neo4j 浏览器（localhost:17474）看沉淀节点。
-2. **任一 AI 开工阶段 3**：PHASE-003 升级完整版（文档上传解析/知识治理/公式约束军标库——A4 的军标框架占位与 T3.3 对接）→ 按 roadmap T3.1 起。
-   - graphrag 本机未安装（可选依赖），检索自动落文本级；装 graphrag~=2.0 后图谱级自动启用（A-14）
-   - 阶段 4 前端开工前须先出页面 mockup（宪法 §7.3）
-3. 开发提示：数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`；注意 Neo4j/MinIO 覆盖端口）；**e2e 两条**：`tests/e2e/test_towed_array_e2e.py`（自动过闸，7 分钟）与 `tests/e2e/test_phase2_pipeline_e2e.py`（完整门语义含驳回流，约 17 分钟）。
+1. **用户**：阶段 1 + 阶段 2 + 阶段 3 人工验收（各自 §验收记录）——建议抽查：真实 IR4 风险定级；Neo4j 浏览器（localhost:17474）看沉淀/抽取实体；删除一个 KB 文档验证清理完整性。
+2. **任一 AI 开工阶段 4（前端）**：**每页先出 mockup 确认再写码（宪法 §7.3）**——页面清单见 roadmap T4.1~T4.4（仪表盘/审阅界面/参数表溯源/三维预览/知识库管理页）。后端 API 已齐（工作流/审阅/KB 治理/图谱/溯源）。
+   - graphrag 本机未安装（可选依赖）：检索图谱级已由自建 Neo4j 实体层承担；装 graphrag~=2.0 后 SDK 级自动优先（A-14）
+3. 开发提示：数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 三条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）。
 
 ## 待验证 / 待决事项
 
@@ -79,6 +79,14 @@
   - 审阅请求体风格 camelCase（`reworkStage`），与既有端点一致；Python 侧快照读取自动过滤 `invalidated_at IS NOT NULL` 的版本
   - neo4j driver 6.x 超时参数是 `connection_timeout`（5.x 是 `connection_timeout_s`，storage/neo4j_store.py 已做兼容）
   - Bash 复合命令里 `&&` 与 `&` 优先级坑：`cmd1 && cmd2 & cmd3 &` 只让 cmd2 吃到环境，cmd3 在外——**多服务带 env 启动务必整段包进 `bash -c`**
+- **阶段 3 实机新坑（2026-09-18，只增不删）**：
+  - **改任何 py-engine 代码后 uvicorn 也必须重启**（不只 worker）——KB e2e 两轮被进程内旧代码坑（图谱 source_session 字段缺失、kb_levels 开关不生效）
+  - **FastAPI 路由挂载前缀变更要同步所有调用方**（单测/e2e/gateway）：kb router 挂 /api/v1 后，单测与 e2e 里的 /kb/... 全部 404
+  - **大文档 LLM 抽取必须异步化**：97 chunks 串行 ~10 分钟，HTTP 同步必超时——sonarcad.kb_extract 任务 + worker 内 ThreadPool 并行（KB_EXTRACT_WORKERS=4）
+  - **跨进程内存态不可靠**：worker 构建刷新的动态语料，uvicorn 进程看不到——改为查询时按 TTL 从库懒加载（GraphRAGService._ensure_corpus）
+  - **同名函数定义两次后者覆盖前者**（get_knowledge_service 踩过）：重构后 grep 确认唯一定义
+  - **kb_extractions.graph_key 列宽**：关系组合键 src16->dst16=34 字符 > varchar(32)（V8 扩至 64）——新列按最长可能值定宽
+  - Milvus pymilvus 3.x：`MilvusClient.create_schema` 是类方法，局部 import 后再调用（ensure_collection 踩过 NameError）
 
 ## 工作约定速记（全文见宪法 CONST-001）
 

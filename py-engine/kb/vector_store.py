@@ -41,7 +41,7 @@ class ChunkVectorStore:
         client = self._get_client()
         if client.has_collection(self._collection):
             return
-        from pymilvus import DataType
+        from pymilvus import DataType, MilvusClient
 
         schema = MilvusClient.create_schema(auto_id=False, enable_dynamic_field=False)
         schema.add_field("chunk_key", DataType.VARCHAR, is_primary=True, max_length=96)

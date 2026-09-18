@@ -175,24 +175,33 @@ class ExtractRequest(BaseModel):
 @router.post("/documents/{doc_id}/extract")
 def extract_document(doc_id: str, req: ExtractRequest | None = None,
                      user: str = Depends(require_writer)) -> dict:
-    """LLM 本体抽取（§6 ④）→ kb_extractions(pending)——人工确认后才入图（A-10 语义）。"""
-    from kb.extractor import ExtractionUnavailable, extract_from_chunks
-    from llm.adapter import llm_adapter
+    """LLM 本体抽取（§6 ④）——**异步任务**（大文档 chunk 多、LLM 耗时长，同步必超时）。
+
+    返回 task_id；结果（pending）落 kb_extractions，经预览 API 人工确认后才入图。
+    """
+    from worker.tasks import kb_extract_task
 
     doc = kb_store.get_document(doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}")
-    chunks = kb_store.get_chunks(doc_id)
-    if not chunks:
+    if not kb_store.get_chunks(doc_id):
         raise HTTPException(status_code=409, detail="文档无 chunks（先调用分块接口）")
-    try:
-        items = extract_from_chunks(
-            chunks, llm_adapter, req.entity_types if req else None,
-        )
-    except ExtractionUnavailable as exc:
-        raise HTTPException(status_code=503, detail=f"抽取不可用（如实跳过）: {exc}") from exc
-    n = kb_store.replace_extractions(doc_id, items)
-    return {"doc_id": doc_id, "extractions": n, "status": "pending（等待人工确认）"}
+    task = kb_extract_task.delay(doc_id, req.entity_types if req else None)
+    return {"doc_id": doc_id, "task_id": task.id, "state": task.state,
+            "note": "抽取完成后经 GET /documents/{doc_id}/extractions 预览（pending）"}
+
+
+@router.get("/extract/{task_id}")
+def extract_status(task_id: str) -> dict:
+    from worker.celery_app import celery_app
+
+    result = celery_app.AsyncResult(task_id)
+    payload: dict = {"task_id": task_id, "state": result.state}
+    if result.successful():
+        payload["result"] = result.result
+    elif result.failed():
+        payload["error"] = str(result.result)
+    return payload
 
 
 @router.get("/documents/{doc_id}/extractions")

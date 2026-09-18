@@ -157,23 +157,23 @@ def fake_providers(monkeypatch):
 
 
 def test_provider_crud_masked_and_hot_reload(client, fake_providers):
-    r = client.post("/kb/llm-providers", headers=AUTH, json={
+    r = client.post("/api/v1/kb/llm-providers", headers=AUTH, json={
         "name": "mock", "base_url": "http://127.0.0.1:8091/v1",
         "api_key": "sk-secret-never-echo", "model": "m1"})
     assert r.status_code == 200, r.text
     assert r.json()["reloaded"] is True
     assert fake_providers["reloaded"] == [True]
     # 列表响应不含 api_key 字段（脱敏红线）
-    r = client.get("/kb/llm-providers")
+    r = client.get("/api/v1/kb/llm-providers")
     assert "sk-secret-never-echo" not in r.text
     assert "api_key" not in r.text
     # PATCH 启停
-    r = client.patch("/kb/llm-providers/mock", headers=AUTH, json={"enabled": False})
+    r = client.patch("/api/v1/kb/llm-providers/mock", headers=AUTH, json={"enabled": False})
     assert r.status_code == 200 and r.json()["provider"]["enabled"] is False
     # DELETE
-    r = client.delete("/kb/llm-providers/mock", headers=AUTH)
+    r = client.delete("/api/v1/kb/llm-providers/mock", headers=AUTH)
     assert r.status_code == 200
-    r = client.delete("/kb/llm-providers/mock", headers=AUTH)
+    r = client.delete("/api/v1/kb/llm-providers/mock", headers=AUTH)
     assert r.status_code == 404
 
 
@@ -188,10 +188,10 @@ def test_registry_api_validation(client, monkeypatch):
         rs._validate_confidence("最高")
     assert rs._validate_confidence("high") == "high"
     # 未知库 → 404
-    r = client.get("/kb/registry/unknown", headers=AUTH)
+    r = client.get("/api/v1/kb/registry/unknown", headers=AUTH)
     assert r.status_code == 404
     # 正常创建
-    r = client.post("/kb/registry/standards", headers=AUTH,
+    r = client.post("/api/v1/kb/registry/standards", headers=AUTH,
                     json={"fields": {"code": "GJB-X", "name": "x", "applies_to": "y",
                                      "confidence": "high"}})
     assert r.status_code == 200
@@ -202,9 +202,9 @@ def test_writer_role_required_for_registry(client, monkeypatch):
     import storage.registry_store as rs
 
     monkeypatch.setattr(rs, "list_rows", lambda kind, enabled_only=False: [])
-    assert client.get("/kb/registry/standards").status_code == 401  # 无信任头
-    r = client.get("/kb/registry/standards", headers={"X-User-Id": "v", "X-User-Roles": "viewer"})
+    assert client.get("/api/v1/kb/registry/standards").status_code == 401  # 无信任头
+    r = client.get("/api/v1/kb/registry/standards", headers={"X-User-Id": "v", "X-User-Roles": "viewer"})
     assert r.status_code == 200  # 读放行
-    r = client.post("/kb/registry/standards", headers={"X-User-Id": "v", "X-User-Roles": "viewer"},
+    r = client.post("/api/v1/kb/registry/standards", headers={"X-User-Id": "v", "X-User-Roles": "viewer"},
                     json={"fields": {"code": "X"}})
     assert r.status_code == 403  # viewer 无写权限

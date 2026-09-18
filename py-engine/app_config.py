@@ -80,3 +80,5 @@ KB_MILVUS_URI = _env("KB_MILVUS_URI", f"http://localhost:{_env('MILVUS_PORT', '1
 KB_MILVUS_COLLECTION = _env("KB_MILVUS_COLLECTION", "kb_chunks")
 # 检索 KB 扩展级开关（graph=自建 Neo4j 实体层 / vector=Milvus）：A-14 三级降级的完整形态
 KB_RETRIEVAL_LEVELS = _env("KB_RETRIEVAL_LEVELS", "1")
+# LLM 抽取并行度（大文档异步抽取任务用；对供应商限流友好）
+KB_EXTRACT_WORKERS = int(_env("KB_EXTRACT_WORKERS", "4"))

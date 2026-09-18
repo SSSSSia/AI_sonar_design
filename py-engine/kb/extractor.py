@@ -93,14 +93,18 @@ def _clean(data: Any, entity_types: list[str], chunk_index: int) -> list[dict[st
 
 
 def extract_from_chunks(
-    chunks: list[dict[str, Any]], llm: Any, entity_types: list[str] | None = None
+    chunks: list[dict[str, Any]], llm: Any, entity_types: list[str] | None = None,
+    max_workers: int = 1,
 ) -> list[dict[str, Any]]:
-    """逐 chunk 抽取并清洗。llm 缺失/调用失败抛 ExtractionUnavailable（调用方如实处理）。"""
+    """逐 chunk 抽取并清洗（max_workers>1 时并行调用 LLM，保持输入顺序）。
+
+    llm 缺失抛 ExtractionUnavailable；单 chunk 失败/不可解析如实跳过（不中断整批）。
+    """
     if llm is None:
         raise ExtractionUnavailable("LLM 未注入")
     types = entity_types or load_entity_types()
-    out: list[dict[str, Any]] = []
-    for chunk in chunks:
+
+    def _one(chunk: dict[str, Any]) -> list[dict[str, Any]]:
         raw = llm.chat(
             [
                 {"role": "system", "content": "你是知识图谱构建专家。仅输出 JSON 对象。"},
@@ -112,6 +116,14 @@ def extract_from_chunks(
         data = parse_llm_json(raw) if isinstance(raw, str) else None
         if data is None:
             logger.warning("chunk %s 抽取输出不可解析，跳过该 chunk", chunk.get("chunk_index"))
-            continue
-        out += _clean(data, types, chunk.get("chunk_index"))
-    return out
+            return []
+        return _clean(data, types, chunk.get("chunk_index"))
+
+    if max_workers <= 1 or len(chunks) <= 1:
+        results: list[list[dict[str, Any]]] = [_one(c) for c in chunks]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(chunks))) as pool:
+            results = list(pool.map(_one, chunks))  # pool.map 保序
+    return [item for chunk_items in results for item in chunk_items]

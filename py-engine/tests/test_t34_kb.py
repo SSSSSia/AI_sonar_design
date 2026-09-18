@@ -119,9 +119,9 @@ def test_graph_api_ok_and_unavailable(client, monkeypatch):
             return {"center": SAMPLE["nodes"][0], "nodes": SAMPLE["nodes"], "edges": SAMPLE["edges"]}
 
     monkeypatch.setattr(ns, "Neo4jStore", lambda: OkStore())
-    r = client.get("/kb/graph", headers=AUTH)
+    r = client.get("/api/v1/kb/graph", headers=AUTH)
     assert r.status_code == 200 and len(r.json()["nodes"]) == 2
-    r = client.get("/kb/graph/neighborhood", headers=AUTH, params={"key": "k1", "depth": 2})
+    r = client.get("/api/v1/kb/graph/neighborhood", headers=AUTH, params={"key": "k1", "depth": 2})
     assert r.status_code == 200 and r.json()["center"]["key"] == "k1"
 
     class DownStore:
@@ -129,5 +129,5 @@ def test_graph_api_ok_and_unavailable(client, monkeypatch):
             return False
 
     monkeypatch.setattr(ns, "Neo4jStore", lambda: DownStore())
-    r = client.get("/kb/graph", headers=AUTH)
+    r = client.get("/api/v1/kb/graph", headers=AUTH)
     assert r.status_code == 503  # Neo4j 不可达如实降级（A-16）——读/写角色无关

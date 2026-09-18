@@ -101,15 +101,38 @@ class GraphRAGService:
         # T3.2 动态语料（KB 管线 indexed 文档的 chunks）与 KB 扩展级可用性缓存
         self._dynamic_sources: list[tuple[str, str, str]] = []  # (doc_id, location, text)
         self._kb_probe_cache: dict[str, tuple[bool, float]] = {}  # name -> (available, ts)
+        self._corpus_loaded_at: float = 0.0  # 动态语料懒加载时间戳（TTL 30s）
 
     # ------------------------------------------------------------------
-    # T3.2 动态语料注册（kb_build 语料层调用）
+    # T3.2 动态语料注册（kb_build 语料层调用 / 查询时按 TTL 懒加载）
     # ------------------------------------------------------------------
     def refresh_dynamic_corpus(self, sources: list[tuple[str, str, str]]) -> int:
         """用 KB 管线 indexed 文档的 chunks 替换动态语料（doc_id, location, text）。"""
         self._dynamic_sources = list(sources)
+        import time
+
+        self._corpus_loaded_at = time.time()
         logger.info("KB 动态语料已刷新: %d chunks", len(sources))
         return len(self._dynamic_sources)
+
+    def _ensure_corpus(self) -> None:
+        """跨进程一致性（T3.2）：kb_build 在 worker 进程写库，本进程按 TTL 懒加载。"""
+        import time
+
+        if self._corpus_loaded_at and time.time() - self._corpus_loaded_at < 30:
+            return
+        try:
+            from storage import kb_store
+
+            chunks = kb_store.all_indexed_chunks()
+            self.refresh_dynamic_corpus(
+                [(c["doc_id"], c["location"], c["text"]) for c in chunks]
+            )
+        except Exception as exc:
+            logger.warning("KB 动态语料懒加载失败（沿用内存语料）: %s", exc)
+            import time
+
+            self._corpus_loaded_at = time.time()  # 失败也计时，避免每查询打库
 
     def _all_text_sources(self) -> list[tuple[str, int, str]]:
         """文本级检索的合并语料：静态 KB 段落 + 动态 chunks（doc_id 直接作键）。"""
@@ -141,6 +164,7 @@ class GraphRAGService:
             degraded.append("basic")
 
         if self.enable_kb_levels:
+            self._ensure_corpus()  # 动态语料懒加载（跨进程一致性）
             # 第三级 graph：自建 Neo4j 实体层（T3.2；SDK 未装时的真实图谱级）
             hit = self._try_neo4j(query)
             if hit is not None:
@@ -359,12 +383,4 @@ def get_knowledge_service() -> GraphRAGService:
         _service = GraphRAGService(
             enable_kb_levels=app_config.KB_RETRIEVAL_LEVELS.lower() in ("1", "true", "yes"),
         )
-    return _service
-
-
-def get_knowledge_service() -> GraphRAGService:
-    """进程内单例（索引数据加载昂贵）。"""
-    global _service
-    if _service is None:
-        _service = GraphRAGService()
     return _service

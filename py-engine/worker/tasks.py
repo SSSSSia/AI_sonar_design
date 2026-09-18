@@ -264,6 +264,34 @@ def a5_task(self, session_id: str) -> dict:
         raise
 
 
+@shared_task(bind=True, name="sonarcad.kb_extract", max_retries=0)
+def kb_extract_task(self, doc_id: str, entity_types: list[str] | None = None) -> dict:
+    """KB 本体抽取异步任务（T3.2，§6 ④）：大文档逐 chunk 并行 LLM 抽取。
+
+    重试为 0：单 chunk 失败已在任务内如实跳过，整体重试只会重复同样输出；
+    结果（pending 状态）落 kb_extractions，人工确认后才入图。
+    """
+    from kb.extractor import extract_from_chunks
+    from llm.adapter import llm_adapter
+    from storage import kb_store
+
+    doc = kb_store.get_document(doc_id)
+    if doc is None:
+        raise RuntimeError(f"KB 文档不存在: {doc_id}")
+    chunks = kb_store.get_chunks(doc_id)
+    if not chunks:
+        raise RuntimeError(f"KB 文档无 chunks: {doc_id}")
+
+    import app_config
+
+    items = extract_from_chunks(
+        chunks, llm_adapter, entity_types, max_workers=app_config.KB_EXTRACT_WORKERS,
+    )
+    n = kb_store.replace_extractions(doc_id, items)
+    logger.info("kb_extract 完成 doc=%s: %d 条抽取（pending）", doc_id, n)
+    return {"doc_id": doc_id, "extractions": n}
+
+
 @shared_task(bind=True, name="sonarcad.kb_build", max_retries=TASK_MAX_RETRIES)
 def kb_build_task(self, doc_ids: list[str] | None = None) -> dict:
     """KB 索引异步构建（T3.2，§6 ⑤）：向量层/图谱层/语料层逐层如实构建。

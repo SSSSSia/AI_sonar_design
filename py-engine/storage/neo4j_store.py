@@ -159,7 +159,7 @@ class Neo4jStore:
             nodes = session.run(
                 "MATCH (e) WHERE e.key IS NOT NULL AND coalesce(e.deprecated, false) = false "
                 "RETURN e.key AS key, labels(e)[0] AS label, e.name AS name, "
-                "e.source_doc AS source_doc LIMIT $limit",
+                "e.source_doc AS source_doc, e.source_session AS source_session LIMIT $limit",
                 limit=limit,
             ).data()
             if not nodes:
@@ -179,7 +179,8 @@ class Neo4jStore:
             center = session.run(
                 "MATCH (e {key: $key}) WHERE e.key IS NOT NULL "
                 "RETURN e.key AS key, labels(e)[0] AS label, e.name AS name, "
-                "e.source_doc AS source_doc, coalesce(e.deprecated, false) AS deprecated",
+                "e.source_doc AS source_doc, e.source_session AS source_session, "
+                "coalesce(e.deprecated, false) AS deprecated",
                 key=key,
             ).data()
             if not center:
@@ -187,7 +188,8 @@ class Neo4jStore:
             rows = session.run(
                 f"MATCH (c {{key: $key}})-[r*1..{depth}]-(n) WHERE n.key IS NOT NULL "
                 "RETURN DISTINCT n.key AS key, labels(n)[0] AS label, n.name AS name, "
-                "n.source_doc AS source_doc, coalesce(n.deprecated, false) AS deprecated "
+                "n.source_doc AS source_doc, n.source_session AS source_session, "
+                "coalesce(n.deprecated, false) AS deprecated "
                 "LIMIT $limit",
                 key=key, limit=limit,
             ).data()

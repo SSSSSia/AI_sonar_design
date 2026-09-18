@@ -26,7 +26,7 @@ app = FastAPI(
     version="0.3.0",
     description="A1–A5 Agent / CAD 执行 / 约束求解 / 检索 / 知识治理（T1.2 骨架 → T3 治理）",
 )
-app.include_router(kb_router)
+app.include_router(kb_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
 
 
 def _mask(url: str) -> str:
