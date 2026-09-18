@@ -151,6 +151,56 @@ class Neo4jStore:
             ).data()
 
     # ------------------------------------------------------------------
+    # 图谱可视化数据接口（T3.4，§5.14）：力导向全图采样 + 邻域子图
+    # ------------------------------------------------------------------
+    def graph_sample(self, limit: int = 300) -> dict[str, Any]:
+        """全图采样：非 deprecated 实体 + 其间关系（限流）。节点带 source_doc 可反查文档。"""
+        with self._get_driver().session() as session:
+            nodes = session.run(
+                "MATCH (e) WHERE e.key IS NOT NULL AND coalesce(e.deprecated, false) = false "
+                "RETURN e.key AS key, labels(e)[0] AS label, e.name AS name, "
+                "e.source_doc AS source_doc LIMIT $limit",
+                limit=limit,
+            ).data()
+            if not nodes:
+                return {"nodes": [], "edges": []}
+            keys = [n["key"] for n in nodes]
+            edges = session.run(
+                "MATCH (a)-[r]->(b) WHERE a.key IN $keys AND b.key IN $keys "
+                "RETURN a.key AS source, b.key AS target, type(r) AS rel_type LIMIT $limit",
+                keys=keys, limit=limit * 3,
+            ).data()
+        return {"nodes": nodes, "edges": edges}
+
+    def neighborhood(self, key: str, depth: int = 2, limit: int = 100) -> dict[str, Any]:
+        """邻域子图：以 key 为中心 BFS（depth 限 1~3）。返回 {center, nodes, edges}。"""
+        depth = max(1, min(3, int(depth)))
+        with self._get_driver().session() as session:
+            center = session.run(
+                "MATCH (e {key: $key}) WHERE e.key IS NOT NULL "
+                "RETURN e.key AS key, labels(e)[0] AS label, e.name AS name, "
+                "e.source_doc AS source_doc, coalesce(e.deprecated, false) AS deprecated",
+                key=key,
+            ).data()
+            if not center:
+                return {"center": None, "nodes": [], "edges": []}
+            rows = session.run(
+                f"MATCH (c {{key: $key}})-[r*1..{depth}]-(n) WHERE n.key IS NOT NULL "
+                "RETURN DISTINCT n.key AS key, labels(n)[0] AS label, n.name AS name, "
+                "n.source_doc AS source_doc, coalesce(n.deprecated, false) AS deprecated "
+                "LIMIT $limit",
+                key=key, limit=limit,
+            ).data()
+            nodes = center + rows
+            keys = [n["key"] for n in nodes]
+            edges = session.run(
+                "MATCH (a)-[r]->(b) WHERE a.key IN $keys AND b.key IN $keys "
+                "RETURN a.key AS source, b.key AS target, type(r) AS rel_type LIMIT $limit",
+                keys=keys, limit=limit * 3,
+            ).data()
+        return {"center": center[0], "nodes": nodes, "edges": edges}
+
+    # ------------------------------------------------------------------
     def write_candidates(self, candidates: list[dict[str, Any]], session_id: str) -> dict[str, Any]:
         """写入确认候选。返回 {"written": n, "deprecated": m, "details": [...]}。
 

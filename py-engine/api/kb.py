@@ -382,3 +382,25 @@ def delete_llm_provider(name: str, user: str = Depends(require_writer)) -> dict:
         raise HTTPException(status_code=404, detail=f"供应商不存在: {name}")
     reload_providers()
     return {"deleted": True, "name": name, "reloaded": True}
+
+
+# ----------------------------------------------------------------------
+# T3.4 图谱可视化数据接口（力导向全图 + 邻域子图；节点带来源 doc 可反跳）
+# ----------------------------------------------------------------------
+def _graph_store():
+    from storage.neo4j_store import Neo4jStore
+
+    store = Neo4jStore()
+    if not store.available():
+        raise HTTPException(status_code=503, detail="Neo4j 不可达，图谱查询未执行（如实降级）")
+    return store
+
+
+@router.get("/graph")
+def graph(limit: int = 300) -> dict:
+    return _graph_store().graph_sample(limit=min(max(limit, 1), 500))
+
+
+@router.get("/graph/neighborhood")
+def graph_neighborhood(key: str, depth: int = 2, limit: int = 100) -> dict:
+    return _graph_store().neighborhood(key=key, depth=depth, limit=min(max(limit, 1), 300))
