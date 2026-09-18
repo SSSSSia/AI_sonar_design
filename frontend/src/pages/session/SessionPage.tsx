@@ -10,7 +10,7 @@ import { stageLabel, statusTag } from '../../lib/stageLabel'
 import { OverviewTab } from './OverviewTab'
 import { ReviewTab } from './ReviewTab'
 import { ReportTab } from './ReportTab'
-import { StubPage } from '../StubPage'
+import { ModelTab } from './ModelTab'
 
 /** 会话工作台：总览 / 审阅与参数 / 校验报告 / 三维与交付物（T4.3 交付）。 */
 export default function SessionPage() {
@@ -134,11 +134,7 @@ export default function SessionPage() {
           {
             key: 'model',
             label: '三维与交付物',
-            children: ir3Data ? (
-              <StubPage title="三维预览与交付物下载" phase="T4.3" note={`IR3 v${ir3.data?.version} 已就绪（step_file: ${ir3Data.step_file.bucket}/${ir3Data.step_file.object_key}）`} />
-            ) : (
-              <StubPage title="三维预览与交付物下载" phase="T4.3" note="IR3 尚未生成" />
-            ),
+            children: <ModelTab sessionId={session.id} ir3={ir3Data} ir3Version={ir3.data?.version} />,
           },
         ]}
       />

@@ -56,6 +56,19 @@ def get_latest_snapshot_id(session_id: str, ir_type: str) -> Optional[str]:
     return row[0] if row else None
 
 
+def get_latest_version(session_id: str, ir_type: str) -> int:
+    """取最新**未失效**版本号；无快照返回 0（T4.3 cad 预览缓存键用）。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT version FROM ir_snapshots
+               WHERE session_id = %s AND ir_type = %s AND invalidated_at IS NULL
+               ORDER BY version DESC LIMIT 1""",
+            (session_id, ir_type),
+        )
+        row = cur.fetchone()
+    return row[0] if row else 0
+
+
 def save_snapshot(session_id: str, ir_type: str, content: dict[str, Any], created_by: str) -> int:
     """追加不可变快照，返回版本号（同 (session, type) 内 max+1）。"""
     with _connect() as conn, conn.cursor() as cur:

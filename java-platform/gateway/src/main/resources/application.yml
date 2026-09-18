@@ -26,6 +26,11 @@ spring:
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/kb/**
+        # T4.3 三维预览与交付物（STEP→GLB / 预签名下载，宿主 py-engine 8090）
+        - id: py-engine-cad
+          uri: http://${PY_ENGINE_HOST:localhost}:8090
+          predicates:
+            - Path=/api/v1/cad/**
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:
