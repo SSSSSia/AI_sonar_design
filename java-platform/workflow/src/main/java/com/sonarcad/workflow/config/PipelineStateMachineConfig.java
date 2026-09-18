@@ -23,8 +23,8 @@ public class PipelineStateMachineConfig extends StateMachineConfigurerAdapter<Pi
         states.withStates()
                 .initial(PipelineStatus.pending)
                 .states(EnumSet.allOf(PipelineStatus.class))
-                .end(PipelineStatus.completed)
-                .end(PipelineStatus.failed);
+                .end(PipelineStatus.completed);
+        // failed 不是终态：RETRY 可回到 running（阶段 5 验收反馈）
     }
 
     @Override
@@ -38,6 +38,8 @@ public class PipelineStateMachineConfig extends StateMachineConfigurerAdapter<Pi
                 .and()
                 .withExternal().source(PipelineStatus.running).target(PipelineStatus.completed).event(PipelineEvent.COMPLETE)
                 .and()
-                .withExternal().source(PipelineStatus.running).target(PipelineStatus.failed).event(PipelineEvent.FAIL);
+                .withExternal().source(PipelineStatus.running).target(PipelineStatus.failed).event(PipelineEvent.FAIL)
+                .and()
+                .withExternal().source(PipelineStatus.failed).target(PipelineStatus.running).event(PipelineEvent.RETRY);
     }
 }

@@ -7,8 +7,9 @@ import { postReview, type Ir1, type Ir2, type Ir2Param, type Ir4, type ReviewRec
 import { ApiError } from '../../api/client'
 import { ParamTable } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
+import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
-import { annotationsText } from '../../lib/stageLabel'
+import { ir1Degraded } from '../../lib/stageLabel'
 
 const GATE_TITLE: Record<string, string> = { gate1: '审阅关①（IR2 参数方案）', gate2: '审阅关②（IR3 + IR4）' }
 const REWORK_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -101,16 +102,36 @@ export function ReviewTab({
       {paused && gate && !canDecide && (
         <Alert type="info" showIcon message="当前角色为只读，可查看但不可裁决。" />
       )}
+      {paused && gate === 'gate1' && ir2 && params(ir2).length === 0 && (
+        <Alert
+          type="error"
+          showIcon
+          message="IR2 参数方案为 0 项（降级流程生成）"
+          description="空方案无法支撑 CAD 建模：建议驳回并回退 A2，待 LLM 恢复后重算；直接批准会在 A3 产生无效模型。"
+        />
+      )}
 
       {ir1 && (
-        <Card title="IR1 需求解析" size="small">
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: ir1.missing_items.length ? 8 : 0 }}>
+        <Card
+          title="IR1 需求解析"
+          size="small"
+          extra={ir1Degraded(ir1) ? <Tag color="warning">降级解析（LLM 规划不可用）</Tag> : undefined}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(64px, 88px) 1fr', rowGap: 6, fontSize: 12.5 }}>
             {ir1.objectives.map((o) => (
-              <Tag key={o.dimension}>{o.dimension}: {String(o.value)}</Tag>
+              <div key={o.dimension} style={{ display: 'contents' }}>
+                <span style={{ color: '#8b949e' }}>{o.dimension}</span>
+                <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  {String(o.value)}{' '}
+                  <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>{o.explicit ? '显式' : '推断'}</Tag>
+                </span>
+              </div>
             ))}
           </div>
           {ir1.missing_items.length > 0 && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>缺失项（A2 将提议并标注）：{ir1.missing_items.join('、')}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+              缺失项（A2 将提议并标注）：{ir1.missing_items.join('、')}
+            </Typography.Text>
           )}
         </Card>
       )}
@@ -186,7 +207,7 @@ function ReviewTable({ records }: { records: ReviewRecord[] }) {
   const columns: ColumnsType<ReviewRecord> = [
     { title: '审阅关', dataIndex: 'gate', width: 100 },
     { title: '裁决', dataIndex: 'decision', width: 90, render: (v) => <Tag color={v === 'approved' ? 'success' : 'error'}>{v === 'approved' ? '批准' : '驳回'}</Tag> },
-    { title: '批注', key: 'annotations', render: (_, r) => <span style={{ fontSize: 12 }}>{annotationsText(r.annotations) || '—'}</span> },
+    { title: '批注', key: 'annotations', render: (_, r) => <ReviewAnnotation record={r} /> },
     { title: '时间', dataIndex: 'decided_at', width: 170, render: (v) => <span style={{ fontSize: 12 }}>{String(v).replace('T', ' ').slice(0, 19)}</span> },
   ]
   return <Table rowKey="id" size="small" dataSource={records} columns={columns} pagination={false} />

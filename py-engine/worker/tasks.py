@@ -141,6 +141,9 @@ def a1_task(self, session_id: str) -> dict:
         from llm.adapter import llm_adapter
         from storage import ir_store
 
+        # 任务开始即标记阶段（运行中/失败归位正确，RETRY 按此重派）
+        ir_store.update_stage(session_id, "A1")
+
         ir0 = ir_store.get_latest_snapshot(session_id, "IR0")
         if ir0 is None:
             raise RuntimeError(f"session {session_id} 缺少 IR0 快照，无法执行 A1")
@@ -174,6 +177,9 @@ def a2_task(self, session_id: str) -> dict:
         from ir_contract import IrContractError
         from llm.adapter import llm_adapter
         from storage import ir_store
+
+        # 任务开始即标记阶段（运行中/失败归位正确，RETRY 按此重派）
+        ir_store.update_stage(session_id, "A2")
 
         ir1 = ir_store.get_latest_snapshot(session_id, "IR1")
         if ir1 is None:
@@ -214,6 +220,9 @@ def a3_task(self, session_id: str) -> dict:
         from llm.adapter import llm_adapter
         from storage import ir_store
 
+        # 任务开始即标记阶段（运行中/失败归位正确，RETRY 按此重派）
+        ir_store.update_stage(session_id, "A3")
+
         ir2 = ir_store.get_latest_snapshot(session_id, "IR2")
         if ir2 is None:
             raise RuntimeError(f"session {session_id} 缺少 IR2 快照，无法执行 A3")
@@ -250,6 +259,9 @@ def a4_task(self, session_id: str) -> dict:
         from agents.a4_validation.agent import A4Agent
         from ir_contract import IrContractError
         from storage import ir_store
+
+        # 任务开始即标记阶段（运行中/失败归位正确，RETRY 按此重派）
+        ir_store.update_stage(session_id, "A4")
 
         ir2 = ir_store.get_latest_snapshot(session_id, "IR2")
         ir3 = ir_store.get_latest_snapshot(session_id, "IR3")
@@ -296,6 +308,9 @@ def a5_task(self, session_id: str) -> dict:
         from llm.adapter import llm_adapter
         from storage import ir_store
         from storage.neo4j_store import Neo4jStore
+
+        # 任务开始即标记阶段（运行中/失败归位正确，RETRY 按此重派）
+        ir_store.update_stage(session_id, "A5")
 
         ir1 = ir_store.get_latest_snapshot(session_id, "IR1")
         ir2 = ir_store.get_latest_snapshot(session_id, "IR2")

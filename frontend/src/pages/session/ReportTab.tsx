@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
 import { ApiError } from '../../api/client'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
-import { annotationsText } from '../../lib/stageLabel'
+import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
   error: { label: '错误', color: 'error' },
@@ -112,7 +112,7 @@ export function ReportTab({
             columns={[
               { title: '审阅关', dataIndex: 'gate', width: 110 },
               { title: '裁决', dataIndex: 'decision', width: 90, render: (v) => <Tag color={v === 'approved' ? 'success' : 'error'}>{v === 'approved' ? '批准' : '驳回'}</Tag> },
-              { title: '批注', key: 'a', render: (_, r) => <span style={{ fontSize: 12 }}>{annotationsText(r.annotations) || '—'}</span> },
+              { title: '批注', key: 'a', render: (_, r) => <ReviewAnnotation record={r} /> },
               { title: '时间', dataIndex: 'decided_at', width: 170, render: (v) => <span style={{ fontSize: 12 }}>{String(v).replace('T', ' ').slice(0, 19)}</span> },
             ]}
           />

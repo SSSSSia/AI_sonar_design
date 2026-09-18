@@ -42,7 +42,9 @@ class PipelineStateMachineTest {
     @Test
     void terminalStatesHaveNoOutgoingTransitions() {
         assertTrue(PipelineTransitions.allowedEvents(PipelineStatus.completed).isEmpty());
-        assertTrue(PipelineTransitions.allowedEvents(PipelineStatus.failed).isEmpty());
+        // failed 非终态（阶段 5 验收反馈）：仅允许 RETRY 回到 running
+        assertEquals(java.util.Set.of(PipelineEvent.RETRY),
+                PipelineTransitions.allowedEvents(PipelineStatus.failed));
     }
 
     /** 从 pending 合法推进到目标状态后返回机器 */

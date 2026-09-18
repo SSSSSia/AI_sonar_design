@@ -136,7 +136,8 @@ class A1Agent:
         req = raw_text.strip()
         return {
             "objectives": [{"dimension": "原始需求", "value": req, "explicit": True}],
-            "missing_items": [f"LLM 规划不可用，以下维度未结构化解析，需后续补充：{d}" for d in RETRIEVAL_DIMENSIONS],
+            # 降级原因只说一遍（首项），其余为纯维度名——避免界面整段重复
+            "missing_items": ["LLM 规划不可用（降级解析），以下维度未结构化解析，需后续补充", *RETRIEVAL_DIMENSIONS],
             "sub_queries": [t.format(req=req) for t in FALLBACK_QUERIES_TEMPLATE],
             "source": "fallback",
         }

@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { Card, Tag, Typography } from 'antd'
+import { Alert, Card, Tag, Typography } from 'antd'
 import dayjs from 'dayjs'
 import type { Ir1 } from '../../api/workflow'
 import { useLogStore } from '../../stores/logStore'
+import { ir1Degraded } from '../../lib/stageLabel'
 
 const LOG_LEVEL_COLOR: Record<string, string> = {
   debug: '#8b949e', info: '#57606a', ok: '#2b8a3e', warn: '#d97706', error: '#c92a2a',
@@ -95,13 +96,22 @@ export function OverviewTab({
           ))}
         </Card>
 
+        {ir1Degraded(ir1) && (
+          <Alert
+            type="warning"
+            showIcon
+            message="IR1 由降级流程生成（LLM 规划不可用）"
+            description="目标仅登记原始需求，各维度未结构化解析；建议在 LLM 恢复后新建会话重跑，或在审阅关驳回回退 A1。"
+          />
+        )}
+
         {ir1 && (
           <Card title="IR1 目标摘要" size="small">
             <div style={{ display: 'grid', gridTemplateColumns: '84px 1fr', rowGap: 6, fontSize: 12.5 }}>
               {ir1.objectives.map((o) => (
                 <div key={o.dimension} style={{ display: 'contents' }}>
                   <span style={{ color: '#8b949e' }}>{o.dimension}</span>
-                  <span>{String(o.value)} <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>{o.explicit ? '显式' : '推断'}</Tag></span>
+                  <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{String(o.value)} <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>{o.explicit ? '显式' : '推断'}</Tag></span>
                 </div>
               ))}
             </div>

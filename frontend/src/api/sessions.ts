@@ -17,7 +17,7 @@ export function getAllowedEvents(id: string) {
   return get<{ events: string[] }>(`/workflow/sessions/${id}/allowed-events`)
 }
 
-export function fireEvent(id: string, event: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE' | 'FAIL') {
+export function fireEvent(id: string, event: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE' | 'FAIL' | 'RETRY') {
   return post<DesignSession>(`/workflow/sessions/${id}/events`, { event })
 }
 

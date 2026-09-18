@@ -106,6 +106,16 @@ public class SessionService {
             return s;
         }
 
+        // RETRY（阶段 5 验收反馈）：失败会话按 current_stage 重派；转移前先校验阶段可派发，
+        // 避免"先转 running 再发现派不了"的脏状态。
+        if (event == PipelineEvent.RETRY) {
+            String stage = s.getCurrentStage() == null ? "" : s.getCurrentStage();
+            if (!stage.matches("A[1-5]")) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "失败会话无可重试阶段（current_stage=" + stage + "）");
+            }
+        }
+
         PipelineStatus current = PipelineStatus.valueOf(s.getPipelineStatus());
         PipelineStatus target = PipelineTransitions.targetOf(current, event);
         if (target == null) {
@@ -134,6 +144,18 @@ public class SessionService {
             String stage = s.getCurrentStage() == null ? "A1" : s.getCurrentStage();
             notifyClient.publish(id, NotifyMessages.taskProgress(NotifyMessages.contractStage(stage),
                     "paused", NotifyMessages.stageProgress(stage), "已手动暂停"));
+        } else if (event == PipelineEvent.RETRY) {
+            String stage = s.getCurrentStage();
+            switch (stage) {
+                case "A1" -> taskPublisher.publishA1Task(id);
+                case "A2" -> taskPublisher.publishA2Task(id);
+                case "A3" -> taskPublisher.publishA3Task(id);
+                case "A4" -> taskPublisher.publishA4Task(id);
+                case "A5" -> taskPublisher.publishA5Task(id);
+                default -> throw new IllegalStateException("未知重试阶段: " + stage);
+            }
+            notifyClient.publish(id, NotifyMessages.taskProgress(NotifyMessages.contractStage(stage), "running",
+                    NotifyMessages.stageProgress(stage), "失败重试：重新派发 " + stage));
         }
         s.setPipelineStatus(target.name());
         return s;

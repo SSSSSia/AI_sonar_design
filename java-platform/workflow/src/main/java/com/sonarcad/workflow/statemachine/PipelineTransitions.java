@@ -21,7 +21,8 @@ public final class PipelineTransitions {
             PipelineStatus.paused, Map.of(
                     PipelineEvent.RESUME, PipelineStatus.running),
             PipelineStatus.completed, Map.of(),
-            PipelineStatus.failed, Map.of()
+            // RETRY（阶段 5 验收反馈）：失败不再终态，按 current_stage 重派任务后回到 running
+            PipelineStatus.failed, Map.of(PipelineEvent.RETRY, PipelineStatus.running)
     );
 
     /** 返回目标状态；非法转移返回 null（调用方回 409） */
