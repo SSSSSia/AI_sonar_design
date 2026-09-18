@@ -6,6 +6,7 @@ import {
   createRegistryRow, deleteRegistryRow, listRegistry, updateRegistryRow,
   type RegistryKind, type RegistryRow,
 } from '../../api/kb'
+import { QueryEmpty } from '../../components/QueryEmpty'
 
 const KIND_TAB: { value: RegistryKind; label: string }[] = [
   { value: 'formulas', label: '公式库' },
@@ -99,7 +100,10 @@ export function RegistryTab() {
           军标库空态（如实）：当前 0 条，A4 对 standard 参数相关检查如实标「待补」；录入后自动参与校验。
         </div>
       )}
-      <Table rowKey={(r) => String(r.row_id ?? r.id ?? r.key)} size="small" loading={rowsQuery.isLoading} dataSource={rows} columns={columns} pagination={{ pageSize: 15 }} />
+      <Table
+        rowKey={(r) => String(r.row_id ?? r.id ?? r.key)} size="small" loading={rowsQuery.isLoading} dataSource={rows} columns={columns} pagination={{ pageSize: 15 }}
+        locale={{ emptyText: <QueryEmpty query={rowsQuery} subject="三库条目" /> }}
+      />
 
       {adding && (
         <Card size="small" style={{ margin: 12 }} title="新增条目">

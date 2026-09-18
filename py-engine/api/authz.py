@@ -25,3 +25,15 @@ def require_writer(
     if roles and not (roles & {"admin", "designer"}):
         raise HTTPException(status_code=403, detail="KB 写操作需要 admin/designer 角色")
     return x_user_id
+
+
+def require_admin(
+    x_user_id: str | None = Header(default=None),
+    x_user_roles: str | None = Header(default=None),
+) -> str:
+    """管理面写操作（LLM 供应商等涉密钥端点）仅 admin——审查 P1-5 双层收紧的后端层。"""
+    require_user(x_user_id)
+    roles = {r.strip() for r in (x_user_roles or "").split(",") if r.strip()}
+    if roles and "admin" not in roles:
+        raise HTTPException(status_code=403, detail="该操作需要 admin 角色")
+    return x_user_id

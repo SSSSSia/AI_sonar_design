@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, Input, Select, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Input, Select, Space, Spin, Tag, Typography } from 'antd'
 import * as d3 from 'd3'
 import { getGraph, getNeighborhood, type GraphData } from '../../api/kb'
 
@@ -122,8 +122,20 @@ export function GraphTab() {
       }
       styles={{ body: { padding: 0 } }}
     >
+      {overview.isError && (
+        <Alert
+          type="error" showIcon style={{ margin: '10px 16px' }}
+          message="图谱数据获取失败"
+          description="数据可能存在，仅暂时不可达（Neo4j 或 py-engine 异常）。"
+          action={<Button size="small" onClick={refetchGraph}>重试</Button>}
+        />
+      )}
       <div ref={wrapRef} style={{ position: 'relative' }}>
-        <svg ref={svgRef} style={{ width: '100%', display: 'block', background: '#fcfcfd', borderRadius: 8, minHeight: 460 }} />
+        <Spin spinning={overview.isLoading || loading} tip="加载图谱…">
+          <div style={{ minHeight: 460 }}>
+            <svg ref={svgRef} style={{ width: '100%', display: 'block', background: '#fcfcfd', borderRadius: 8, minHeight: 460 }} />
+          </div>
+        </Spin>
         <div style={{ position: 'absolute', left: 10, bottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10.5, color: '#57606a', background: 'rgba(255,255,255,.9)', padding: '3px 8px', borderRadius: 6 }}>
           {legend.map(([t, c]) => <span key={t}><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 5, background: c, marginRight: 3 }} />{t}</span>)}
         </div>

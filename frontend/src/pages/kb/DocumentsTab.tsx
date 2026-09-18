@@ -9,6 +9,7 @@ import {
   deleteDocument, getBuildTask, listDocuments, startBuild, startExtract,
   type KbDocument,
 } from '../../api/kb'
+import { QueryEmpty } from '../../components/QueryEmpty'
 
 const STATUS_META: Record<string, { color: string; text: string }> = {
   parsed: { color: 'default', text: 'parsed' },
@@ -153,7 +154,10 @@ export function DocumentsTab() {
         type="info" showIcon style={{ margin: '10px 16px' }}
         message="扫描页自动 OCR（PaddleOCR-VL-1.5，预算内自动识别）；失败或超预算页如实计 ocr_pending，不静默丢弃。删除即级联清理。"
       />
-      <Table rowKey="doc_id" size="small" loading={docsQuery.isLoading} dataSource={docs} columns={columns} pagination={false} />
+      <Table
+        rowKey="doc_id" size="small" loading={docsQuery.isLoading} dataSource={docs} columns={columns} pagination={false}
+        locale={{ emptyText: <QueryEmpty query={docsQuery} subject="文档列表" /> }}
+      />
     </Card>
   )
 }
@@ -224,7 +228,10 @@ export function ExtractionsTab() {
     >
       <Alert type="info" showIcon style={{ margin: '10px 16px' }} message="确认后的抽取才参与图谱构建（与增量构建联动）；为空如实显示。" />
       {!docId ? <div style={{ padding: 32, textAlign: 'center', color: '#8b949e' }}>先选择文档</div>
-        : <Table rowKey={(r) => String(r.extraction_id ?? r.id ?? Math.random())} size="small" loading={exQuery.isLoading} dataSource={rows} columns={columns} pagination={{ pageSize: 15 }} />}
+        : <Table
+            rowKey={(r) => String(r.extraction_id ?? r.id ?? Math.random())} size="small" loading={exQuery.isLoading} dataSource={rows} columns={columns} pagination={{ pageSize: 15 }}
+            locale={{ emptyText: exQuery.isError ? <QueryEmpty query={exQuery} subject="抽取记录" /> : undefined }}
+          />}
     </Card>
   )
 }

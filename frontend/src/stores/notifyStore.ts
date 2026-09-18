@@ -6,13 +6,15 @@ export interface AppNotification {
   kind: 'review_request' | 'info'
   title: string
   meta?: string
+  sessionId?: string
   time: number
   read: boolean
 }
 
 interface NotifyState {
   items: AppNotification[]
-  add: (n: Pick<AppNotification, 'kind' | 'title' | 'meta'>) => void
+  add: (n: Pick<AppNotification, 'kind' | 'title' | 'meta'> & { sessionId?: string }) => void
+  markRead: (id: string) => void
   markAllRead: () => void
 }
 
@@ -28,9 +30,10 @@ export const useNotifyStore = create<NotifyState>()(
           items: [
             { ...n, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, time: Date.now(), read: false },
             ...s.items,
-          ].slice(0, MAX_ITEMS),
+        ].slice(0, MAX_ITEMS),
         })),
-      markAllRead: () => set((s) => ({ items: s.items.map((i) => ({ ...i, read: true })) })),
+        markRead: (id) => set((s) => ({ items: s.items.map((i) => (i.id === id ? { ...i, read: true } : i)) })),
+        markAllRead: () => set((s) => ({ items: s.items.map((i) => ({ ...i, read: true })) })),
     }),
     { name: 'sonarcad-notify' },
   ),

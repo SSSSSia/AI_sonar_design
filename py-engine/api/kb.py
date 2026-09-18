@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from api.authz import require_user, require_writer
+from api.authz import require_user, require_writer, require_admin
 from kb import parsers
 from storage import kb_store
 
@@ -359,7 +359,7 @@ class ProviderCreate(BaseModel):
 
 
 @router.post("/llm-providers")
-def create_llm_provider(req: ProviderCreate, user: str = Depends(require_writer)) -> dict:
+def create_llm_provider(req: ProviderCreate, user: str = Depends(require_admin)) -> dict:
     from llm.adapter import reload_providers
     from storage import registry_store
 
@@ -382,7 +382,7 @@ class ProviderPatch(BaseModel):
 
 @router.patch("/llm-providers/{name}")
 def update_llm_provider(name: str, req: ProviderPatch,
-                        user: str = Depends(require_writer)) -> dict:
+                        user: str = Depends(require_admin)) -> dict:
     from llm.adapter import reload_providers
     from storage import registry_store
 
@@ -397,7 +397,7 @@ def update_llm_provider(name: str, req: ProviderPatch,
 
 
 @router.delete("/llm-providers/{name}")
-def delete_llm_provider(name: str, user: str = Depends(require_writer)) -> dict:
+def delete_llm_provider(name: str, user: str = Depends(require_admin)) -> dict:
     from llm.adapter import reload_providers
     from storage import registry_store
 

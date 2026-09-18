@@ -1,15 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Card, Table, Tag, Typography } from 'antd'
-import { getKbStatus, type KbStatus } from '../api/kb'
-import { listSessions } from '../api/sessions'
-import { listProjects } from '../api/sessions'
+import type { KbStatus } from '../api/kb'
+import { probeGet } from '../api/client'
 
-/** 服务探测：经网关调用各服务真实接口，200 即视为可达（含 DB/MQ 链路）。 */
+/** 服务探测：经网关调用各服务真实接口（5s 短超时，P0-2），200 即视为可达（含 DB/MQ 链路）。 */
 function useProbe() {
-  const auth = useQuery({ queryKey: ['probe-auth'], queryFn: () => import('../api/auth').then((m) => m.me()), retry: false, refetchInterval: 30_000 })
-  const workflow = useQuery({ queryKey: ['probe-workflow'], queryFn: () => listSessions({ page: 1, size: 1 }), retry: false, refetchInterval: 30_000 })
-  const biz = useQuery({ queryKey: ['probe-biz'], queryFn: () => listProjects({ page: 1, size: 1 }), retry: false, refetchInterval: 30_000 })
-  const py = useQuery({ queryKey: ['probe-py'], queryFn: getKbStatus, retry: false, refetchInterval: 30_000 })
+  const auth = useQuery({ queryKey: ['probe-auth'], queryFn: () => probeGet('/auth/me'), retry: false, refetchInterval: 30_000 })
+  const workflow = useQuery({ queryKey: ['probe-workflow'], queryFn: () => probeGet('/workflow/sessions', { page: 1, size: 1 }), retry: false, refetchInterval: 30_000 })
+  const biz = useQuery({ queryKey: ['probe-biz'], queryFn: () => probeGet('/projects', { page: 1, size: 1 }), retry: false, refetchInterval: 30_000 })
+  const py = useQuery({ queryKey: ['probe-py'], queryFn: () => probeGet('/kb/status'), retry: false, refetchInterval: 30_000 })
   return {
     auth: auth.isError ? 'down' : auth.data ? 'up' : 'checking',
     workflow: workflow.isError ? 'down' : workflow.data ? 'up' : 'checking',

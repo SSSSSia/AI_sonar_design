@@ -163,7 +163,7 @@ export function ReviewTab({
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {(REWORK_OPTIONS[gate] ?? REWORK_OPTIONS.gate1).map((o) => (
                   <Radio key={o.value} disabled={decision !== 'rejected'} checked={reworkStage === o.value} onChange={() => setReworkStage(o.value)}>
-                    <b>{o.value}</b>&nbsp;{o.label.split('（')[0]}
+                    <b>{o.label.split('（')[0]}</b>
                     {gate === 'gate2' && ir4?.issues.some((i) => i.suggestion === `back_to_${o.value}`) && (
                       <Tag color="warning" style={{ marginLeft: 6 }}>IR4 建议</Tag>
                     )}

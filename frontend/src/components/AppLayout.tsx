@@ -16,15 +16,19 @@ dayjs.extend(relativeTime)
 
 const { Sider, Header, Content } = Layout
 
-const MENU_ITEMS = [
-  { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
-  { key: '/sessions/new', icon: <EditOutlined />, label: '需求输入' },
-  { key: '/kb', icon: <DatabaseOutlined />, label: '知识库管理' },
-  { key: '/admin', icon: <SettingOutlined />, label: '系统管理' },
-]
-
 const ROLE_LABEL: Record<string, string> = {
   admin: '管理员', designer: '设计', reviewer: '审阅', viewer: '只读',
+}
+
+/** 菜单按角色过滤（审查 P1-5）：系统管理仅 admin 可见。 */
+function menuItemsFor(roles: string[]) {
+  const items = [
+    { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
+    { key: '/sessions/new', icon: <EditOutlined />, label: '需求输入' },
+    { key: '/kb', icon: <DatabaseOutlined />, label: '知识库管理' },
+  ]
+  if (roles.includes('admin')) items.push({ key: '/admin', icon: <SettingOutlined />, label: '系统管理' })
+  return items
 }
 
 /** 品牌标记：石墨底声呐同心环。中性灰绘制，装饰不占用交互蓝。 */
@@ -79,7 +83,9 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 function NotificationBell() {
+  const navigate = useNavigate()
   const items = useNotifyStore((s) => s.items)
+  const markRead = useNotifyStore((s) => s.markRead)
   const markAllRead = useNotifyStore((s) => s.markAllRead)
   const unread = items.filter((i) => !i.read).length
 
@@ -101,12 +107,28 @@ function NotificationBell() {
           size="small"
           dataSource={items.slice(0, 8)}
           renderItem={(item) => (
-            <List.Item style={{ background: item.read ? undefined : '#f7f9fd', padding: '8px 10px', borderRadius: 6 }}>
+            <List.Item
+              style={{
+                background: item.read ? undefined : '#f7f9fd', padding: '8px 10px', borderRadius: 6,
+                cursor: item.sessionId ? 'pointer' : undefined,
+              }}
+              onClick={() => {
+                if (!item.sessionId) return
+                markRead(item.id)
+                navigate(`/sessions/${item.sessionId}`)
+              }}
+            >
               <List.Item.Meta
-                title={<span style={{ fontSize: 13 }}>{item.title}</span>}
+                title={
+                  <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {!item.read && <span aria-hidden style={{ width: 6, height: 6, borderRadius: 3, background: '#2563eb', flex: 'none' }} />}
+                    {item.title}
+                  </span>
+                }
                 description={
                   <span style={{ fontSize: 12 }}>
                     {item.meta ? `${item.meta} · ` : ''}{dayjs(item.time).fromNow()}
+                    {item.sessionId ? ' · 点击直达' : ''}
                   </span>
                 }
               />
@@ -141,6 +163,7 @@ export default function AppLayout() {
   const hideSider = screens.md === false
   const autoCollapse = screens.xl === false
 
+  const MENU_ITEMS = menuItemsFor(roles)
   const selectedKey =
     MENU_ITEMS.find((m) => m.key !== '/' && location.pathname.startsWith(m.key))?.key ?? '/'
 

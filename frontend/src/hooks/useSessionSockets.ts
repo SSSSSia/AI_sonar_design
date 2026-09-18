@@ -33,6 +33,7 @@ export function useSessionSockets(sids: string[]) {
               kind: 'review_request',
               title: `${GATE_LABEL[m.payload.gate] ?? m.payload.gate} 待裁决`,
               meta: m.payload.summary,
+              sessionId: m.session_id,
             })
             void queryClient.invalidateQueries({ queryKey: ['sessions'] })
           } else if (m.type === 'ir_updated') {

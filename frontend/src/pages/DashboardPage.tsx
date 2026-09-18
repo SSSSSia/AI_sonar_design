@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, Card, Empty, Grid, List, Progress, Statistic, Table, Tag, Tooltip, Typography } from 'antd'
+import { Badge, Button, Card, Empty, Grid, List, Progress, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -52,10 +52,11 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const screens = useBreakpoint()
   const [refreshKey, setRefreshKey] = useState(0)
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const sessionsQuery = useQuery({
     queryKey: ['sessions', refreshKey],
-    queryFn: () => listSessions({ page: 1, size: 50 }),
+    queryFn: () => listSessions({ page: 1, size: 100 }),
     refetchInterval: 20_000, // HTTP 对账兜底：WS 不可用时进度仍能收敛
   })
 
@@ -96,6 +97,12 @@ export default function DashboardPage() {
     return { ...s, displayStatus: s.pipelineStatus }
   })
 
+  // 状态筛选（审查 P1-3）：全部/进行中/待审阅/已完成/失败
+  const filtered: Row[] = statusFilter === 'all' ? rows : rows.filter((r) => r.displayStatus === statusFilter)
+  // 运行中但长时间无进展：如实标注，不臆断失败（审查 P1-3）
+  const staleHour = 1
+  const isStale = (r: Row) => r.displayStatus === 'running' && !r.live && dayjs().diff(dayjs(r.updatedAt), 'hour') >= staleHour
+
   const columns: TableProps<Row>['columns'] = [
     {
       title: '会话',
@@ -120,6 +127,9 @@ export default function DashboardPage() {
               style={{ maxWidth: 180, marginTop: 2, marginBottom: 0 }}
             />
           )}
+          {isStale(r) && (
+            <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>长时间无进展 · 最近更新 {dayjs(r.updatedAt).fromNow()}</div>
+          )}
         </div>
       ),
     },
@@ -132,6 +142,15 @@ export default function DashboardPage() {
           {dayjs(r.updatedAt).fromNow()}
         </Tooltip>
       ),
+    },
+    {
+      title: '操作',
+      key: 'act',
+      width: 96,
+      render: (_, r) => {
+        const label = r.displayStatus === 'paused' ? '去审阅' : r.displayStatus === 'completed' ? '交付物' : r.displayStatus === 'failed' ? '查看日志' : '查看'
+        return <a onClick={(e) => { e.stopPropagation(); navigate(`/sessions/${r.id}`) }}>{label}</a>
+      },
     },
   ]
 
@@ -163,21 +182,34 @@ export default function DashboardPage() {
         extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>状态经 WebSocket 实时推送</Typography.Text>}
         styles={{ body: { padding: screens.md ? undefined : 0 } }}
       >
-        {rows.length === 0 && !sessionsQuery.isLoading ? (
-          <Empty description="暂无会话——点右上角「新建设计会话」开始" style={{ padding: 32 }} />
+        <Tabs
+          size="small"
+          activeKey={statusFilter}
+          onChange={(k) => setStatusFilter(k)}
+          style={{ marginBottom: 0 }}
+          items={[
+            { key: 'all', label: `全部（${rows.length}）` },
+            { key: 'running', label: `进行中（${rows.filter((r) => r.displayStatus === 'running').length}）` },
+            { key: 'paused', label: `待审阅（${rows.filter((r) => r.displayStatus === 'paused').length}）` },
+            { key: 'completed', label: `已完成（${rows.filter((r) => r.displayStatus === 'completed').length}）` },
+            { key: 'failed', label: `失败（${rows.filter((r) => r.displayStatus === 'failed').length}）` },
+          ]}
+        />
+        {filtered.length === 0 && !sessionsQuery.isLoading ? (
+          <Empty description={statusFilter === 'all' ? '暂无会话——点右上角「新建设计会话」开始' : '该状态下暂无会话'} style={{ padding: 32 }} />
         ) : screens.md ? (
           <Table
             rowKey="id"
-            dataSource={rows}
+            dataSource={filtered}
             columns={columns}
-            pagination={false}
+            pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
             loading={sessionsQuery.isLoading}
             onRow={(r) => ({ onClick: () => navigate(`/sessions/${r.id}`), style: { cursor: 'pointer' } })}
           />
         ) : (
           <List
             loading={sessionsQuery.isLoading}
-            dataSource={rows}
+            dataSource={filtered}
             renderItem={(r) => (
               <List.Item
                 style={{ cursor: 'pointer' }}

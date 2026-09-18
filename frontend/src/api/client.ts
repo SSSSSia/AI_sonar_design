@@ -56,6 +56,11 @@ export async function get<T>(url: string, params?: Record<string, unknown>): Pro
   return (await http.get<T>(url, { params })).data
 }
 
+/** 服务可达性探测专用：短超时（审查 P0-2），失败即如实标「不可达」，不悬挂 30s。 */
+export async function probeGet<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+  return (await http.get<T>(url, { params, timeout: 5_000 })).data
+}
+
 export async function post<T>(url: string, data?: unknown): Promise<T> {
   return (await http.post<T>(url, data)).data
 }
