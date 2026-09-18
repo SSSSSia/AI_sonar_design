@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-18 10:20 · ZCode）
+## 当前状态（最后更新：2026-09-19 · ZCode，设计审查会话）
 
 | 项 | 状态 |
 |---|---|
@@ -42,7 +42,7 @@
 1. **用户**：阶段 1 + 阶段 2 + 阶段 3 人工验收（各自 §验收记录）——建议抽查：真实 IR4 风险定级；Neo4j 浏览器（localhost:17474）看沉淀/抽取实体；删除一个 KB 文档验证清理完整性。
 2. **阶段 4（前端工作台）已完成，待人工验收**（§4.4 两组真实样例走查已由 ZCode 预跑通过，含知识写入与 3D 交付，记录见 PHASE-004/005 验收表；用户复核可抽其中任意环节）：`cd frontend && npm run dev`（5173，需全栈在跑），admin/admin123。建议走查：①仪表盘 WS 实时进度（开两个浏览器看同一会话）＋断网重连；②需求输入建会话→gate1 驳回（选 A2）→观察局部回算与下游失效→二次过闸→gate2 批准→知识关批准→三维页签看模型（首次转换数分钟属正常，按版本缓存）；③知识库五页签 CRUD（上传/抽取确认/三库启停/图谱邻域）；④系统管理页现状数字与 /api/v1/kb/status 一致性。已知优化项已全部清账（2026-09-18，commit 9228708）：图谱节点按 Neo4j label 着色、工作台总览含实时日志面板（worker log 流）；会话 id 已归一化无横线（旧外链带横线 id 仍可用，PG uuid 归一化）。视觉打磨（frontend-design skill）与 PHASE-005 自动项预执行均完成，见 PHASE-004/005 验收记录
    - graphrag 本机未安装（可选依赖）：检索图谱级已由自建 Neo4j 实体层承担；装 graphrag~=2.0 后 SDK 级自动优先（A-14）
-   - **2026-09-19 用户首轮验收反馈已修**（devlog 补充 30）：失败会话「重新执行」按钮（RETRY 事件+worker 开始即标记阶段）；审阅页降级 IR1 溢出；裁决历史 JSON 批注→可读（ReviewAnnotation）；会话 id 短显+复制；gate1 空方案/降级横幅警示；A1 降级缺失项去噪。**系统性功能交互/页面交互/UI 设计审查待用户另开窗口执行**（提示词由 ZCode 提供）
+   - **2026-09-19 用户首轮验收反馈已修**（devlog 补充 30）：失败会话「重新执行」按钮（RETRY 事件+worker 开始即标记阶段）；审阅页降级 IR1 溢出；裁决历史 JSON 批注→可读（ReviewAnnotation）；会话 id 短显+复制；gate1 空方案/降级横幅警示；A1 降级缺失项去噪。**系统性功能交互/页面交互/UI 设计审查已执行**（2026-09-19 ZCode，报告 `docs/reviews/2026-09-19-全站设计审查.md`：P0×3/P1×9/P2×16 + 修复 Top10；无代码改动，动工前按 §7.3 先 mockup）→ 下一步按报告 Top10 逐项修复
 3. 开发提示：数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 三条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）。
 
 ## 待验证 / 待决事项
@@ -52,6 +52,8 @@
 - [x] MinIO 供应链：切换 Chainguard digest 固定镜像（0 CVE），真实凭据 S3 回环验证通过（2026-09-17，ADR-002）
 - [ ] 注意：MinIO 镜像按 digest 固定，升级 = 重拉 cgr.dev/chainguard/minio:latest 取新 digest 更新 compose（流程见 ADR-002）
 - [ ] ZCode 首次接入：确认沙箱/终端能力与「环境注意」清单是否同样适用，不适用处更新该清单
+- [ ] **py-engine uvicorn 事件循环挂死根因排查**（2026-09-19 设计审查期间实发：连接建立无响应、堆积 50 连接，前端轮询无熔断持续累积；重启已恢复，根因未查，疑似同步调用阻塞 loop）——见 `docs/reviews/2026-09-19-全站设计审查.md` §0
+- [ ] **`llm_providers` 表当前 0 行**（验收期被清）：系统靠 .env 兜底跑真实 LLM；**e2e 前需重播 enabled mock 行**（conftest 前置不再满足）；供应商页与实际配置脱节属审查报告 P1-6
 
 ## 环境注意（机器相关事实，只增不删；失效的标注"[已失效]"）
 
@@ -94,6 +96,7 @@
   - PaddleOCR-VL-1.5 走 SiliconFlow chat 接口（OpenAI 兼容），图片 base64 data URL；**输出带 `<|LOC_x|>` 版面标记（每行四个角点）必须清洗**（kb/ocr.py strip_layout_markers）
   - 请求务必带 `temperature: 0`（否则同一图像识别结果不稳定）；单页 ~1250 vision tokens、~2s
   - 测试造"扫描件"：PIL 黑白模式（"1"）多页图像直接 save 成 PDF（RGB 模式的 PDF 保存需要 JPEG 编码器，本机 Pillow 没有）
+- **py-engine uvicorn 挂死与重启（2026-09-19 实发）**：uvicorn 事件循环可能整体挂死（端口 LISTENING、连接 ESTABLISHED 但零响应，健康检查也挂）；**重启必须 `cd py-engine && bash -c 'set -a; source ../.env; set +a; python -m uvicorn api.main:app --host 127.0.0.1 --port 8090'`——漏 source .env 时 PG 报 `fe_sendauth: no password supplied` 全接口 500**；本机 curl 探测一律用 `127.0.0.1`（`localhost` 解析 IPv6 不可靠）
 
 ## 工作约定速记（全文见宪法 CONST-001）
 
