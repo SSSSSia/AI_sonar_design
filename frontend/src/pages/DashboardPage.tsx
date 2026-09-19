@@ -6,7 +6,7 @@ import type { TableProps } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { deleteSession, listSessions } from '../api/sessions'
+import { deleteSession, deleteSessions, listSessions } from '../api/sessions'
 import { getKbStatus } from '../api/kb'
 import type { DesignSession } from '../api/types'
 import { useSessionSockets } from '../hooks/useSessionSockets'
@@ -58,6 +58,8 @@ export default function DashboardPage() {
   const isAdmin = useAuthStore((s) => s.roles.includes('admin'))
   const [refreshKey, setRefreshKey] = useState(0)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([])
+  const [batching, setBatching] = useState(false)
 
   async function removeSession(r: Row) {
     const force = r.displayStatus === 'running' || r.displayStatus === 'paused'
@@ -68,6 +70,31 @@ export default function DashboardPage() {
       setRefreshKey((k) => k + 1)
     } catch (e) {
       message.error(String((e as { message?: string }).message ?? e).slice(0, 160))
+    }
+  }
+
+  async function removeSelected() {
+    if (selectedKeys.length === 0) return
+    const selected = rows.filter((r) => selectedKeys.includes(r.id))
+    const force = selected.some((r) => r.displayStatus === 'running' || r.displayStatus === 'paused')
+    setBatching(true)
+    try {
+      const res = await deleteSessions(selectedKeys.map(String), force)
+      const parts = [`成功 ${res.deleted_count} 项`]
+      if (res.failed_count > 0) {
+        const firstErr = res.results.find((r) => !r.deleted)?.error
+        parts.push(`失败 ${res.failed_count} 项${firstErr ? `（如：${String(firstErr).slice(0, 60)}）` : ''}`)
+      }
+      if (res.deleted_count > 0) parts.push('已沉淀知识保留')
+      if (res.failed_count === 0) message.success(`批量删除完成：${parts.join(' · ')}`)
+      else message.warning(`批量删除部分完成：${parts.join(' · ')}`)
+      setSelectedKeys([])
+      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      message.error(String((e as { message?: string }).message ?? e).slice(0, 160))
+    } finally {
+      setBatching(false)
     }
   }
 
@@ -226,7 +253,7 @@ export default function DashboardPage() {
         <Tabs
           size="small"
           activeKey={statusFilter}
-          onChange={(k) => setStatusFilter(k)}
+          onChange={(k) => { setStatusFilter(k); setSelectedKeys([]) }}
           style={{ marginBottom: 0 }}
           items={[
             { key: 'all', label: `全部（${rows.length}）` },
@@ -239,14 +266,50 @@ export default function DashboardPage() {
         {filtered.length === 0 && !sessionsQuery.isLoading ? (
           <Empty description={statusFilter === 'all' ? '暂无会话——点右上角「新建设计会话」开始' : '该状态下暂无会话'} style={{ padding: 32 }} />
         ) : screens.md ? (
-          <Table
-            rowKey="id"
-            dataSource={filtered}
-            columns={columns}
-            pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
-            loading={sessionsQuery.isLoading}
-            onRow={(r) => ({ onClick: () => navigate(`/sessions/${r.id}`), style: { cursor: 'pointer' } })}
-          />
+          <>
+            {isAdmin && selectedKeys.length > 0 && (
+              <div className="row" style={{ padding: '8px 4px', background: '#f7f9fd', borderRadius: 6, margin: '8px 0' }}>
+                <Typography.Text style={{ fontSize: 12.5 }}>已选 <b>{selectedKeys.length}</b> 项会话</Typography.Text>
+                <span style={{ flex: 1 }} />
+                <Button size="small" onClick={() => setSelectedKeys([])}>取消选择</Button>
+                <Popconfirm
+                  title={(() => {
+                    const sel = rows.filter((r) => selectedKeys.includes(r.id))
+                    const anyLive = sel.some((r) => r.displayStatus === 'running' || r.displayStatus === 'paused')
+                    return anyLive ? `强制删除所选 ${selectedKeys.length} 项？` : `删除所选 ${selectedKeys.length} 项？`
+                  })()}
+                  description={(() => {
+                    const sel = rows.filter((r) => selectedKeys.includes(r.id))
+                    const anyLive = sel.some((r) => r.displayStatus === 'running' || r.displayStatus === 'paused')
+                    return anyLive
+                      ? '所选含未结束会话：在途任务的后续写入会失败；快照/裁决/溯源/MinIO 产物将一并清除（已沉淀知识保留）。'
+                      : '将一并清除快照、裁决记录、溯源链与 MinIO 产物；已沉淀入图谱的知识保留。不可恢复。'
+                  })()}
+                  okText="删除"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={removeSelected}
+                >
+                  <Button size="small" danger type="primary" loading={batching}>批量删除</Button>
+                </Popconfirm>
+              </div>
+            )}
+            <Table
+              rowKey="id"
+              dataSource={filtered}
+              columns={columns}
+              rowSelection={isAdmin ? { selectedRowKeys: selectedKeys, onChange: setSelectedKeys } : undefined}
+              pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
+              loading={sessionsQuery.isLoading}
+              onRow={(r) => ({
+                onClick: (e) => {
+                  // 复选框/弹层内点击不触发行导航
+                  if ((e.target as HTMLElement).closest('.ant-table-selection-column, .ant-checkbox-wrapper, .ant-popover, .ant-btn')) return
+                  navigate(`/sessions/${r.id}`)
+                },
+                style: { cursor: 'pointer' },
+              })}
+            />
+          </>
         ) : (
           <List
             loading={sessionsQuery.isLoading}

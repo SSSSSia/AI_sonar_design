@@ -84,4 +84,38 @@ public class SessionController {
                                                    @RequestParam(defaultValue = "false") boolean force) {
         return ApiResponse.ok(cleanupService.delete(id, force));
     }
+
+    /**
+     * 批量删除（admin）：DELETE /sessions?ids=a,b,c&force=。薄循环逐条调 {@link SessionCleanupService#delete}
+     * （每次独立事务），逐条容错——部分失败不拖垮整批，返回逐条结果与汇总计数。
+     */
+    @DeleteMapping
+    @PreAuthorize("hasRole('admin')")
+    public ApiResponse<Map<String, Object>> deleteBatch(@RequestParam String ids,
+                                                        @RequestParam(defaultValue = "false") boolean force) {
+        java.util.List<Map<String, Object>> results = new java.util.ArrayList<>();
+        int deleted = 0;
+        for (String id : ids.split(",")) {
+            String trimmed = id.trim();
+            if (trimmed.isEmpty()) continue;
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("id", trimmed);
+            try {
+                cleanupService.delete(trimmed, force);
+                row.put("deleted", true);
+                deleted++;
+            } catch (IllegalArgumentException | org.springframework.web.server.ResponseStatusException e) {
+                row.put("deleted", false);
+                row.put("error", e instanceof org.springframework.web.server.ResponseStatusException
+                        ? ((org.springframework.web.server.ResponseStatusException) e).getReason()
+                        : e.getMessage());
+            }
+            results.add(row);
+        }
+        Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        summary.put("results", results);
+        summary.put("deleted_count", deleted);
+        summary.put("failed_count", results.size() - deleted);
+        return ApiResponse.ok(summary);
+    }
 }

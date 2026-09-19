@@ -28,6 +28,17 @@ export function deleteSession(id: string, force = false) {
   )
 }
 
+export interface BatchDeleteResult {
+  results: { id: string; deleted: boolean; error?: string }[]
+  deleted_count: number
+  failed_count: number
+}
+
+/** 批量删除会话（admin）：逐条独立事务，部分失败不拖垮整批（结果带逐条明细）。 */
+export function deleteSessions(ids: string[], force = false) {
+  return del<BatchDeleteResult>('/workflow/sessions', { ids: ids.join(','), ...(force ? { force: 'true' } : {}) })
+}
+
 export function listProjects(params?: { page?: number; size?: number; keyword?: string }) {
   return get<PageResult<Project>>('/projects', params)
 }
