@@ -43,7 +43,7 @@
 2. **阶段 4（前端工作台）已完成，待人工验收**（§4.4 两组真实样例走查已由 ZCode 预跑通过，含知识写入与 3D 交付，记录见 PHASE-004/005 验收表；用户复核可抽其中任意环节）：`cd frontend && npm run dev`（5173，需全栈在跑），admin/admin123。建议走查：①仪表盘 WS 实时进度（开两个浏览器看同一会话）＋断网重连；②需求输入建会话→gate1 驳回（选 A2）→观察局部回算与下游失效→二次过闸→gate2 批准→知识关批准→三维页签看模型（首次转换数分钟属正常，按版本缓存）；③知识库五页签 CRUD（上传/抽取确认/三库启停/图谱邻域）；④系统管理页现状数字与 /api/v1/kb/status 一致性。已知优化项已全部清账（2026-09-18，commit 9228708）：图谱节点按 Neo4j label 着色、工作台总览含实时日志面板（worker log 流）；会话 id 已归一化无横线（旧外链带横线 id 仍可用，PG uuid 归一化）。视觉打磨（frontend-design skill）与 PHASE-005 自动项预执行均完成，见 PHASE-004/005 验收记录
    - graphrag 本机未安装（可选依赖）：检索图谱级已由自建 Neo4j 实体层承担；装 graphrag~=2.0 后 SDK 级自动优先（A-14）
    - **2026-09-19 用户首轮验收反馈已修**（devlog 补充 30）：失败会话「重新执行」按钮（RETRY 事件+worker 开始即标记阶段）；审阅页降级 IR1 溢出；裁决历史 JSON 批注→可读（ReviewAnnotation）；会话 id 短显+复制；gate1 空方案/降级横幅警示；A1 降级缺失项去噪。**系统性功能交互/页面交互/UI 设计审查已执行**（2026-09-19 ZCode，报告 `docs/reviews/2026-09-19-全站设计审查.md`：P0×3/P1×9/P2×16）→ **报告全部条目闭环**：Top10（补充 32/33）+ P2 打磨组 14 项（补充 34：菜单分组/gate 中文化/横幅去重/仪表盘知识卡/图谱图例中文/文档库拖拽区/三库编号单位/空态文案/交付物 IR 下载/登录内联错误/合理偏离记录）；P2-9 调参与 P2-6 v-status 两项按 A-16 裁剪不做（无数据不造假，已记录）。会话 API 现回 createdByName（join users）
-3. 开发提示：数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 三条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）。
+3. 开发提示：**全栈一键启动 `bash scripts/start-all.sh`**（幂等：在跑的跳过；.env 注入/日志落根目录 logs-*.log；数据底座容器在跑则复用）；数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 三条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）。
 
 ## 待验证 / 待决事项
 
