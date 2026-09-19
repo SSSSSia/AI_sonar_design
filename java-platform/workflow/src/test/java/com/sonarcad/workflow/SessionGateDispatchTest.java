@@ -103,4 +103,20 @@ class SessionGateDispatchTest {
                 () -> service.fireEvent("s1", PipelineEvent.STAGE_DONE));
         verify(taskPublisher, never()).publishA3Task(any());
     }
+
+    @Test
+    void startMarksStageA1Immediately() {
+        // 启动空窗修复（2026-09-19 用户反馈）：START 即落 current_stage=A1，不等 worker 回写
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", "pending", null));
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+
+        DesignSessionEntity out = service.fireEvent("s1", PipelineEvent.START);
+
+        assertEquals(PipelineStatus.running.name(), out.getPipelineStatus());
+        assertEquals("A1", out.getCurrentStage());
+        ArgumentCaptor<DesignSessionEntity> patch = ArgumentCaptor.forClass(DesignSessionEntity.class);
+        verify(sessionMapper).update(patch.capture(), any());
+        assertEquals("A1", patch.getValue().getCurrentStage());
+        verify(taskPublisher).publishA1Task("s1");
+    }
 }

@@ -37,7 +37,7 @@ export const STATUS_TAG: Record<string, { color: string; text: string }> = {
   failed: { color: 'error', text: '失败' },
 }
 
-export function statusTag(status: DesignSession['pipelineStatus']) {
+export function statusTag(status: DesignSession['pipelineStatus'] | string) {
   return STATUS_TAG[status] ?? { color: 'default', text: status }
 }
 

@@ -152,6 +152,8 @@ public class SessionService {
         }
         DesignSessionEntity patch = new DesignSessionEntity();
         patch.setPipelineStatus(target.name());
+        // START 即标记 A1（启动空窗修复）：不等 worker 接单回写，前端时间线/阶段列从第一屏就有值
+        if (event == PipelineEvent.START) patch.setCurrentStage("A1");
         int updated = mapper.update(patch, new LambdaQueryWrapper<DesignSessionEntity>()
                 .eq(DesignSessionEntity::getId, id)
                 .eq(DesignSessionEntity::getPipelineStatus, current.name()));
@@ -160,6 +162,7 @@ public class SessionService {
         }
         // START 成功后投递首个管线任务（A1 需求解析；echo 保留为 /debug 联通性任务）
         if (event == PipelineEvent.START) {
+            s.setCurrentStage("A1");
             taskPublisher.publishA1Task(id);
             notifyClient.publish(id, NotifyMessages.taskProgress("A1", "running",
                     NotifyMessages.stageProgress("A1"), "A1 需求解析已派发"));

@@ -122,7 +122,7 @@ export default function DashboardPage() {
       width: 240,
       render: (_, r) => (
         <div>
-          <div>{stageLabel(r.currentStage)}{r.live ? ` · ${Math.round(r.live.progress)}%` : ''}</div>
+          <div>{stageLabel(r.live?.stage ?? r.currentStage)}{r.live ? ` · ${Math.round(r.live.progress)}%` : ''}</div>
           {r.displayStatus === 'running' && (
             <Progress
               percent={Math.round(r.live?.progress ?? 0)}

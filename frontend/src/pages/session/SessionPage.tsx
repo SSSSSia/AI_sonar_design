@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { Alert, App as AntdApp, Badge, Button, Card, Tabs, Tag, Typography } from 'antd'
+import dayjs from 'dayjs'
 import { getSession, fireEvent } from '../../api/sessions'
 import { ApiError } from '../../api/client'
 import { getIr, listReviews, parseIr, type Ir1, type Ir2, type Ir3, type Ir4, type Ir5 } from '../../api/workflow'
@@ -9,6 +10,7 @@ import { useSessionSockets } from '../../hooks/useSessionSockets'
 import { PipelineTimeline, buildTimeline } from '../../components/PipelineTimeline'
 import { stageLabel, statusTag, fmtTime } from '../../lib/stageLabel'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
+import { useProgressStore } from '../../stores/progressStore'
 import { OverviewTab } from './OverviewTab'
 import { ReviewTab } from './ReviewTab'
 import { ReportTab } from './ReportTab'
@@ -32,6 +34,11 @@ export default function SessionPage() {
   })
   const session = sessionQuery.data
   useSessionSockets(session && session.pipelineStatus !== 'completed' && session.pipelineStatus !== 'failed' ? [session.id] : [])
+  // WS 实时进度叠加（比 10s 轮询快）：时间线/状态徽标先用推送值，HTTP 对账兜底
+  const live = useProgressStore((s) => (id ? s.bySession[id] : undefined))
+  const liveNewer = !!(session && live && live.updatedAt > dayjs(session.updatedAt).valueOf())
+  const displayStage = liveNewer ? live.stage : session?.currentStage
+  const displayStatus = liveNewer ? live.status : session?.pipelineStatus
 
   const reviewsQuery = useQuery({
     queryKey: ['reviews', id],
@@ -46,8 +53,8 @@ export default function SessionPage() {
   const ir5 = useQuery({ queryKey: ['ir', id, 'IR5'], queryFn: () => getIr(id!, 'IR5'), enabled: !!id, retry: false })
 
   const timeline = useMemo(
-    () => buildTimeline(session?.currentStage, session?.pipelineStatus ?? 'pending'),
-    [session?.currentStage, session?.pipelineStatus],
+    () => buildTimeline(displayStage, displayStatus ?? 'pending'),
+    [displayStage, displayStatus],
   )
 
   async function retryFailedStage() {
@@ -66,8 +73,8 @@ export default function SessionPage() {
   }
 
   if (!session) return <Typography.Text type="secondary">加载中…</Typography.Text>
-  const tag = statusTag(session.pipelineStatus)
-  const pausedAtGate = session.pipelineStatus === 'paused' && (session.currentStage === 'gate1' || session.currentStage === 'gate2')
+  const tag = statusTag(displayStatus ?? session.pipelineStatus)
+  const pausedAtGate = displayStatus === 'paused' && (displayStage === 'gate1' || displayStage === 'gate2')
 
   const ir1Data = parseIr<Ir1>(ir1.data)
   const ir2Data = parseIr<Ir2>(ir2.data)
@@ -79,7 +86,7 @@ export default function SessionPage() {
     <div style={{ maxWidth: 1320, margin: '0 auto' }}>
       <div className="row" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
         <div className="page-head">{session.title}</div>
-        <Badge status={session.pipelineStatus === 'running' ? 'processing' : session.pipelineStatus === 'paused' ? 'warning' : session.pipelineStatus === 'completed' ? 'success' : session.pipelineStatus === 'failed' ? 'error' : 'default'} text={tag.text} />
+        <Badge status={displayStatus === 'running' ? 'processing' : displayStatus === 'paused' ? 'warning' : displayStatus === 'completed' ? 'success' : displayStatus === 'failed' ? 'error' : 'default'} text={tag.text} />
         <span style={{ flex: 1 }} />
         <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: session.id, tooltips: ['复制完整会话 ID', '已复制'] }}>
           会话 <span className="mono">{session.id.slice(0, 8)}…</span>
@@ -95,7 +102,7 @@ export default function SessionPage() {
           type="warning"
           showIcon
           style={{ marginTop: 14 }}
-          message={`${stageLabel(session.currentStage)} 待人工裁决`}
+          message={`${stageLabel(displayStage)} 待人工裁决`}
           description="请在「审阅与参数」或「校验报告」页签完成批准/驳回。驳回将触发局部回算（A-11），下游版本标记失效。"
         />
       )}
