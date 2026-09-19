@@ -1,4 +1,4 @@
-import { get, post } from './client'
+import { del, get, post } from './client'
 import type { DesignSession, PageResult, Project } from './types'
 
 export function listSessions(params?: { projectId?: string; page?: number; size?: number }) {
@@ -19,6 +19,13 @@ export function getAllowedEvents(id: string) {
 
 export function fireEvent(id: string, event: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE' | 'FAIL' | 'RETRY') {
   return post<DesignSession>(`/workflow/sessions/${id}/events`, { event })
+}
+
+/** 删除会话（admin）：终态直接删；运行中/暂停须 force（任务可能仍在途）。 */
+export function deleteSession(id: string, force = false) {
+  return del<{ deleted: boolean; ir_snapshots: number; review_records: number; trace_chain_rows: number; minio?: Record<string, unknown> }>(
+    `/workflow/sessions/${id}${force ? '?force=true' : ''}`,
+  )
 }
 
 export function listProjects(params?: { page?: number; size?: number; keyword?: string }) {

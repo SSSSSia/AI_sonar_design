@@ -2,6 +2,7 @@ package com.sonarcad.workflow.web;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sonarcad.workflow.session.DesignSessionEntity;
+import com.sonarcad.workflow.session.SessionCleanupService;
 import com.sonarcad.workflow.session.SessionService;
 import com.sonarcad.workflow.statemachine.PipelineEvent;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,9 +23,11 @@ import java.util.Map;
 public class SessionController {
 
     private final SessionService sessionService;
+    private final SessionCleanupService cleanupService;
 
-    public SessionController(SessionService sessionService) {
+    public SessionController(SessionService sessionService, SessionCleanupService cleanupService) {
         this.sessionService = sessionService;
+        this.cleanupService = cleanupService;
     }
 
     public record CreateSessionRequest(String projectId, String title, String requirement) {}
@@ -72,5 +75,13 @@ public class SessionController {
             throw new IllegalArgumentException("未知事件: " + req.event());
         }
         return ApiResponse.ok(sessionService.fireEvent(id, event));
+    }
+
+    /** 删除会话（admin）：终态直接删；运行中/暂停须 force（会话删除级联说明见 SessionCleanupService）。 */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('admin')")
+    public ApiResponse<Map<String, Object>> delete(@PathVariable String id,
+                                                   @RequestParam(defaultValue = "false") boolean force) {
+        return ApiResponse.ok(cleanupService.delete(id, force));
     }
 }

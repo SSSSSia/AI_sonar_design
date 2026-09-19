@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, Card, Empty, Grid, List, Progress, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { App, Badge, Button, Card, Empty, Grid, List, Popconfirm, Progress, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { listSessions } from '../api/sessions'
+import { deleteSession, listSessions } from '../api/sessions'
 import { getKbStatus } from '../api/kb'
 import type { DesignSession } from '../api/types'
 import { useSessionSockets } from '../hooks/useSessionSockets'
 import { useProgressStore, useWsStatusStore, type SessionProgress } from '../stores/progressStore'
+import { useAuthStore } from '../stores/authStore'
 import { stageLabel } from '../lib/stageLabel'
 
 dayjs.extend(relativeTime)
@@ -52,8 +53,23 @@ function StatusTag({ row }: { row: Row }) {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const screens = useBreakpoint()
+  const { message } = App.useApp()
+  const queryClient = useQueryClient()
+  const isAdmin = useAuthStore((s) => s.roles.includes('admin'))
   const [refreshKey, setRefreshKey] = useState(0)
   const [statusFilter, setStatusFilter] = useState('all')
+
+  async function removeSession(r: Row) {
+    const force = r.displayStatus === 'running' || r.displayStatus === 'paused'
+    try {
+      const res = await deleteSession(r.id, force)
+      message.success(`已删除「${r.title}」：快照 ${res.ir_snapshots} 份、裁决记录 ${res.review_records} 条、溯源链 ${res.trace_chain_rows} 行；已沉淀知识保留`)
+      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      message.error(String((e as { message?: string }).message ?? e).slice(0, 160))
+    }
+  }
 
   const sessionsQuery = useQuery({
     queryKey: ['sessions', refreshKey],
@@ -150,10 +166,28 @@ export default function DashboardPage() {
     {
       title: '操作',
       key: 'act',
-      width: 96,
+      width: 130,
       render: (_, r) => {
         const label = r.displayStatus === 'paused' ? '去审阅' : r.displayStatus === 'completed' ? '交付物' : r.displayStatus === 'failed' ? '查看日志' : '查看'
-        return <a onClick={(e) => { e.stopPropagation(); navigate(`/sessions/${r.id}`) }}>{label}</a>
+        const force = r.displayStatus === 'running' || r.displayStatus === 'paused'
+        return (
+          <span onClick={(e) => e.stopPropagation()}>
+            <a onClick={() => navigate(`/sessions/${r.id}`)} style={{ marginRight: 10 }}>{label}</a>
+            {isAdmin && (
+              <Popconfirm
+                title={force ? `强制删除「${r.title}」？` : `删除「${r.title}」？`}
+                description={force
+                  ? '会话尚未结束，在途任务的后续写入会失败；快照/裁决/溯源/MinIO 产物将一并清除（已沉淀知识保留）。'
+                  : '将一并清除快照、裁决记录、溯源链与 MinIO 产物；已沉淀入图谱的知识保留。不可恢复。'}
+                okText={force ? '强制删除' : '删除'}
+                okButtonProps={{ danger: true }}
+                onConfirm={() => removeSession(r)}
+              >
+                <a style={{ color: '#c92a2a' }}>删除</a>
+              </Popconfirm>
+            )}
+          </span>
+        )
       },
     },
   ]

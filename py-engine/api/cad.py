@@ -162,3 +162,34 @@ def download(sid: str, kind: str = Query(..., pattern="^(step|script)$"), user: 
     script = ir3.get("cadquery_script", "")
     data_uri = "data:text/x-python;charset=utf-8," + urllib.parse.quote(script)
     return {"url": data_uri, "filename": f"ir3_v{version}.py", "expires_in": 0, "inline": True}
+
+
+@router.delete("/sessions/{sid}/artifacts")
+def delete_session_artifacts(sid: str, user: str = Depends(require_user)) -> dict:
+    """会话删除联动清理（workflow SessionCleanup 内网直连）：MinIO 三桶按 {sid}/ 前缀清理。
+
+    - 覆盖 step-models / cad-scripts / cad-previews（键布局均为 {sid}/xxx）。
+    - Neo4j 已过审沉淀的知识**不在清理范围**（共享资产）；其 source_session 标记
+      会随会话删除悬空，属如实保留（A-16：不静默伪造来源，也不连坐删知识）。
+    - 清理尽力而为：逐桶独立容错，返回逐桶计数，单桶失败不拖垮整体。
+    """
+    from app_config import BUCKET_CAD_SCRIPTS
+
+    cli = _minio()
+    per_bucket: dict[str, int] = {}
+    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, PREVIEW_BUCKET):
+        try:
+            if not cli.bucket_exists(bucket):
+                per_bucket[bucket] = 0
+                continue
+            names = [o.object_name for o in cli.list_objects(bucket, prefix=f"{sid}/", recursive=True)]
+            if names:
+                for _err in cli.remove_objects(bucket, names):
+                    logger.warning("MinIO 删除失败 %s: %s", bucket, _err)
+            per_bucket[bucket] = len(names)
+        except Exception as exc:
+            logger.warning("会话 %s 产物清理失败（桶 %s）：%s", sid, bucket, exc)
+            per_bucket[bucket] = -1
+    total = sum(v for v in per_bucket.values() if v > 0)
+    logger.info("会话 %s CAD 产物清理完成：%s", sid, per_bucket)
+    return {"session_id": sid, "minio_objects_removed": total, "per_bucket": per_bucket}
