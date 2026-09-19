@@ -9,7 +9,7 @@ import { ParamTable } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
-import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
+import { ir1Degraded, normalizeMissingItems, gateLabel } from '../../lib/stageLabel'
 
 const GATE_TITLE: Record<string, string> = { gate1: '审阅关①（IR2 参数方案）', gate2: '审阅关②（IR3 + IR4）' }
 const REWORK_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -235,7 +235,7 @@ function params(ir2: Ir2): Ir2Param[] {
 
 function ReviewTable({ records }: { records: ReviewRecord[] }) {
   const columns: ColumnsType<ReviewRecord> = [
-    { title: '审阅关', dataIndex: 'gate', width: 100 },
+    { title: '审阅关', dataIndex: 'gate', width: 100, render: (v) => gateLabel(v) },
     { title: '裁决', dataIndex: 'decision', width: 90, render: (v) => <Tag color={v === 'approved' ? 'success' : 'error'}>{v === 'approved' ? '批准' : '驳回'}</Tag> },
     { title: '批注', key: 'annotations', render: (_, r) => <ReviewAnnotation record={r} /> },
     { title: '时间', dataIndex: 'decided_at', width: 170, render: (v) => <span style={{ fontSize: 12 }}>{String(v).replace('T', ' ').slice(0, 19)}</span> },

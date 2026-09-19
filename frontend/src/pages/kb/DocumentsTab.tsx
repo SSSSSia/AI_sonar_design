@@ -5,6 +5,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { UploadOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import {
   deleteDocument, getBuildTask, listDocuments, startBuild, startExtract,
   type KbDocument,
@@ -92,7 +93,11 @@ export function DocumentsTab() {
       width: 110,
       render: (v) => <Badge status={(STATUS_META[v]?.color as 'success') ?? 'default'} text={STATUS_META[v]?.text ?? v} />,
     },
-    { title: '分块', dataIndex: 'chunks', width: 70 },
+    { title: '分块', dataIndex: 'chunks', width: 70, render: (v) => (v ? v : <span style={{ color: '#8b949e' }}>—</span>) },
+    {
+      title: '上传时间', dataIndex: 'uploaded_at', width: 110,
+      render: (v) => <span style={{ fontSize: 11.5, color: '#8b949e' }}>{v ? dayjs(v).format('MM-DD HH:mm') : '—'}</span>,
+    },
     {
       title: 'OCR',
       key: 'ocr',
@@ -152,12 +157,22 @@ export function DocumentsTab() {
     >
       <Alert
         type="info" showIcon style={{ margin: '10px 16px' }}
-        message="扫描页自动 OCR（PaddleOCR-VL-1.5，预算内自动识别）；失败或超预算页如实计 ocr_pending，不静默丢弃。删除即级联清理。"
+        message="拖拽或点击上方「上传」即建档解析（扫描页自动 OCR）；失败或超预算页如实计 ocr_pending，不静默丢弃。删除即级联清理。"
       />
-      <Table
-        rowKey="doc_id" size="small" loading={docsQuery.isLoading} dataSource={docs} columns={columns} pagination={false}
-        locale={{ emptyText: <QueryEmpty query={docsQuery} subject="文档列表" /> }}
-      />
+      {docs.length === 0 && !docsQuery.isLoading && !docsQuery.isError ? (
+        <Upload.Dragger
+          beforeUpload={beforeUpload} showUploadList={false} multiple
+          style={{ margin: '0 16px 14px', padding: '18px 0', background: '#fafbfc' }}
+        >
+          <p style={{ marginBottom: 4, color: '#57606a', fontSize: 13 }}>暂无文档——拖拽文件到此处，或点击选择</p>
+          <p style={{ marginBottom: 0, color: '#8b949e', fontSize: 11.5 }}>上传即建档解析（PDF / TXT / MD），解析失败如实回显</p>
+        </Upload.Dragger>
+      ) : (
+        <Table
+          rowKey="doc_id" size="small" loading={docsQuery.isLoading} dataSource={docs} columns={columns} pagination={false}
+          locale={{ emptyText: <QueryEmpty query={docsQuery} subject="文档列表" /> }}
+        />
+      )}
     </Card>
   )
 }

@@ -20,15 +20,28 @@ const ROLE_LABEL: Record<string, string> = {
   admin: '管理员', designer: '设计', reviewer: '审阅', viewer: '只读',
 }
 
-/** 菜单按角色过滤（审查 P1-5）：系统管理仅 admin 可见。 */
-function menuItemsFor(roles: string[]) {
-  const items = [
-    { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
-    { key: '/sessions/new', icon: <EditOutlined />, label: '需求输入' },
-    { key: '/kb', icon: <DatabaseOutlined />, label: '知识库管理' },
+/** 菜单按角色过滤（审查 P1-5）+ 分组标题（审查 P2-2：工作台/知识/系统）。 */
+function menuGroupsFor(roles: string[]) {
+  const groups = [
+    {
+      key: 'g-workbench', label: '工作台', type: 'group' as const,
+      children: [
+        { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
+        { key: '/sessions/new', icon: <EditOutlined />, label: '需求输入' },
+      ],
+    },
+    {
+      key: 'g-knowledge', label: '知识', type: 'group' as const,
+      children: [{ key: '/kb', icon: <DatabaseOutlined />, label: '知识库管理' }],
+    },
   ]
-  if (roles.includes('admin')) items.push({ key: '/admin', icon: <SettingOutlined />, label: '系统管理' })
-  return items
+  if (roles.includes('admin')) {
+    groups.push({
+      key: 'g-system', label: '系统', type: 'group' as const,
+      children: [{ key: '/admin', icon: <SettingOutlined />, label: '系统管理' }],
+    })
+  }
+  return groups
 }
 
 /** 品牌标记：石墨底声呐同心环。中性灰绘制，装饰不占用交互蓝。 */
@@ -163,9 +176,10 @@ export default function AppLayout() {
   const hideSider = screens.md === false
   const autoCollapse = screens.xl === false
 
-  const MENU_ITEMS = menuItemsFor(roles)
+  const MENU_ITEMS = menuGroupsFor(roles)
+  const flatKeys = MENU_ITEMS.flatMap((g) => ('children' in g ? g.children : [])).map((m) => m.key)
   const selectedKey =
-    MENU_ITEMS.find((m) => m.key !== '/' && location.pathname.startsWith(m.key))?.key ?? '/'
+    flatKeys.find((k) => k !== '/' && location.pathname.startsWith(k)) ?? '/'
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

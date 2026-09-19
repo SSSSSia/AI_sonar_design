@@ -7,8 +7,9 @@ function shortErr(e: unknown): string {
   return String(msg).slice(0, 140)
 }
 
-/** 列表查询三态（审查 P0-2）：失败给红字 + 重试，与业务「暂无数据」明确区分——禁止把接口失败渲染成空库。 */
-export function QueryEmpty({ query, subject }: { query: UseQueryResult<unknown, unknown>; subject: string }) {
+/** 列表查询三态（审查 P0-2）：失败给红字 + 重试，与业务「暂无数据」明确区分——禁止把接口失败渲染成空库。
+ *  emptyText 可定制业务化空态文案（审查 P2-10）。 */
+export function QueryEmpty({ query, subject, emptyText }: { query: UseQueryResult<unknown, unknown>; subject: string; emptyText?: string }) {
   if (query.isError) {
     return (
       <div style={{ padding: '14px 16px' }}>
@@ -34,5 +35,5 @@ export function QueryEmpty({ query, subject }: { query: UseQueryResult<unknown, 
       </div>
     )
   }
-  return <div style={{ padding: 28, textAlign: 'center', color: '#8b949e', fontSize: 12.5 }}>暂无数据</div>
+  return <div style={{ padding: 28, textAlign: 'center', color: '#8b949e', fontSize: 12.5 }}>{emptyText ?? '暂无数据'}</div>
 }

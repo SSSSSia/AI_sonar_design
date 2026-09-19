@@ -36,8 +36,18 @@ export function RegistryTab() {
   }
 
   const columns: ColumnsType<RegistryRow> = [
-    { title: '编号/键', key: 'id', width: 170, render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{String(r.row_id ?? r.id ?? r.key ?? '—')}</span> },
+    {
+      title: '编号/键', key: 'id', width: 130,
+      render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{String(r.key ?? r.row_id ?? r.id ?? '—')}</span>,
+    },
     { title: '名称', key: 'name', render: (_, r) => <span style={{ fontWeight: 500 }}>{String(r.name ?? r.label ?? r.key ?? '—')}</span> },
+    ...(kind === 'formulas' ? [{
+      title: '单位', key: 'unit', width: 70,
+      render: (_: unknown, r: RegistryRow) => {
+        const u = String(r.unit ?? '').trim()
+        return u && u !== '-' ? <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{u}</span> : <span style={{ color: '#8b949e' }}>—</span>
+      },
+    }] : []),
     {
       title: '表达式 / 内容',
       key: 'expr',
@@ -102,7 +112,7 @@ export function RegistryTab() {
       )}
       <Table
         rowKey={(r) => String(r.row_id ?? r.id ?? r.key)} size="small" loading={rowsQuery.isLoading} dataSource={rows} columns={columns} pagination={{ pageSize: 15 }}
-        locale={{ emptyText: <QueryEmpty query={rowsQuery} subject="三库条目" /> }}
+        locale={{ emptyText: <QueryEmpty query={rowsQuery} subject="三库条目" emptyText={kind === 'standards' ? '军标库暂无条目——录入后自动参与 A4 校验' : '暂无条目——右上角新增'} /> }}
       />
 
       {adding && (

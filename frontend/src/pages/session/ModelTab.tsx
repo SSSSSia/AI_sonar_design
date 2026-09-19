@@ -3,7 +3,7 @@ import { Alert, Button, Card, Space, Table, Typography } from 'antd'
 import { Canvas } from '@react-three/fiber'
 import { Bounds, OrbitControls, useGLTF } from '@react-three/drei'
 import { http } from '../../api/client'
-import type { Ir3 } from '../../api/workflow'
+import { getIr, type Ir3 } from '../../api/workflow'
 
 type GltfState = 'idle' | 'converting' | 'ready' | 'failed' | 'no-ir3'
 
@@ -76,11 +76,31 @@ function GltfModel({ url, wireframe }: { url: string; wireframe: boolean }) {
 }
 
 /** 三维预览 + 交付物下载（T4.3）。 */
-export function ModelTab({ sessionId, ir3, ir3Version }: { sessionId: string; ir3: Ir3 | null; ir3Version?: number }) {
+export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }: {
+  sessionId: string
+  ir3: Ir3 | null
+  ir3Version?: number
+  ir2Version?: number
+  ir4Version?: number
+}) {
   const [wireframe, setWireframe] = useState(false)
+  const [showAllScript, setShowAllScript] = useState(false)
   const { state, detail, url } = useGltf(sessionId)
 
-  async function download(kind: 'step' | 'script') {
+  async function download(kind: 'step' | 'script' | 'ir2' | 'ir4') {
+    if (kind === 'ir2' || kind === 'ir4') {
+      // IR JSON 快照下载（审查 P2-6）：走既有快照 API，客户端落文件
+      const irType = kind === 'ir2' ? 'IR2' : 'IR4'
+      const r = await getIr(sessionId, irType)
+      const content = typeof r.content === 'string' ? r.content : JSON.stringify(r.content, null, 2)
+      const blob = new Blob([content], { type: 'application/json' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${irType.toLowerCase()}_v${r.version}.json`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      return
+    }
     const resp = await http.get<{ url: string }>(`/cad/sessions/${sessionId}/download`, { params: { kind } })
     window.open(resp.data.url, '_blank')
   }
@@ -95,7 +115,7 @@ export function ModelTab({ sessionId, ir3, ir3Version }: { sessionId: string; ir
         title={<>三维预览 <Typography.Text type="secondary" style={{ fontSize: 12 }}>STEP → glTF（按 IR 版本缓存）</Typography.Text></>}
         extra={
           <Space>
-            <Button size="small" onClick={() => setWireframe((w) => !w)}>{wireframe ? '实体' : '线框'}</Button>
+            <Button size="small" autoInsertSpace={false} onClick={() => setWireframe((w) => !w)}>{wireframe ? '实体' : '线框'}</Button>
           </Space>
         }
       >
@@ -131,17 +151,30 @@ export function ModelTab({ sessionId, ir3, ir3Version }: { sessionId: string; ir
             dataSource={[
               { k: 'step', name: 'STEP 模型', meta: `ir3_v${ir3Version ?? '?'} · ${ir3.step_file.bucket}` },
               { k: 'script', name: 'CadQuery 脚本', meta: `${ir3.cadquery_script.split('\n').length} 行` },
+              { k: 'ir2', name: 'IR2 参数方案', meta: ir2Version ? `JSON · v${ir2Version}` : 'JSON' },
+              { k: 'ir4', name: 'IR4 校验报告', meta: ir4Version ? `JSON · v${ir4Version}` : 'JSON' },
             ]}
             columns={[
               { title: '文件', key: 'n', render: (_, r) => <div><div style={{ fontWeight: 500 }}>{r.name}</div><div style={{ fontSize: 11, color: '#8b949e', fontFamily: 'monospace' }}>{r.meta}</div></div> },
-              { title: '', key: 'a', width: 80, render: (_, r) => <Button size="small" type="primary" onClick={() => download(r.k as 'step' | 'script')}>下载</Button> },
+              { title: '', key: 'a', width: 80, render: (_, r) => <Button size="small" type="primary" autoInsertSpace={false} onClick={() => download(r.k as 'step' | 'script' | 'ir2' | 'ir4')}>下载</Button> },
             ]}
           />
         </Card>
 
-        <Card title="CadQuery 脚本（只读）" size="small" styles={{ body: { padding: 0 } }}>
-          <pre style={{ maxHeight: 220, overflow: 'auto', margin: 0, padding: '10px 14px', fontFamily: 'monospace', fontSize: 11.5, lineHeight: 1.8, color: '#57606a', background: '#fafbfc' }}>
-            {ir3.cadquery_script.split('\n').slice(0, 60).join('\n')}
+        <Card
+          title="CadQuery 脚本（只读）"
+          size="small"
+          extra={
+            ir3.cadquery_script.split('\n').length > 60 ? (
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setShowAllScript((s) => !s)}>
+                {showAllScript ? '收起' : `展开全部 ${ir3.cadquery_script.split('\n').length} 行`}
+              </Button>
+            ) : undefined
+          }
+          styles={{ body: { padding: 0 } }}
+        >
+          <pre style={{ maxHeight: showAllScript ? 480 : 220, overflow: 'auto', margin: 0, padding: '10px 14px', fontFamily: 'monospace', fontSize: 11.5, lineHeight: 1.8, color: '#57606a', background: '#fafbfc' }}>
+            {(showAllScript ? ir3.cadquery_script : ir3.cadquery_script.split('\n').slice(0, 60).join('\n')).trimEnd()}
           </pre>
         </Card>
       </div>

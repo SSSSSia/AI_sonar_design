@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, Card, Form, Input, Typography, App } from 'antd'
+import type { InputRef } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { ApiError } from '../api/client'
@@ -39,9 +40,12 @@ export default function LoginPage() {
   const { message } = App.useApp()
   const setAuth = useAuthStore((s) => s.setAuth)
   const [submitting, setSubmitting] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  const passwordRef = useRef<InputRef>(null)
 
   async function onFinish(values: { username: string; password: string }) {
     setSubmitting(true)
+    setLoginError('')
     try {
       const result = await login(values.username, values.password)
       setAuth(result)
@@ -49,7 +53,8 @@ export default function LoginPage() {
       navigate('/', { replace: true })
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : '登录失败，请稍后重试'
-      message.error(msg)
+      setLoginError(msg)
+      passwordRef.current?.focus()
     } finally {
       setSubmitting(false)
     }
@@ -57,11 +62,20 @@ export default function LoginPage() {
 
   const form = (
     <Form layout="vertical" onFinish={onFinish} initialValues={{ username: '' }}>
-      <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-        <Input placeholder="用户名" autoComplete="username" />
+      <Form.Item
+        name="username" label="用户名"
+        rules={[{ required: true, message: '请输入用户名' }]}
+        validateStatus={loginError ? 'error' : undefined}
+      >
+        <Input placeholder="用户名" autoComplete="username" onChange={() => setLoginError('')} />
       </Form.Item>
-      <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-        <Input.Password placeholder="密码" autoComplete="current-password" />
+      <Form.Item
+        name="password" label="密码"
+        rules={[{ required: true, message: '请输入密码' }]}
+        validateStatus={loginError ? 'error' : undefined}
+        help={loginError || undefined}
+      >
+        <Input.Password ref={passwordRef} placeholder="密码" autoComplete="current-password" onChange={() => setLoginError('')} />
       </Form.Item>
       <Button type="primary" htmlType="submit" block style={{ marginTop: 4 }} loading={submitting}>
         登 录

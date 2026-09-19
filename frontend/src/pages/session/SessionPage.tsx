@@ -22,6 +22,7 @@ export default function SessionPage() {
   const roles = useAuthStore((s) => s.roles)
   const canRetry = hasAnyRole(roles, ['admin', 'designer'])
   const [retrying, setRetrying] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
 
   const sessionQuery = useQuery({
     queryKey: ['session', id],
@@ -89,7 +90,7 @@ export default function SessionPage() {
         <PipelineTimeline nodes={timeline} />
       </Card>
 
-      {pausedAtGate && (
+      {pausedAtGate && activeTab === 'overview' && (
         <Alert
           type="warning"
           showIcon
@@ -116,6 +117,8 @@ export default function SessionPage() {
 
       <Tabs
         style={{ marginTop: 8 }}
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           {
             key: 'overview',
@@ -173,7 +176,7 @@ export default function SessionPage() {
           {
             key: 'model',
             label: '三维与交付物',
-            children: <ModelTab sessionId={session.id} ir3={ir3Data} ir3Version={ir3.data?.version} />,
+            children: <ModelTab sessionId={session.id} ir3={ir3Data} ir3Version={ir3.data?.version} ir2Version={ir2.data?.version} ir4Version={ir4.data?.version} />,
           },
         ]}
       />

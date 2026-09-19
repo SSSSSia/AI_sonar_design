@@ -7,6 +7,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { listSessions } from '../api/sessions'
+import { getKbStatus } from '../api/kb'
 import type { DesignSession } from '../api/types'
 import { useSessionSockets } from '../hooks/useSessionSockets'
 import { useProgressStore, useWsStatusStore, type SessionProgress } from '../stores/progressStore'
@@ -69,6 +70,9 @@ export default function DashboardPage() {
 
   const liveProgress = useProgressStore((s) => s.bySession)
   const wsStatus = useWsStatusStore((s) => s.bySession)
+
+  // 知识文档现状（审查 P2-1：mockup 02 第 4/5 卡）；py-engine 不可达时如实 '—'
+  const kbQuery = useQuery({ queryKey: ['kb-status-dash'], queryFn: getKbStatus, retry: false, refetchInterval: 60_000 })
 
   const stats = useMemo(() => {
     const running = sessions.filter((s) => s.pipelineStatus === 'running').length
@@ -168,13 +172,16 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: screens.md ? 'repeat(4, 1fr)' : '1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: screens.md ? 'repeat(5, 1fr)' : '1fr', gap: 16, marginBottom: 16 }}>
         <Card styles={{ body: { padding: '14px 16px' } }}><Statistic title="设计会话" value={stats.total} /></Card>
         <Card styles={{ body: { padding: '14px 16px' } }}><Statistic title="进行中" value={stats.running} /></Card>
         <Card styles={{ body: { padding: '14px 16px' } }}>
           <Statistic title="待审阅" value={stats.paused} valueStyle={stats.paused > 0 ? { color: '#d97706' } : undefined} />
         </Card>
         <Card styles={{ body: { padding: '14px 16px' } }}><Statistic title="已完成" value={stats.completed} /></Card>
+        <Card styles={{ body: { padding: '14px 16px' } }}>
+          <Statistic title="知识文档" value={kbQuery.data?.documents ?? '—'} suffix={kbQuery.data?.documents != null ? <span style={{ fontSize: 12, color: '#8b949e' }}>· {kbQuery.data.chunks ?? '—'} 块</span> : undefined} />
+        </Card>
       </div>
 
       <Card

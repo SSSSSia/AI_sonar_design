@@ -11,6 +11,14 @@ const TYPE_COLOR: Record<string, string> = {
   Component: '#47698c', StructuralModule: '#6e56cf', CADModelingStandard: '#57606a',
 }
 
+// 图例中文名（审查 P2-9）：保留英文键做匹配，展示层全部中文
+const TYPE_CN: Record<string, string> = {
+  SonarSystem: '声呐系统', DesignCase: '设计案例', DesignConstraint: '设计约束',
+  DesignParameter: '设计参数', PerformanceIndicator: '性能指标', Algorithm: '算法',
+  Component: '部件', StructuralModule: '结构模块', CADModelingStandard: 'CAD 建模标准',
+  Entity: '实体',
+}
+
 function nodeType(n: { label?: string; type?: string }): string {
   return n.label ?? n.type ?? 'Entity'
 }
@@ -137,7 +145,7 @@ export function GraphTab() {
           </div>
         </Spin>
         <div style={{ position: 'absolute', left: 10, bottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10.5, color: '#57606a', background: 'rgba(255,255,255,.9)', padding: '3px 8px', borderRadius: 6 }}>
-          {legend.map(([t, c]) => <span key={t}><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 5, background: c, marginRight: 3 }} />{t}</span>)}
+          {legend.map(([t, c]) => <span key={t}><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 5, background: c, marginRight: 3 }} />{TYPE_CN[t] ?? t}</span>)}
         </div>
         {overview.data?.truncated && <div style={{ position: 'absolute', right: 10, top: 8 }}><Tag>已采样 {graph?.nodes.length}/全量</Tag></div>}
       </div>

@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { CandidateContent, CandidateDedupTag, CandidateKindTag, writebackToastText } from '../../components/CandidateContent'
+import { gateLabel, WRITEBACK_LABEL } from '../../lib/stageLabel'
 
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
   error: { label: '错误', color: 'error' },
@@ -85,7 +86,7 @@ export function ReportTab({
       {ir5 && (
         <Card
           title={<>IR5 知识沉淀候选 {ir5Version ? <Typography.Text code style={{ fontSize: 12 }}>v{ir5Version}</Typography.Text> : null}</>}
-          extra={<Tag color={ir5.writeback_status === 'written' ? 'success' : 'warning'}>writeback: {ir5.writeback_status}</Tag>}
+          extra={<Tag color={ir5.writeback_status === 'written' ? 'success' : 'warning'}>{WRITEBACK_LABEL[ir5.writeback_status] ?? ir5.writeback_status}</Tag>}
           styles={{ body: { padding: 0 } }}
         >
           <CandidateTable candidates={ir5.candidates} ir3={ir3} />
@@ -127,7 +128,7 @@ export function ReportTab({
           <Table<ReviewRecord>
             rowKey="id" size="small" dataSource={reviews} pagination={false}
             columns={[
-              { title: '审阅关', dataIndex: 'gate', width: 110 },
+              { title: '审阅关', dataIndex: 'gate', width: 110, render: (v) => gateLabel(v) },
               { title: '裁决', dataIndex: 'decision', width: 90, render: (v) => <Tag color={v === 'approved' ? 'success' : 'error'}>{v === 'approved' ? '批准' : '驳回'}</Tag> },
               { title: '批注', key: 'a', render: (_, r) => <ReviewAnnotation record={r} /> },
               { title: '时间', dataIndex: 'decided_at', width: 170, render: (v) => <span style={{ fontSize: 12 }}>{String(v).replace('T', ' ').slice(0, 19)}</span> },
@@ -166,9 +167,21 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
                   {i.suggestion && <Tag color="warning">建议 {i.suggestion.replace('back_to_', '回退 ')}</Tag>}
                 </div>
                 {i.message && <div style={{ fontSize: 12, color: '#57606a', marginTop: 4, lineHeight: 1.7 }}>{i.message}</div>}
-                <div style={{ fontSize: 11, color: '#8b949e', marginTop: 4, fontFamily: 'monospace' }}>
-                  {[i.related_params.length > 0 && `参数 ${i.related_params.join('、')}`, i.related_features.length > 0 && `特征 ${i.related_features.join('、')}`].filter(Boolean).join(' · ')}
-                </div>
+                {(() => {
+                  // 关联参数/特征去重 + 超量截断（审查 P2-16：避免同名重复列举占行）
+                  const cap = (arr: string[]) => {
+                    const uniq = [...new Set(arr.filter(Boolean))]
+                    return uniq.length > 6 ? `${uniq.slice(0, 6).join('、')} 等 ${uniq.length} 项` : uniq.join('、')
+                  }
+                  const params = cap(i.related_params ?? [])
+                  const feats = cap(i.related_features ?? [])
+                  if (!params && !feats) return null
+                  return (
+                    <div style={{ fontSize: 11, color: '#8b949e', marginTop: 4, fontFamily: 'monospace' }}>
+                      {[params && `参数 ${params}`, feats && `特征 ${feats}`].filter(Boolean).join(' · ')}
+                    </div>
+                  )
+                })()}
               </div>
             ))}
           </div>

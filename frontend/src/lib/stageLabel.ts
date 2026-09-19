@@ -7,7 +7,26 @@ export const STAGE_LABEL: Record<string, string> = {
   A4: 'A4 合规校验',
   A5: 'A5 知识沉淀',
   gate1: '审阅关①（IR2）',
-  gate2: '审阅关②（IR3+IR4）',
+  gate2: '审阅关②（IR3 + IR4）',
+}
+
+/** 审阅关编码 → 中文名（裁决历史等展示处，审查 P2-3）。 */
+export const GATE_LABEL: Record<string, string> = {
+  gate1: '审阅关①',
+  gate2: '审阅关②',
+  knowledge: '知识关',
+}
+
+export function gateLabel(gate?: string | null): string {
+  if (!gate) return '—'
+  return GATE_LABEL[gate] ?? gate
+}
+
+/** IR5 回写状态 → 中文（审查 P2-3）。 */
+export const WRITEBACK_LABEL: Record<string, string> = {
+  pending: '待回写',
+  confirmed: '已确认',
+  written: '已回写',
 }
 
 export const STATUS_TAG: Record<string, { color: string; text: string }> = {

@@ -65,7 +65,7 @@ export function ProvidersTab() {
     >
       <Table
         rowKey="name" size="small" loading={q.isLoading} dataSource={rows} columns={columns} pagination={false}
-        locale={{ emptyText: <QueryEmpty query={q} subject="供应商列表" /> }}
+        locale={{ emptyText: <QueryEmpty query={q} subject="供应商列表" emptyText="暂无库内供应商——当前系统使用 .env 环境变量兜底配置；新增并启用后即接管" /> }}
       />
       {!isAdmin && (
         <div style={{ padding: '6px 16px', borderTop: '1px solid #f0f1f3' }}>
