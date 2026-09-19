@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Alert, App as AntdApp, Button, Card, Input, Radio, Space, Table, Tag, Typography,
+  Alert, App as AntdApp, Button, Card, Input, Modal, Radio, Space, Table, Tag, Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir1, type Ir2, type Ir2Param, type Ir4, type ReviewRecord } from '../../api/workflow'
@@ -9,7 +9,7 @@ import { ParamTable } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
-import { ir1Degraded } from '../../lib/stageLabel'
+import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
 
 const GATE_TITLE: Record<string, string> = { gate1: '审阅关①（IR2 参数方案）', gate2: '审阅关②（IR3 + IR4）' }
 const REWORK_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -57,6 +57,21 @@ export function ReviewTab({
       message.warning('驳回必须填写批注（整改依据）')
       return
     }
+    if (decision === 'approved' && gate === 'gate1' && ir2 && params(ir2).length === 0) {
+      Modal.confirm({
+        title: 'IR2 为 0 项参数，确认放行空方案？',
+        content: '空方案无法支撑 CAD 建模，进入 A3 大概率失败。建议驳回并回退 A2（LLM 恢复后重算）。',
+        okText: '仍要批准',
+        okButtonProps: { danger: true },
+        cancelText: '返回驳回',
+        onOk: () => doSubmit(),
+      })
+      return
+    }
+    doSubmit()
+  }
+
+  async function doSubmit() {
     setSubmitting(true)
     try {
       const effects = await postReview(sessionId, gate ?? 'gate1', {
@@ -128,11 +143,15 @@ export function ReviewTab({
               </div>
             ))}
           </div>
-          {ir1.missing_items.length > 0 && (
-            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-              缺失项（A2 将提议并标注）：{ir1.missing_items.join('、')}
-            </Typography.Text>
-          )}
+          {(() => {
+            const { dims } = normalizeMissingItems(ir1.missing_items)
+            if (dims.length === 0) return null
+            return (
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                缺失项（A2 将提议并标注）：{dims.join('、')}
+              </Typography.Text>
+            )
+          })()}
         </Card>
       )}
 
@@ -142,7 +161,18 @@ export function ReviewTab({
           extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>点击参数行溯源反查</Typography.Text>}
           styles={{ body: { padding: 0 } }}
         >
-          <ParamTable params={params(ir2)} onTrace={setTraceParam} />
+          {params(ir2).length === 0 ? (
+            <div style={{ padding: '20px 16px' }}>
+              <Alert
+                type="error"
+                showIcon
+                message="IR2 无参数（A2 由降级流程生成）"
+                description="建议驳回并回退 A2 / A1，待 LLM 恢复后重算；不建议批准空方案进入建模。"
+              />
+            </div>
+          ) : (
+            <ParamTable params={params(ir2)} onTrace={setTraceParam} />
+          )}
         </Card>
       ) : (
         <Card size="small"><Typography.Text type="secondary">IR2 尚未生成</Typography.Text></Card>

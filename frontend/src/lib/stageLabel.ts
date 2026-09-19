@@ -65,3 +65,31 @@ function unwrapAnnotationPayload(a: unknown): { text: string; meta: Record<strin
 export function ir1Degraded(ir1: { missing_items: string[] } | null | undefined): boolean {
   return !!ir1?.missing_items?.some((m) => m.includes('LLM 规划不可用'))
 }
+
+/** 降级 IR1 存量快照的缺失项归一（审查 P1-8）：历史版本每项都带整段重复前缀，剥掉只留维度名。 */
+export function normalizeMissingItems(items: string[]): { cause: string | null; dims: string[] } {
+  const prefixRe = /^LLM 规划不可用[，,].*?[:：]?\s*/
+  let cause: string | null = null
+  const dims: string[] = []
+  for (const raw of items) {
+    if (raw.includes('LLM 规划不可用')) {
+      if (cause === null) cause = raw.replace(prefixRe, '').replace(/[:：]\s*$/, '') || 'LLM 规划不可用（降级解析）'
+      const tail = raw.replace(prefixRe, '').trim()
+      if (tail && !dims.includes(tail)) dims.push(tail)
+    } else if (raw.trim() && !dims.includes(raw.trim())) {
+      dims.push(raw.trim())
+    }
+  }
+  return { cause, dims }
+}
+
+/** 时间戳归一（审查 P1-2）：ISO/微秒时间戳 → YYYY-MM-DD HH:mm。 */
+export function fmtTime(v: unknown): string {
+  if (!v) return '—'
+  const s = String(v)
+  const t = Date.parse(s.includes('T') ? s : s.replace(' ', 'T') + (s.endsWith('Z') ? '' : 'Z'))
+  if (Number.isNaN(t)) return s
+  const d = new Date(t)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}

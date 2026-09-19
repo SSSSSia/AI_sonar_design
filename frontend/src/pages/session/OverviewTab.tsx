@@ -3,7 +3,7 @@ import { Alert, Card, Tag, Typography } from 'antd'
 import dayjs from 'dayjs'
 import type { Ir1 } from '../../api/workflow'
 import { useLogStore } from '../../stores/logStore'
-import { ir1Degraded } from '../../lib/stageLabel'
+import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
 
 const LOG_LEVEL_COLOR: Record<string, string> = {
   debug: '#8b949e', info: '#57606a', ok: '#2b8a3e', warn: '#d97706', error: '#c92a2a',
@@ -46,6 +46,35 @@ function LiveLog({ sessionId }: { sessionId: string }) {
   )
 }
 
+/** 检索子查询展示（审查 P1-9）：降级模板的每条=全文需求+目标后缀——归一为「目标清单 + 原文一行折叠」。 */
+function SubQueriesCard({ subQueries }: { subQueries: string[] }) {
+  // 各条目的最长公共前缀即需求原文（模板形如「<原文> <目标>」）；LLM 版无公共前缀时列表原样展示
+  let prefix = subQueries[0] ?? ''
+  for (const q of subQueries) {
+    let i = 0
+    while (i < prefix.length && i < q.length && prefix[i] === q[i]) i++
+    prefix = prefix.slice(0, i)
+  }
+  const raw = prefix.length > 30 ? prefix.trimEnd() : ''
+  const goals = subQueries.map((q) => (raw && q.startsWith(raw) ? q.slice(raw.length) : q).replace(/^[：:，,\s]+/, ''))
+  return (
+    <div>
+      <Typography.Text strong>IR1 检索子查询（{subQueries.length} 条）</Typography.Text>
+      {raw && (
+        <Typography.Paragraph
+          ellipsis={{ rows: 1, expandable: true, symbol: '展开' }}
+          type="secondary" style={{ fontSize: 11, margin: '4px 0 0' }}
+        >
+          检索目标均基于 IR0 需求原文：{raw}
+        </Typography.Paragraph>
+      )}
+      <ol style={{ fontSize: 12, color: '#57606a', paddingLeft: 18, margin: '6px 0 0' }}>
+        {goals.map((g, i) => <li key={`${i}-${g.slice(0, 12)}`}>{g || subQueries[i]}</li>)}
+      </ol>
+    </div>
+  )
+}
+
 /** 总览页签：实时日志 + IR 快照版本条 + IR1 目标摘要 + 缺失项如实展示。 */
 export function OverviewTab({
   sessionId,
@@ -63,14 +92,7 @@ export function OverviewTab({
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
             阶段转移与裁决历史见「审阅与参数」页签的裁决记录。
           </Typography.Paragraph>
-          {ir1 && (
-            <div>
-              <Typography.Text strong>IR1 检索子查询（{ir1.sub_queries.length} 条）</Typography.Text>
-              <ol style={{ fontSize: 12, color: '#57606a', paddingLeft: 18, margin: '6px 0 0' }}>
-                {ir1.sub_queries.map((q) => <li key={q}>{q}</li>)}
-              </ol>
-            </div>
-          )}
+          {ir1 && <SubQueriesCard subQueries={ir1.sub_queries} />}
           <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 12 }}>
             会话 {sessionId}
           </Typography.Paragraph>
@@ -115,11 +137,18 @@ export function OverviewTab({
                 </div>
               ))}
             </div>
-            {ir1.missing_items.length > 0 && (
-              <div style={{ marginTop: 10, borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
-                <b>缺失项（如实）：</b>{ir1.missing_items.join('、')}
-              </div>
-            )}
+            {(() => {
+              const { cause, dims } = normalizeMissingItems(ir1.missing_items)
+              if (dims.length === 0 && !cause) return null
+              return (
+                <div style={{ marginTop: 10, borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
+                  <b>{cause ?? '缺失项（如实）'}：</b>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                    {dims.map((d) => <li key={d}>{d}</li>)}
+                  </ul>
+                </div>
+              )
+            })()}
           </Card>
         )}
       </div>

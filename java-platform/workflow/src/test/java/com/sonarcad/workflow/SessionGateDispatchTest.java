@@ -6,6 +6,7 @@ import com.sonarcad.workflow.session.DesignSessionEntity;
 import com.sonarcad.workflow.session.DesignSessionMapper;
 import com.sonarcad.workflow.session.IrSnapshotMapper;
 import com.sonarcad.workflow.session.SessionService;
+import com.sonarcad.workflow.session.UserLookupMapper;
 import com.sonarcad.workflow.statemachine.PipelineEvent;
 import com.sonarcad.workflow.statemachine.PipelineStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +36,7 @@ class SessionGateDispatchTest {
         taskPublisher = mock(TaskPublisher.class);
         // 真实 NotifyClient：发布为异步 fire-and-forget，测试中连不上只记日志、不影响断言
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
-                new NotifyClient("http://127.0.0.1:1"));
+                new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class));
     }
 
     private DesignSessionEntity session(String id, String status, String stage) {

@@ -19,6 +19,13 @@ public class DesignSessionEntity {
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
+    /** 非表列：创建人用户名（查询时显式带出；MyBatis-Plus 按 getter 序列化，无 setter 不参与写入）。 */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private String createdByName;
+
+    public String getCreatedByName() { return createdByName; }
+    public void setCreatedByName(String createdByName) { this.createdByName = createdByName; }
+
     public String getId() { return id; }
 
     /** 归一化去横线（T4.2）：id 列为原生 uuid，PG 读回归一化为带横线形态——统一为 32 位无横线，保证 API/WS 频道键一致。 */

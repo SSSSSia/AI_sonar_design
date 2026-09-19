@@ -27,13 +27,16 @@ public class SessionService {
     private final IrSnapshotMapper irSnapshotMapper;
     private final TaskPublisher taskPublisher;
     private final NotifyClient notifyClient;
+    private final UserLookupMapper userLookupMapper;
 
     public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper,
-                          TaskPublisher taskPublisher, NotifyClient notifyClient) {
+                          TaskPublisher taskPublisher, NotifyClient notifyClient,
+                          UserLookupMapper userLookupMapper) {
         this.mapper = mapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
         this.notifyClient = notifyClient;
+        this.userLookupMapper = userLookupMapper;
     }
 
     /**
@@ -72,14 +75,39 @@ public class SessionService {
     public DesignSessionEntity get(String id) {
         DesignSessionEntity s = mapper.selectById(id);
         if (s == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在: " + id);
+        fillCreatorNames(java.util.List.of(s));
         return s;
     }
 
     public Page<DesignSessionEntity> list(String projectId, long page, long size) {
-        return mapper.selectPage(new Page<>(page, size),
+        Page<DesignSessionEntity> p = mapper.selectPage(new Page<>(page, size),
                 new LambdaQueryWrapper<DesignSessionEntity>()
                         .eq(projectId != null, DesignSessionEntity::getProjectId, projectId)
                         .orderByDesc(DesignSessionEntity::getCreatedAt));
+        fillCreatorNames(p.getRecords());
+        return p;
+    }
+
+    /** created_by UUID → username（审查 P1-2：界面不再裸吐 UUID）。users 与本服务同库，直接查。 */
+    private void fillCreatorNames(java.util.List<DesignSessionEntity> sessions) {
+        java.util.Set<String> ids = sessions.stream()
+                .map(DesignSessionEntity::getCreatedBy)
+                .filter(id -> id != null && id.matches("[0-9a-fA-F-]{32,36}"))
+                .collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) return;
+        java.util.List<UserLookupEntity> rows = userLookupMapper.selectList(
+                new LambdaQueryWrapper<UserLookupEntity>()
+                        .in(UserLookupEntity::getId, ids)
+                        .select(UserLookupEntity::getId, UserLookupEntity::getUsername));
+        java.util.Map<String, String> byId = new java.util.HashMap<>();
+        for (UserLookupEntity r : rows) {
+            byId.put(r.getId().replace("-", "").toLowerCase(), r.getUsername());
+        }
+        for (DesignSessionEntity s : sessions) {
+            if (s.getCreatedBy() == null) continue;
+            String name = byId.get(s.getCreatedBy().replace("-", "").toLowerCase());
+            if (name != null) s.setCreatedByName(name);
+        }
     }
 
     public DesignSessionEntity fireEvent(String id, PipelineEvent event) {

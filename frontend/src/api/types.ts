@@ -19,6 +19,8 @@ export interface DesignSession {
   pipelineStatus: PipelineStatusValue
   currentStage?: string | null
   createdBy?: string | null
+  /** 创建人用户名（后端 join users 带出；缺失时回退 createdBy 短显） */
+  createdByName?: string | null
   createdAt: string
   updatedAt: string
 }

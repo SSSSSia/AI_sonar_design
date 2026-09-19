@@ -7,7 +7,7 @@ import { ApiError } from '../../api/client'
 import { getIr, listReviews, parseIr, type Ir1, type Ir2, type Ir3, type Ir4, type Ir5 } from '../../api/workflow'
 import { useSessionSockets } from '../../hooks/useSessionSockets'
 import { PipelineTimeline, buildTimeline } from '../../components/PipelineTimeline'
-import { stageLabel, statusTag } from '../../lib/stageLabel'
+import { stageLabel, statusTag, fmtTime } from '../../lib/stageLabel'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { OverviewTab } from './OverviewTab'
 import { ReviewTab } from './ReviewTab'
@@ -161,6 +161,7 @@ export default function SessionPage() {
                 ir5Version={ir5.data?.version}
                 ir3={ir3Data}
                 reviews={reviewsQuery.data ?? []}
+                pipelineStatus={session.pipelineStatus}
                 onDecided={() => {
                   void queryClient.invalidateQueries({ queryKey: ['session', id] })
                   void queryClient.invalidateQueries({ queryKey: ['ir', id] })
@@ -178,7 +179,7 @@ export default function SessionPage() {
       />
 
       <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 16 }}>
-        创建 {session.createdAt} · 更新 {session.updatedAt} · 创建人 {session.createdBy ?? '—'}
+        创建 {fmtTime(session.createdAt)} · 更新 {fmtTime(session.updatedAt)} · 创建人 {session.createdByName ?? (session.createdBy ? `${session.createdBy.slice(0, 8)}…` : '—')}
       </Typography.Paragraph>
     </div>
   )

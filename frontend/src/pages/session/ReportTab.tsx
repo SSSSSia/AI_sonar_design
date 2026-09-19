@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { App, Alert, Button, Card, Input, Radio, Table, Tag, Typography } from 'antd'
+import { App, Alert, Button, Card, Input, Modal, Radio, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
 import { ApiError } from '../../api/client'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
+import { CandidateContent, CandidateDedupTag, CandidateKindTag, writebackToastText } from '../../components/CandidateContent'
 
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
   error: { label: '错误', color: 'error' },
@@ -20,6 +21,7 @@ export function ReportTab({
   ir5Version,
   ir3,
   reviews,
+  pipelineStatus,
   onDecided,
 }: {
   sessionId: string
@@ -29,6 +31,7 @@ export function ReportTab({
   ir5Version?: number
   ir3: Ir3 | null
   reviews: ReviewRecord[]
+  pipelineStatus?: string
   onDecided: () => void
 }) {
   const { message } = App.useApp()
@@ -40,6 +43,16 @@ export function ReportTab({
   const knowledgePending = ir5?.writeback_status === 'pending'
   const newCandidates = ir5?.candidates.filter((c) => c.dedup_status === 'new') ?? []
 
+  function confirmWrite() {
+    Modal.confirm({
+      title: `确认写入 ${newCandidates.length} 条知识候选？`,
+      content: '写入 Neo4j 图谱后成为共享知识（重复项自动放弃）；驳回则本会话候选不入图。',
+      okText: '批准写入',
+      cancelText: '再想想',
+      onOk: () => decideKnowledge('approved'),
+    })
+  }
+
   async function decideKnowledge(decision: 'approved' | 'rejected') {
     setSubmitting(true)
     try {
@@ -47,7 +60,7 @@ export function ReportTab({
         decision,
         annotations: annotations.trim() ? [annotations.trim()] : [],
       })
-      message.success(effects.writeback ? `知识审阅完成：${JSON.stringify(effects.writeback).slice(0, 120)}` : '知识审阅完成')
+      message.success(effects.writeback ? writebackToastText(effects.writeback) : '知识审阅完成')
       onDecided()
     } catch (e) {
       message.error(e instanceof ApiError ? e.message : '裁决提交失败')
@@ -80,7 +93,11 @@ export function ReportTab({
             <Alert
               type="info"
               showIcon
-              message="知识审阅关（A-10）：未经人工确认不会写入图谱；重复项不静默覆盖。"
+              message={
+                pipelineStatus === 'completed' && knowledgePending
+                  ? '管线已完成，知识沉淀确认可随时补做（完成前未确认的候选不会自动入图）'
+                  : '知识审阅关（A-10）：未经人工确认不会写入图谱；重复项不静默覆盖。'
+              }
               style={{ marginBottom: 10 }}
             />
             {knowledgePending && (
@@ -95,7 +112,7 @@ export function ReportTab({
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>批注</Typography.Text>
                   <Input.TextArea style={{ marginTop: 6 }} rows={2} value={annotations} onChange={(e) => setAnnotations(e.target.value)} placeholder="确认/放弃依据…" />
                   <SpaceForButtons>
-                    <Button size="small" type="primary" disabled={!canDecide} loading={submitting} onClick={() => decideKnowledge('approved')}>批准写入</Button>
+                    <Button size="small" type="primary" disabled={!canDecide} loading={submitting} onClick={confirmWrite}>批准写入</Button>
                     <Button size="small" disabled={!canDecide} loading={submitting} onClick={() => decideKnowledge('rejected')}>全部跳过</Button>
                   </SpaceForButtons>
                 </div>
@@ -163,21 +180,17 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
 
 function CandidateTable({ candidates, ir3 }: { candidates: Ir5['candidates']; ir3: Ir3 | null }) {
   const columns: ColumnsType<Ir5['candidates'][number]> = [
-    { title: '类型', dataIndex: 'type', width: 100, render: (v) => <Tag color="blue">{v}</Tag> },
+    { title: '类型', dataIndex: 'type', width: 80, render: (v) => <CandidateKindTag type={v} /> },
     {
       title: '内容',
       key: 'payload',
-      render: (_, r) => {
-        const p = r.payload as Record<string, unknown>
-        const text = (p.summary as string) ?? (p.description as string) ?? (p.name as string) ?? JSON.stringify(p)
-        return <span style={{ fontSize: 12.5 }}>{String(text).slice(0, 160)}</span>
-      },
+      render: (_, r) => <CandidateContent candidate={r} />,
     },
     {
       title: '去重',
       dataIndex: 'dedup_status',
-      width: 110,
-      render: (v) => (v === 'new' ? <Tag color="success">new</Tag> : <Tag color="warning">duplicate</Tag>),
+      width: 90,
+      render: (v) => <CandidateDedupTag status={v} />,
     },
   ]
   return (
