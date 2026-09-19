@@ -103,7 +103,19 @@ export default function SessionPage() {
           showIcon
           style={{ marginTop: 14 }}
           message={`${stageLabel(displayStage)} 待人工裁决`}
-          description="请在「审阅与参数」或「校验报告」页签完成批准/驳回。驳回将触发局部回算（A-11），下游版本标记失效。"
+          description={
+            displayStage === 'gate2'
+              ? '请先在「校验报告」页签查看 IR4 合规结论，再到「审阅与参数」页签底部完成批准/驳回。驳回将触发局部回算（A-11），下游版本标记失效。'
+              : '请在「审阅与参数」页签查看参数方案并在页面底部完成批准/驳回。驳回将触发局部回算（A-11），下游版本标记失效。'
+          }
+          action={
+            <Button
+              size="small" type="primary"
+              onClick={() => setActiveTab(displayStage === 'gate2' ? 'report' : 'review')}
+            >
+              {displayStage === 'gate2' ? '去校验报告' : '去审阅参数'}
+            </Button>
+          }
         />
       )}
 
@@ -150,6 +162,7 @@ export default function SessionPage() {
                 ir2={ir2Data}
                 ir4={ir4Data}
                 reviews={reviewsQuery.data ?? []}
+                onGoReport={() => setActiveTab('report')}
                 onDecided={() => {
                   void queryClient.invalidateQueries({ queryKey: ['session', id] })
                   void queryClient.invalidateQueries({ queryKey: ['ir', id] })

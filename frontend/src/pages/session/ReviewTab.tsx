@@ -31,6 +31,7 @@ export function ReviewTab({
   ir2,
   ir4,
   reviews,
+  onGoReport,
   onDecided,
 }: {
   sessionId: string
@@ -40,6 +41,7 @@ export function ReviewTab({
   ir2: Ir2 | null
   ir4: Ir4 | null
   reviews: ReviewRecord[]
+  onGoReport?: () => void
   onDecided: () => void
 }) {
   const { message } = AntdApp.useApp()
@@ -101,16 +103,30 @@ export function ReviewTab({
         <Alert
           type="warning"
           showIcon
-          message={`${GATE_TITLE[gate]} 待裁决（仅 admin / reviewer 可操作）`}
+          message={`${GATE_TITLE[gate]} 待人工裁决`}
           description={
-            ir4 && errCount > 0
-              ? `校验结论 fail（${errCount} 项 error）。批准进入下一阶段；驳回触发局部回算。`
-              : '批准后管线恢复运行；驳回需选择回退目标并填写批注。'
-          }
-          action={
-            <Button danger={decision === 'rejected'} type="primary" size="small" disabled={!canDecide} loading={submitting} onClick={submit}>
-              提交裁决
-            </Button>
+            <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>
+              {gate === 'gate1' ? (
+                <>
+                  ① 查看下方 IR1 需求解析与 IR2 参数方案表（<b>点击参数行</b>可打开溯源抽屉）；<br />
+                  ② 滚动到本页底部「裁决」面板，选择批准或驳回整改；<br />
+                  ③ 驳回须选择回退目标并填写批注，提交后触发局部回算。
+                </>
+              ) : (
+                <>
+                  ① 先到{' '}
+                  <a onClick={() => onGoReport?.()}>「校验报告」页签查看 IR4 合规结论</a>
+                  {ir4 && errCount > 0 ? `（当前 fail，${errCount} 项 error）` : '（含 IR3 建模产物）'}；<br />
+                  ② 回到本页底部「裁决」面板，选择批准或驳回整改；<br />
+                  ③ 驳回须选择回退目标并填写批注，IR4 的回退建议会标注在对应选项上。
+                </>
+              )}
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+                  裁决按钮在本页底部；仅 admin / reviewer 可操作，其他角色可查看。
+                </Typography.Text>
+              </div>
+            </div>
           }
         />
       )}
@@ -179,7 +195,10 @@ export function ReviewTab({
       )}
 
       {gate && (
-        <Card title="裁决">
+        <Card
+          title="裁决"
+          extra={<Typography.Text type="secondary" style={{ fontSize: 11.5 }}>批准 = 放行下一阶段 · 驳回 = 回退重算（下游快照失效）</Typography.Text>}
+        >
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
             <div>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>裁决</Typography.Text>
