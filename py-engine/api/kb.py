@@ -30,14 +30,19 @@ router = APIRouter(prefix="/kb", dependencies=[Depends(require_user)])
 @router.post("/documents")
 def upload_document(
     file: UploadFile = File(...),
+    base_id: str | None = None,
     uploaded_by: str = Depends(require_writer),
 ) -> dict:
     """上传即建档（§6 ①）→ MinIO 原文件桶 → 同步解析（带位置信息，§6 ②）。
 
+    base_id 提供时上传后自动加入该库（库视图内上传）；不提供 = 仅入文档池（未归库，不参与检索）。
     解析失败：doc 状态=failed + error 如实记录，不中断服务（其他文档不受影响）。
     """
     from app_config import BUCKET_KB_DOCS, KB_UPLOAD_MAX_BYTES
-    from storage import object_store
+    from storage import kb_scope, object_store
+
+    if base_id is not None and kb_store.get_base(base_id) is None:
+        raise HTTPException(status_code=404, detail=f"目标知识库不存在: {base_id}")
 
     filename = file.filename or "unnamed"
     try:
@@ -56,6 +61,9 @@ def upload_document(
         bucket=BUCKET_KB_DOCS, object_key=f"kb/{filename}", uploaded_by=uploaded_by,
     )
     doc_id = doc["doc_id"]
+    if base_id is not None:
+        kb_store.add_docs_to_base(base_id, [doc_id], added_by=uploaded_by)
+        kb_scope.invalidate()
     object_store.upload_bytes(
         data, BUCKET_KB_DOCS, f"{doc_id}/{filename}",
         content_type=file.content_type or "application/octet-stream",
@@ -102,8 +110,9 @@ def upload_document(
 
 
 @router.get("/documents")
-def list_documents() -> dict:
-    return {"documents": kb_store.list_documents()}
+def list_documents(base_id: str | None = None, unassigned: bool = False) -> dict:
+    """文档列表（?base_id= 按归属过滤；?unassigned=true 只看未归库/文档池）。"""
+    return {"documents": kb_store.list_documents(base_id=base_id, unassigned=unassigned)}
 
 
 @router.get("/documents/{doc_id}")
@@ -116,7 +125,7 @@ def get_document(doc_id: str) -> dict:
 
 @router.delete("/documents/{doc_id}")
 def delete_document(doc_id: str, user: str = Depends(require_writer)) -> dict:
-    """删除文档并同步清理（§6 ⑦）：MinIO 原件 + chunks/extractions（级联）+ 向量/图谱挂载点。"""
+    """删除文档并同步清理（§6 ⑦）：MinIO 原件 + chunks/extractions（级联）+ 向量/图谱挂载点 + 归属行。"""
     from storage import object_store
 
     doc = kb_store.get_document(doc_id)
@@ -150,6 +159,108 @@ def delete_document(doc_id: str, user: str = Depends(require_writer)) -> dict:
 
     kb_store.delete_document(doc_id)
     return {"doc_id": doc_id, "deleted": True, "cleanup": cleanup}
+
+
+# ----------------------------------------------------------------------
+# PHASE-006 多库管理：库 CRUD + 归属操作（删库 = 解除归属，文档保留 D6-4）
+# ----------------------------------------------------------------------
+@router.get("/bases")
+def list_bases() -> dict:
+    return {"bases": kb_store.list_bases()}
+
+
+class BaseCreate(BaseModel):
+    name: str
+    description: str | None = None
+    initial_doc_ids: list[str] | None = None  # 新建库向导：从文档池/其他库勾选（多归属）
+
+
+@router.post("/bases")
+def create_base(req: BaseCreate, user: str = Depends(require_writer)) -> dict:
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="知识库名称不能为空")
+    if len(name) > 128:
+        raise HTTPException(status_code=400, detail="知识库名称过长（≤128 字符）")
+    from storage import kb_scope
+
+    try:
+        row = kb_store.create_base(name, (req.description or "").strip() or None, created_by=user)
+    except Exception as exc:
+        # name UNIQUE 冲突 → 409（区分其他 DB 错误）
+        if "kb_bases_name_key" in str(exc) or "duplicate key" in str(exc).lower():
+            raise HTTPException(status_code=409, detail=f"已存在同名知识库: {name}") from exc
+        raise
+    added = 0
+    if req.initial_doc_ids:
+        added = kb_store.add_docs_to_base(row["id"], req.initial_doc_ids, added_by=user)
+        kb_scope.invalidate()
+    return {"base": row, "initial_docs": added}
+
+
+class BasePatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@router.patch("/bases/{base_id}")
+def update_base(base_id: str, req: BasePatch, user: str = Depends(require_writer)) -> dict:
+    if req.name is not None and not req.name.strip():
+        raise HTTPException(status_code=400, detail="知识库名称不能为空")
+    try:
+        row = kb_store.update_base(base_id, {k: v for k, v in req.model_dump().items() if v is not None})
+    except Exception as exc:
+        if "kb_bases_name_key" in str(exc) or "duplicate key" in str(exc).lower():
+            raise HTTPException(status_code=409, detail=f"已存在同名知识库: {req.name}") from exc
+        raise
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"知识库不存在: {base_id}")
+    return {"base": row}
+
+
+@router.delete("/bases/{base_id}")
+def delete_base(base_id: str, user: str = Depends(require_admin)) -> dict:
+    """删库 = 解除全部归属引用（文档与索引数据保留，D6-4）；默认库不可删。"""
+    from storage import kb_scope
+
+    base = kb_store.get_base(base_id)
+    if base is None:
+        raise HTTPException(status_code=404, detail=f"知识库不存在: {base_id}")
+    if base["is_default"]:
+        raise HTTPException(status_code=400, detail="默认知识库不可删除（系统保底库）")
+    deleted, refs = kb_store.delete_base(base_id)
+    kb_scope.invalidate()
+    return {"id": base_id, "deleted": deleted, "name": base["name"], "unassigned_docs": refs}
+
+
+class BaseDocsRequest(BaseModel):
+    doc_ids: list[str]
+
+
+@router.post("/bases/{base_id}/docs")
+def add_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(require_writer)) -> dict:
+    if kb_store.get_base(base_id) is None:
+        raise HTTPException(status_code=404, detail=f"知识库不存在: {base_id}")
+    if not req.doc_ids:
+        raise HTTPException(status_code=400, detail="doc_ids 不能为空")
+    from storage import kb_scope
+
+    added = kb_store.add_docs_to_base(base_id, req.doc_ids, added_by=user)
+    kb_scope.invalidate()
+    return {"base_id": base_id, "added": added, "requested": len(req.doc_ids)}
+
+
+@router.delete("/bases/{base_id}/docs")
+def remove_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(require_writer)) -> dict:
+    if kb_store.get_base(base_id) is None:
+        raise HTTPException(status_code=404, detail=f"知识库不存在: {base_id}")
+    if not req.doc_ids:
+        raise HTTPException(status_code=400, detail="doc_ids 不能为空")
+    from storage import kb_scope
+
+    removed = kb_store.remove_docs_from_base(base_id, req.doc_ids)
+    kb_scope.invalidate()
+    return {"base_id": base_id, "removed": removed}
 
 
 # ----------------------------------------------------------------------

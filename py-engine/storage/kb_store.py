@@ -98,6 +98,149 @@ def doc_stats() -> dict[str, Any]:
 
 
 # ----------------------------------------------------------------------
+# kb_bases 多库管理（PHASE-006，V9）：归属唯一事实源 = kb_base_documents
+# ----------------------------------------------------------------------
+def list_bases() -> list[dict[str, Any]]:
+    """库列表 + 每库统计（引用计数口径：一份文档属多库时各库都计 1）。默认库置顶。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT b.id, b.name, b.description, b.is_default, b.created_by,
+                      b.created_at, b.updated_at,
+                      count(m.doc_id) AS documents,
+                      count(m.doc_id) FILTER (WHERE d.status = 'indexed') AS indexed
+               FROM kb_bases b
+               LEFT JOIN kb_base_documents m ON m.base_id = b.id
+               LEFT JOIN kb_documents d ON d.doc_id = m.doc_id
+               GROUP BY b.id ORDER BY b.is_default DESC, b.created_at"""
+        )
+        return cur.fetchall()
+
+
+def get_base(base_id: str) -> Optional[dict[str, Any]]:
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM kb_bases WHERE id = %s", (base_id,))
+        return cur.fetchone()
+
+
+def create_base(name: str, description: Optional[str], is_default: bool = False,
+                created_by: Optional[str] = None) -> dict[str, Any]:
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO kb_bases (name, description, is_default, created_by)
+               VALUES (%s, %s, %s, %s) RETURNING *""",
+            (name, description, is_default, created_by),
+        )
+        return cur.fetchone()
+
+
+def update_base(base_id: str, fields: dict[str, Any]) -> Optional[dict[str, Any]]:
+    allowed = {"name", "description"}
+    patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not patch:
+        return get_base(base_id)
+    sets = ", ".join(f"{k} = %s" for k in patch)
+    values = list(patch.values()) + [base_id]
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE kb_bases SET {sets}, updated_at = now() WHERE id = %s RETURNING *", values
+        )
+        return cur.fetchone()
+
+
+def delete_base(base_id: str) -> tuple[bool, int]:
+    """删库 = 解除全部归属引用后删库行（文档本体与索引数据不动，D6-4）。
+    返回 (是否存在, 解除引用数)。默认库的保护在 API 层判断。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM kb_base_documents WHERE base_id = %s", (base_id,))
+        refs = cur.fetchone()["n"]
+        cur.execute("DELETE FROM kb_bases WHERE id = %s RETURNING id", (base_id,))
+        deleted = cur.fetchone() is not None
+    return deleted, refs
+
+
+def add_docs_to_base(base_id: str, doc_ids: list[str], added_by: Optional[str] = None) -> int:
+    """批量加入归属（幂等：已存在的引用跳过）。返回新增引用数。"""
+    n = 0
+    with _connect() as conn, conn.cursor() as cur:
+        for doc_id in doc_ids:
+            cur.execute(
+                """INSERT INTO kb_base_documents (base_id, doc_id, added_by)
+                   SELECT %s, %s, %s WHERE NOT EXISTS (
+                       SELECT 1 FROM kb_base_documents WHERE base_id = %s AND doc_id = %s
+                   )""",
+                (base_id, doc_id, added_by, base_id, doc_id),
+            )
+            n += cur.rowcount
+    return n
+
+
+def remove_docs_from_base(base_id: str, doc_ids: list[str]) -> int:
+    """批量移出归属（仅解除本库引用，文档多归属时其他库不受影响）。返回移除数。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM kb_base_documents WHERE base_id = %s AND doc_id = ANY(%s)",
+            (base_id, doc_ids),
+        )
+        return cur.rowcount
+
+
+def doc_base_ids(doc_id: str) -> list[str]:
+    """某文档当前归属的全部库 id（多归属）。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT base_id FROM kb_base_documents WHERE doc_id = %s ORDER BY added_at", (doc_id,)
+        )
+        return [r["base_id"] for r in cur.fetchall()]
+
+
+def list_documents(limit: int = 100, base_id: Optional[str] = None,
+                   unassigned: bool = False,
+                   doc_ids: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    """文档列表。base_id=按归属过滤；unassigned=True 只看无归属（未归库）；
+    doc_ids=按文档集合过滤（kb_scope 用，仅内部）；行带 bases（归属标签列表）。"""
+    sql = """SELECT d.* FROM kb_documents d"""
+    where: list[str] = []
+    params: list[Any] = []
+    if base_id is not None:
+        sql += " JOIN kb_base_documents m ON m.doc_id = d.doc_id AND m.base_id = %s"
+        params.append(base_id)
+    if unassigned:
+        where.append("NOT EXISTS (SELECT 1 FROM kb_base_documents x WHERE x.doc_id = d.doc_id)")
+    if doc_ids is not None:
+        if not doc_ids:
+            return []
+        where.append("d.doc_id = ANY(%s)")
+        params.append(doc_ids)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY d.created_at DESC LIMIT %s"
+    params.append(limit)
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    tags: dict[str, list[dict[str, Any]]] = {}
+    for r in _doc_base_tags([r["doc_id"] for r in rows]):
+        tags.setdefault(r["doc_id"], []).append({"base_id": r["base_id"], "base_name": r["base_name"]})
+    for r in rows:
+        r["bases"] = tags.get(r["doc_id"], [])
+    return rows
+
+
+def _doc_base_tags(doc_ids: list[str]) -> list[dict[str, Any]]:
+    """批量取文档的归属标签（doc_id, base_id, base_name）。"""
+    if not doc_ids:
+        return []
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT m.doc_id, m.base_id, b.name AS base_name, b.is_default
+               FROM kb_base_documents m JOIN kb_bases b ON b.id = m.base_id
+               WHERE m.doc_id = ANY(%s) ORDER BY m.doc_id, b.is_default DESC, b.name""",
+            (doc_ids,),
+        )
+        return cur.fetchall()
+
+
+# ----------------------------------------------------------------------
 # kb_chunks
 # ----------------------------------------------------------------------
 def replace_chunks(doc_id: str, chunks: list[dict[str, Any]]) -> int:
