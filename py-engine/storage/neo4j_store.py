@@ -132,20 +132,37 @@ class Neo4jStore:
             record = result.single()
             return record["c"] if record else 0
 
-    def find_entities_matching(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """检索图谱级（T3.2）：query 关键词与实体名互相包含即命中（非 deprecated 优先）。"""
+    def find_entities_matching(self, query: str, limit: int = 5,
+                               doc_ids: list[str] | None = None,
+                               kb_ids: list[str] | None = None) -> list[dict[str, Any]]:
+        """检索图谱级（T3.2）：query 关键词与实体名互相包含即命中（非 deprecated 优先）。
+
+        PHASE-006 库范围下推（D6-2/D6-8）：doc_ids/kb_ids 任一提供时按
+        `source_doc IN doc_ids OR kb_id IN kb_ids` 过滤（文档类实体走 doc 归属，
+        A5 沉淀节点无 source_doc、靠 kb_id 属性）。两者皆 None = 不过滤（全量）。
+        """
         terms = _match_terms(query)
         if not terms:
             return []
         conditions = " OR ".join(f"e.name CONTAINS $t{i}" for i in range(len(terms)))
         params: dict[str, Any] = {f"t{i}": t for i, t in enumerate(terms)}
         params["limit"] = limit
+        scope = ""
+        if doc_ids is not None or kb_ids is not None:
+            ors: list[str] = []
+            if doc_ids:
+                params["scope_docs"] = doc_ids
+                ors.append("e.source_doc IN $scope_docs")
+            if kb_ids:
+                params["scope_kbs"] = kb_ids
+                ors.append("e.kb_id IN $scope_kbs")
+            scope = " AND (" + (" OR ".join(ors) if ors else "false") + ")"
         with self._get_driver().session() as session:
             return session.run(
                 f"MATCH (e) WHERE ({conditions}) AND e.key IS NOT NULL "
-                "AND coalesce(e.deprecated, false) = false "
-                "RETURN labels(e)[0] AS label, e.name AS name, "
-                "e.description AS description, e.source_doc AS source_doc "
+                "AND coalesce(e.deprecated, false) = false" + scope +
+                " RETURN labels(e)[0] AS label, e.name AS name, "
+                "e.description AS description, e.source_doc AS source_doc, e.kb_id AS kb_id "
                 "ORDER BY e.deprecated SKIP 0 LIMIT $limit",
                 **params,
             ).data()

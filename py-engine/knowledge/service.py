@@ -104,6 +104,16 @@ class GraphRAGService:
         self._corpus_loaded_at: float = 0.0  # 动态语料懒加载时间戳（TTL 30s）
 
     # ------------------------------------------------------------------
+    # PHASE-006 库范围解析（D6-2/D6-9）：kb_ids → 允许 doc 集合；None = 不过滤（图谱接口等全量场景）
+    # ----------------------------------------------------------------------
+    def _scope_doc_ids(self, kb_ids: Optional[list[str]]) -> Optional[list[str]]:
+        if kb_ids is None:
+            return None  # 调用方明确要全量（不经归属过滤）
+        from storage import kb_scope
+
+        return kb_scope.resolve_doc_ids(kb_ids or None)  # [] = "全部库"（有任一归属）
+
+    # ------------------------------------------------------------------
     # T3.2 动态语料注册（kb_build 语料层调用 / 查询时按 TTL 懒加载）
     # ------------------------------------------------------------------
     def refresh_dynamic_corpus(self, sources: list[tuple[str, str, str]]) -> int:
@@ -145,13 +155,18 @@ class GraphRAGService:
         return {text: loc for doc_id, loc, text in self._dynamic_sources}
 
     # ------------------------------------------------------------------
-    # 单条查询（三级降级）
+    # 单条查询（三级降级；kb_ids = PHASE-006 会话选库范围，空列表 = 全部库，None = 不过滤）
     # ------------------------------------------------------------------
-    def query(self, query: str) -> RetrievalResult:
+    def query(self, query: str, kb_ids: Optional[list[str]] = None) -> RetrievalResult:
         degraded: list[str] = []
+        scoped = kb_ids is not None
+        doc_scope = self._scope_doc_ids(kb_ids) if scoped else None
+        if scoped and self.sdk is not None:
+            # D6-5：SDK 是单一全局索引，无法按库范围过滤——定向检索如实跳过
+            degraded.append("sdk_kb_scope_unsupported")
 
-        if self.sdk is not None:
-            # 第一级 local：图谱检索
+        if self.sdk is not None and not scoped:
+            # 第一级 local：图谱检索（无库范围时维持原行为）
             result = self._try_sdk("query_local_sync", query)
             if result is not None:
                 return RetrievalResult(result, "local", degraded)
@@ -166,7 +181,7 @@ class GraphRAGService:
         if self.enable_kb_levels:
             self._ensure_corpus()  # 动态语料懒加载（跨进程一致性）
             # 第三级 graph：自建 Neo4j 实体层（T3.2；SDK 未装时的真实图谱级）
-            hit = self._try_neo4j(query)
+            hit = self._try_neo4j(query, doc_scope=doc_scope, kb_ids=kb_ids if scoped else None)
             if hit is not None:
                 content, refs = hit
                 if self.sdk is None and "graphrag_sdk_unavailable" not in degraded:
@@ -175,13 +190,24 @@ class GraphRAGService:
             degraded.append("graph")
 
             # 第四级 vector：Milvus chunk 向量检索（T3.2）
-            hit = self._try_milvus(query)
+            hit = self._try_milvus(query, doc_scope=doc_scope)
             if hit is not None:
                 content, refs = hit
                 return RetrievalResult(content, "vector", degraded, refs)
             degraded.append("vector")
 
-        # 兜底 text：关键词
+        # 兜底 text：关键词（语料按 doc 集合过滤；全空 = 范围内零语料，如实返回不可用）
+        if scoped:
+            filtered = [s for s in self._dynamic_sources if s[0] in set(doc_scope or [])]
+            if not filtered:
+                return RetrievalResult(
+                    "选定知识库范围内无可检索知识（未归库不参与检索）", "unavailable", degraded
+                )
+            content, refs = self._search_text_scoped(query, doc_scope or [])
+            if self.sdk is None and not degraded:
+                degraded.append("graphrag_sdk_unavailable")  # 如实交代为何直接落在文本级
+            return RetrievalResult(content, "text", degraded, refs)
+
         if self.kb_text or self._dynamic_sources:
             if self.sdk is None and not degraded:
                 degraded.append("graphrag_sdk_unavailable")  # 如实交代为何直接落在文本级
@@ -209,13 +235,19 @@ class GraphRAGService:
         self._kb_probe_cache[name] = (ok, now)
         return ok
 
-    def _try_neo4j(self, query: str) -> Optional[tuple[str, list[dict[str, str]]]]:
+    def _try_neo4j(self, query: str, doc_scope: Optional[list[str]] = None,
+                   kb_ids: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]]]]:
         from storage.neo4j_store import Neo4jStore
 
         if not self._probe_ok("neo4j", lambda: Neo4jStore().available()):
             return None
         store = Neo4jStore()
-        rows = store.find_entities_matching(query, limit=5)
+        # scoped 时传 doc/kb 集合过滤；未 scoped 传 None（全量，行为不变）
+        rows = store.find_entities_matching(
+            query, limit=5,
+            doc_ids=doc_scope if doc_scope is not None else None,
+            kb_ids=kb_ids,
+        )
         if not rows:
             return None
         content = "知识图谱检索结果（Neo4j 实体层）：\n\n" + "\n\n".join(
@@ -230,7 +262,7 @@ class GraphRAGService:
         ]
         return content, refs
 
-    def _try_milvus(self, query: str) -> Optional[tuple[str, list[dict[str, str]]]]:
+    def _try_milvus(self, query: str, doc_scope: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]]]]:
         from kb.embeddings import embed_texts
         from kb.vector_store import ChunkVectorStore
 
@@ -240,7 +272,7 @@ class GraphRAGService:
         vectors = embed_texts([query])
         if not vectors:
             return None
-        hits = vs.search(vectors[0], top_k=5)
+        hits = vs.search(vectors[0], top_k=5, doc_ids=doc_scope if doc_scope is not None else None)
         if not hits:
             return None
         content = "知识库向量检索结果（Milvus chunks）：\n\n" + "\n\n---\n\n".join(
@@ -256,8 +288,9 @@ class GraphRAGService:
     # ------------------------------------------------------------------
     # 批量查询（并发 + 逐条降级，A1 的 4~8 条子查询用）
     # ------------------------------------------------------------------
-    def query_batch(self, queries: list[str]) -> list[RetrievalResult]:
-        if self.sdk is not None:
+    def query_batch(self, queries: list[str], kb_ids: Optional[list[str]] = None) -> list[RetrievalResult]:
+        scoped = kb_ids is not None
+        if self.sdk is not None and not scoped:
             try:
                 results = self.sdk.query_batch_sync_with_fallback(queries)
                 out: list[RetrievalResult] = []
@@ -273,13 +306,43 @@ class GraphRAGService:
             except Exception as exc:
                 logger.warning("批量查询异常，降级到逐条文本搜索: %s", exc)
 
-        if self.kb_text:
-            out = []
-            for q in queries:
-                content, refs = self._search_text(q)
-                out.append(RetrievalResult(content, "text", [], refs))
-            return out
-        return [RetrievalResult("知识库不可用", "unavailable") for _ in queries]
+        # 逐条 query（scoped 时走库范围过滤路径；未 scoped 且无 SDK 时行为不变）
+        out = []
+        for q in queries:
+            out.append(self.query(q, kb_ids=kb_ids) if scoped else self.query(q))
+        return out
+
+    # ------------------------------------------------------------------
+    # PHASE-006 D6-3：Agent 库路由（会话不选库时自主圈定相关知识库，依据留痕 IR1.kb_selection）
+    # ------------------------------------------------------------------
+    def route_bases(self, queries: list[str]) -> dict[str, Any]:
+        """逐库轻量探测相关度：首条子查询在每库范围内检索，命中数 > 0 的库入选。
+
+        返回 kb_selection 契约结构：
+          {mode: "auto", bases: [{kb_id, kb_name, hits, selected}]}
+        全部零命中 → 兜底"全部库"（各库 selected=true + 兜底标注，A-16 如实）。
+        """
+        from storage import kb_store
+
+        bases = kb_store.list_bases()
+        probe = queries[0] if queries else ""
+        rows: list[dict[str, Any]] = []
+        for b in bases:
+            hits = 0
+            if probe:
+                try:
+                    r = self.query(probe, kb_ids=[str(b["id"])])
+                    hits = len(r.refs) if r.ok else 0
+                except Exception as exc:
+                    logger.warning("库路由探测失败 base=%s: %s", b["id"], exc)
+            rows.append({"kb_id": str(b["id"]), "kb_name": b["name"], "hits": hits})
+        if not any(r["hits"] > 0 for r in rows):
+            for r in rows:
+                r["selected"] = True
+            return {"mode": "auto", "bases": rows, "fallback_all": True}
+        for r in rows:
+            r["selected"] = r["hits"] > 0
+        return {"mode": "auto", "bases": rows}
 
     # ------------------------------------------------------------------
     # 索引构建（T3.2 全管线接管前的手工入口）
@@ -363,6 +426,42 @@ class GraphRAGService:
         for _, _, doc_id, idx, para in top:
             location = dynamic_locs.get(para, f"段落{idx + 1}")
             refs.append({"doc_id": doc_id, "location": location})
+        return content, refs
+
+    def _search_text_scoped(self, query: str, doc_ids: list[str]) -> tuple[str, list[dict[str, str]]]:
+        """文本级库范围版（PHASE-006 D6-2）：语料限定 doc_ids，检索逻辑同 _search_text。
+
+        动态语料即 KB 管线 chunks（doc_id 为键），静态 kb_text 段落无 doc 归属、不参与范围检索。
+        """
+        allowed = set(doc_ids)
+        sources = [(doc_id, -1, text) for doc_id, _loc, text in self._dynamic_sources
+                   if doc_id in allowed]
+        if not sources:
+            return "选定知识库范围内无可检索知识", []
+        keywords = [kw.lower() for kw in query.split() if len(kw) > 1]
+        if any("\u4e00" <= ch <= "\u9fff" for ch in query):
+            keywords += [query[i : i + 2] for i in range(len(query) - 1)]
+
+        scored: list[tuple[int, int, str, str]] = []  # (score, seq, doc_id, para)
+        dynamic_locs = self._dynamic_locations()
+        for seq, (doc_id, _para_idx, para) in enumerate(sources):
+            para_lower = para.lower()
+            score = sum(1 for kw in keywords if kw in para_lower)
+            if score > 0:
+                scored.append((score, seq, doc_id, para))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        if not scored:
+            overview = "\n\n".join(p for _, _, p in sources[:20])
+            return f"选定知识库内未找到精确匹配。范围内知识概览：\n\n{overview[:1500]}...", []
+        top = scored[:5]
+        content = (
+            "知识库搜索结果（文本降级模式，限定选定知识库范围）：\n\n"
+            + "\n\n---\n\n".join(para for _, _, _, para in top)
+        )
+        refs = [
+            {"doc_id": doc_id, "location": dynamic_locs.get(para, "")}
+            for _, _, doc_id, para in top
+        ]
         return content, refs
 
 

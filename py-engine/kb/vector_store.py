@@ -83,13 +83,24 @@ class ChunkVectorStore:
         client.delete(self._collection, filter=f'doc_id == "{doc_id}"')
         return len(hits)
 
-    def search(self, query_vector: list[float], top_k: int = 5) -> list[dict[str, Any]]:
-        """top-k 检索。返回 [{chunk_key, doc_id, location, text, score}]。"""
+    def search(self, query_vector: list[float], top_k: int = 5,
+               doc_ids: list[str] | None = None) -> list[dict[str, Any]]:
+        """top-k 检索。返回 [{chunk_key, doc_id, location, text, score}]。
+
+        doc_ids 提供时按文档集合过滤（PHASE-006 库范围下推，D6-2）；空列表 = 不过滤（全量）。
+        """
         client = self._get_client()
         if not client.has_collection(self._collection):
             return []
+        expr = None
+        if doc_ids:
+            if len(doc_ids) > 1000:
+                logger.warning("Milvus doc 集合过滤超 1000 项（%d），性能护栏提示", len(doc_ids))
+            quoted = ", ".join(f'"{d}"' for d in doc_ids)
+            expr = f"doc_id in [{quoted}]"
         results = client.search(
             self._collection, data=[query_vector], limit=top_k,
+            filter=expr,
             output_fields=["doc_id", "location", "text", "chunk_key"],
         )
         out: list[dict[str, Any]] = []

@@ -37,6 +37,30 @@
       "type": "array",
       "items": { "$ref": "#/$defs/knowledge_ref" },
       "description": "检索回的知识条目引用"
+    },
+    "kb_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "bases"],
+      "description": "PHASE-006 知识库选择留痕（D6-3）：mode=manual 用户选定 / auto Agent 库路由；逐库依据（hits=探测命中数）",
+      "properties": {
+        "mode": { "type": "string", "enum": ["manual", "auto"] },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kb_id", "kb_name", "hits", "selected"],
+            "properties": {
+              "kb_id": { "type": "string" },
+              "kb_name": { "type": "string" },
+              "hits": { "type": "integer" },
+              "selected": { "type": "boolean" }
+            }
+          }
+        },
+        "fallback_all": { "type": "boolean", "description": "auto 模式全部零命中时回退全部库（如实标注）" }
+      }
     }
   },
   "$defs": {
@@ -48,7 +72,8 @@
       "properties": {
         "doc_id": { "type": "string", "description": "来源文档 ID" },
         "location": { "type": "string", "description": "页码/章节位置（宪法 §6 ②，供溯源与引用映射）" },
-        "snippet": { "type": "string", "description": "引用片段" }
+        "snippet": { "type": "string", "description": "引用片段" },
+        "kb_id": { "type": "string", "description": "PHASE-006：命中知识库 ID（可选，旧快照无此字段）" }
       }
     }
   }
