@@ -3,6 +3,7 @@ import { Result } from 'antd'
 import AppLayout from './components/AppLayout'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
+import ProjectsPage from './pages/ProjectsPage'
 import RequirementInputPage from './pages/RequirementInputPage'
 import SessionPage from './pages/session/SessionPage'
 import KnowledgePage from './pages/kb/KnowledgePage'
@@ -30,6 +31,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={token ? <AppLayout /> : <Navigate to="/login" replace />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/sessions/new" element={<RequirementInputPage />} />
         <Route path="/sessions/:id" element={<SessionPage />} />
         <Route path="/kb" element={<KnowledgePage />} />

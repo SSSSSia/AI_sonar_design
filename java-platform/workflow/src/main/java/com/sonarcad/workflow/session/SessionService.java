@@ -28,15 +28,17 @@ public class SessionService {
     private final TaskPublisher taskPublisher;
     private final NotifyClient notifyClient;
     private final UserLookupMapper userLookupMapper;
+    private final ProjectLookupMapper projectLookupMapper;
 
     public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper,
                           TaskPublisher taskPublisher, NotifyClient notifyClient,
-                          UserLookupMapper userLookupMapper) {
+                          UserLookupMapper userLookupMapper, ProjectLookupMapper projectLookupMapper) {
         this.mapper = mapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
         this.notifyClient = notifyClient;
         this.userLookupMapper = userLookupMapper;
+        this.projectLookupMapper = projectLookupMapper;
     }
 
     /**
@@ -76,6 +78,7 @@ public class SessionService {
         DesignSessionEntity s = mapper.selectById(id);
         if (s == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在: " + id);
         fillCreatorNames(java.util.List.of(s));
+        fillProjectNames(java.util.List.of(s));
         return s;
     }
 
@@ -85,7 +88,30 @@ public class SessionService {
                         .eq(projectId != null, DesignSessionEntity::getProjectId, projectId)
                         .orderByDesc(DesignSessionEntity::getCreatedAt));
         fillCreatorNames(p.getRecords());
+        fillProjectNames(p.getRecords());
         return p;
+    }
+
+    /** project_id → 项目名（projects 由 biz 维护、同库只读；删除悬空时留空，前端回退短 id）。 */
+    private void fillProjectNames(java.util.List<DesignSessionEntity> sessions) {
+        java.util.Set<String> ids = sessions.stream()
+                .map(DesignSessionEntity::getProjectId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) return;
+        java.util.List<ProjectLookupEntity> rows = projectLookupMapper.selectList(
+                new LambdaQueryWrapper<ProjectLookupEntity>()
+                        .in(ProjectLookupEntity::getId, ids)
+                        .select(ProjectLookupEntity::getId, ProjectLookupEntity::getName));
+        java.util.Map<String, String> byId = new java.util.HashMap<>();
+        for (ProjectLookupEntity r : rows) {
+            byId.put(r.getId(), r.getName());
+        }
+        for (DesignSessionEntity s : sessions) {
+            if (s.getProjectId() == null) continue;
+            String name = byId.get(s.getProjectId());
+            if (name != null) s.setProjectName(name);
+        }
     }
 
     /** created_by UUID → username（审查 P1-2：界面不再裸吐 UUID）。users 与本服务同库，直接查。 */

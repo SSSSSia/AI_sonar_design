@@ -1,10 +1,12 @@
 package com.sonarcad.workflow;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sonarcad.workflow.mq.TaskPublisher;
 import com.sonarcad.workflow.notify.NotifyClient;
 import com.sonarcad.workflow.session.DesignSessionEntity;
 import com.sonarcad.workflow.session.DesignSessionMapper;
 import com.sonarcad.workflow.session.IrSnapshotMapper;
+import com.sonarcad.workflow.session.ProjectLookupMapper;
 import com.sonarcad.workflow.session.SessionService;
 import com.sonarcad.workflow.session.UserLookupMapper;
 import com.sonarcad.workflow.statemachine.PipelineEvent;
@@ -26,6 +28,7 @@ class SessionGateDispatchTest {
     private DesignSessionMapper sessionMapper;
     private IrSnapshotMapper irSnapshotMapper;
     private TaskPublisher taskPublisher;
+    private ProjectLookupMapper projectLookupMapper;
     private SessionService service;
 
     @BeforeEach
@@ -34,9 +37,33 @@ class SessionGateDispatchTest {
         irSnapshotMapper = mock(IrSnapshotMapper.class);
         taskPublisher = mock(TaskPublisher.class);
         taskPublisher = mock(TaskPublisher.class);
+        projectLookupMapper = mock(ProjectLookupMapper.class);
         // 真实 NotifyClient：发布为异步 fire-and-forget，测试中连不上只记日志、不影响断言
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
-                new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class));
+                new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
+                projectLookupMapper);
+    }
+
+    @Test
+    void listFillsProjectNames() {
+        // 纯 Mockito 不跑 MyBatis 启动，lambda 列缓存需手动注册（fillProjectNames 用 LambdaQueryWrapper）
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                com.sonarcad.workflow.session.ProjectLookupEntity.class);
+        DesignSessionEntity s = session("s1", "pending", null);
+        s.setProjectId("p-1");
+        Page<DesignSessionEntity> page = new Page<>(1, 10);
+        page.setRecords(java.util.List.of(s));
+        when(sessionMapper.selectPage(any(), any())).thenReturn(page);
+        com.sonarcad.workflow.session.ProjectLookupEntity pe =
+                new com.sonarcad.workflow.session.ProjectLookupEntity();
+        pe.setId("p-1");
+        pe.setName("人工测试");
+        when(projectLookupMapper.selectList(any())).thenReturn(java.util.List.of(pe));
+
+        Page<DesignSessionEntity> out = service.list(null, 1, 10);
+        assertEquals("人工测试", out.getRecords().get(0).getProjectName());
     }
 
     private DesignSessionEntity session(String id, String status, String stage) {

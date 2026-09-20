@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -55,5 +56,39 @@ class ProjectControllerDeleteTest {
         Map<String, Object> data = controller.delete("p1").data();
         assertThat(data).containsEntry("deleted", true).containsEntry("id", "p1");
         verify(mapper).deleteById("p1");
+    }
+
+    @Test
+    void patchRenamesProject() {
+        ProjectEntity p = project("p1", "旧名");
+        when(mapper.selectById("p1")).thenReturn(p);
+        ProjectEntity out = controller.patch("p1",
+                new ProjectController.PatchProjectRequest("新名", "TLA-2", null)).data();
+        assertThat(out.getName()).isEqualTo("新名");
+        assertThat(out.getCode()).isEqualTo("TLA-2");
+        verify(mapper).updateById(p);
+    }
+
+    @Test
+    void patchMissingProjectIs404() {
+        when(mapper.selectById("p1")).thenReturn(null);
+        assertThatThrownBy(() -> controller.patch("p1",
+                new ProjectController.PatchProjectRequest("新名", null, null)))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(404));
+    }
+
+    @Test
+    void patchRejectsBlankNameAndEmptyBody() {
+        when(mapper.selectById("p1")).thenReturn(project("p1", "旧名"));
+        assertThatThrownBy(() -> controller.patch("p1",
+                new ProjectController.PatchProjectRequest(" ", null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("name");
+        assertThatThrownBy(() -> controller.patch("p1",
+                new ProjectController.PatchProjectRequest(null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("至少");
+        verify(mapper, never()).updateById(any(ProjectEntity.class));
     }
 }

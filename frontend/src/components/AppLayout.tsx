@@ -4,7 +4,7 @@ import {
   Avatar, Badge, Button, Drawer, Dropdown, Grid, Layout, List, Menu, Popover, Space, Tag, Typography,
 } from 'antd'
 import {
-  BellOutlined, DashboardOutlined, DatabaseOutlined, EditOutlined, LogoutOutlined,
+  BellOutlined, DashboardOutlined, DatabaseOutlined, EditOutlined, FolderOutlined, LogoutOutlined,
   MenuOutlined, SettingOutlined, UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -27,6 +27,7 @@ function menuGroupsFor(roles: string[]) {
       key: 'g-workbench', label: '工作台', type: 'group' as const,
       children: [
         { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
+        { key: '/projects', icon: <FolderOutlined />, label: '项目管理' },
         { key: '/sessions/new', icon: <EditOutlined />, label: '需求输入' },
       ],
     },

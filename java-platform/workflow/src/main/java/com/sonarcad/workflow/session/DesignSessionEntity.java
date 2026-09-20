@@ -23,8 +23,14 @@ public class DesignSessionEntity {
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     private String createdByName;
 
+    /** 非表列：所属项目名（projects 由 biz 维护、同库只读 join 回填）。 */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private String projectName;
+
     public String getCreatedByName() { return createdByName; }
     public void setCreatedByName(String createdByName) { this.createdByName = createdByName; }
+    public String getProjectName() { return projectName; }
+    public void setProjectName(String projectName) { this.projectName = projectName; }
 
     public String getId() { return id; }
 

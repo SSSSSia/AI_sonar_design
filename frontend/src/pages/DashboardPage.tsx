@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
-import { App, Badge, Button, Card, Empty, Grid, List, Popconfirm, Progress, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { App, Badge, Button, Card, Empty, Grid, List, Popconfirm, Progress, Select, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { deleteSession, deleteSessions, listSessions } from '../api/sessions'
+import { deleteSession, deleteSessions, listSessions, listProjects } from '../api/sessions'
 import { errText } from '../api/client'
 import { getKbStatus } from '../api/kb'
 import type { DesignSession } from '../api/types'
@@ -61,6 +61,23 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([])
   const [batching, setBatching] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [projectFilter, setProjectFilter] = useState(searchParams.get('project') ?? 'all')
+
+  // ?project= 双向同步：承接项目管理页「查看会话」跳转；本页切换时回写地址栏（可分享/刷新保持）
+  useEffect(() => {
+    const p = searchParams.get('project') ?? 'all'
+    if (p !== projectFilter) setProjectFilter(p)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+  function changeProject(v: string) {
+    setProjectFilter(v)
+    setSelectedKeys([])
+    setSearchParams(v === 'all' ? {} : { project: v }, { replace: true })
+  }
+
+  const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: () => listProjects({ page: 1, size: 100 }) })
+  const projects = projectsQuery.data?.records ?? []
 
   async function removeSession(r: Row) {
     const force = r.displayStatus === 'running' || r.displayStatus === 'paused'
@@ -100,8 +117,8 @@ export default function DashboardPage() {
   }
 
   const sessionsQuery = useQuery({
-    queryKey: ['sessions', refreshKey],
-    queryFn: () => listSessions({ page: 1, size: 100 }),
+    queryKey: ['sessions', refreshKey, projectFilter],
+    queryFn: () => listSessions({ page: 1, size: 100, projectId: projectFilter === 'all' ? undefined : projectFilter }),
     refetchInterval: 20_000, // HTTP 对账兜底：WS 不可用时进度仍能收敛
   })
 
@@ -158,6 +175,22 @@ export default function DashboardPage() {
       render: (_, r) => (
         <a onClick={() => navigate(`/sessions/${r.id}`)} style={{ fontWeight: 500 }}>{r.title}</a>
       ),
+    },
+    {
+      title: '所属项目',
+      key: 'project',
+      width: 130,
+      render: (_, r) => {
+        const name = r.projectName ?? projects.find((p) => p.id === r.projectId)?.name
+        const label = name ?? (r.projectId ? r.projectId.slice(0, 8) : '—')
+        if (projectFilter === r.projectId) return <Tag style={{ marginInlineEnd: 0 }}>{label}</Tag>
+        return (
+          <a
+            onClick={(e) => { e.stopPropagation(); changeProject(r.projectId) }}
+            title="筛选该项目的会话"
+          >{label}</a>
+        )
+      },
     },
     { title: '状态', key: 'status', width: 110, render: (_, r) => <StatusTag row={r} /> },
     {
@@ -228,6 +261,16 @@ export default function DashboardPage() {
         {wsSummary && (
           <Tag color={wsSummary.tone === 'default' ? undefined : wsSummary.tone}>{wsSummary.text}</Tag>
         )}
+        <Select
+          style={{ minWidth: 150 }}
+          value={projectFilter}
+          onChange={changeProject}
+          popupMatchSelectWidth={false}
+          options={[
+            { value: 'all', label: '全部项目' },
+            ...projects.map((p) => ({ value: p.id, label: p.name })),
+          ]}
+        />
         <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>刷新</Button>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sessions/new')}>
           新建设计会话
@@ -265,7 +308,14 @@ export default function DashboardPage() {
           ]}
         />
         {filtered.length === 0 && !sessionsQuery.isLoading ? (
-          <Empty description={statusFilter === 'all' ? '暂无会话——点右上角「新建设计会话」开始' : '该状态下暂无会话'} style={{ padding: 32 }} />
+          <Empty
+            description={statusFilter === 'all'
+              ? projectFilter === 'all'
+                ? '暂无会话——点右上角「新建设计会话」开始'
+                : '该项目下暂无会话——可点右上角「新建设计会话」'
+              : '该状态下暂无会话'}
+            style={{ padding: 32 }}
+          />
         ) : screens.md ? (
           <>
             {isAdmin && selectedKeys.length > 0 && (
@@ -325,7 +375,7 @@ export default function DashboardPage() {
                   title={r.title}
                   description={
                     <span style={{ fontSize: 12 }}>
-                      {stageLabel(r.currentStage)}
+                      {r.projectName ? `${r.projectName} · ` : ''}{stageLabel(r.currentStage)}
                       {r.live ? ` · ${Math.round(r.live.progress)}%` : ''} · {dayjs(r.updatedAt).fromNow()}
                     </span>
                   }

@@ -17,6 +17,8 @@ export type PipelineStatusValue = 'pending' | 'running' | 'paused' | 'completed'
 export interface DesignSession {
   id: string
   projectId: string
+  /** 后端列表/详情回填（projects 同库只读 join）；项目被删悬空时为空 */
+  projectName?: string | null
   title: string
   pipelineStatus: PipelineStatusValue
   currentStage?: string | null

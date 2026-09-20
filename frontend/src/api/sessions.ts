@@ -1,4 +1,4 @@
-import { del, get, post } from './client'
+import { del, get, patch, post } from './client'
 import type { DesignSession, PageResult, Project } from './types'
 
 export function listSessions(params?: { projectId?: string; page?: number; size?: number }) {
@@ -50,4 +50,9 @@ export function createProject(body: { name: string; code?: string; description?:
 /** 删除空项目（admin；项目下仍有会话时后端 409 拒绝）。 */
 export function deleteProject(id: string) {
   return del<{ id: string; deleted: boolean; name: string }>(`/projects/${id}`)
+}
+
+/** 编辑项目（名称/代号/说明局部更新；空串表示清空该字段）。 */
+export function patchProject(id: string, body: { name?: string; code?: string; description?: string }) {
+  return patch<Project>(`/projects/${id}`, body)
 }

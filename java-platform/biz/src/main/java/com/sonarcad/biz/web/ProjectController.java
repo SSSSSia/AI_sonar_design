@@ -34,6 +34,29 @@ public class ProjectController {
 
     public record CreateProjectRequest(String name, String code, String description) {}
 
+    public record PatchProjectRequest(String name, String code, String description) {}
+
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('admin','designer')")
+    public ApiResponse<ProjectEntity> patch(@PathVariable String id, @RequestBody PatchProjectRequest req) {
+        ProjectEntity p = projectMapper.selectById(id);
+        if (p == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在: " + id);
+        }
+        if (req.name() == null && req.code() == null && req.description() == null) {
+            throw new IllegalArgumentException("至少提供 name / code / description 中的一个字段");
+        }
+        if (req.name() != null) {
+            if (req.name().isBlank()) throw new IllegalArgumentException("name 不能为空");
+            p.setName(req.name());
+        }
+        if (req.code() != null) p.setCode(req.code());
+        if (req.description() != null) p.setDescription(req.description());
+        p.setUpdatedAt(java.time.OffsetDateTime.now());
+        projectMapper.updateById(p);
+        return ApiResponse.ok(p);
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('admin','designer')")
     public ApiResponse<ProjectEntity> create(@RequestBody CreateProjectRequest req,
