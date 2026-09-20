@@ -134,7 +134,7 @@ export function GraphTab() {
         <Alert
           type="error" showIcon style={{ margin: '10px 16px' }}
           message="图谱数据获取失败"
-          description="数据可能存在，仅暂时不可达（Neo4j 或 py-engine 异常）。"
+          description="数据可能存在，仅知识图谱服务暂时不可达；请稍后重试。"
           action={<Button size="small" onClick={refetchGraph}>重试</Button>}
         />
       )}
@@ -162,7 +162,7 @@ export function GraphTab() {
           </div>
         ) : (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            点击节点查看来源（source_doc / source_session 可反跳）；拖拽节点、滚轮缩放。Neo4j 不可达时此页如实报错。
+            点击节点查看来源（文档 / 会话可反跳）；拖拽节点、滚轮缩放。图谱服务不可达时此页如实报错。
           </Typography.Text>
         )}
       </div>

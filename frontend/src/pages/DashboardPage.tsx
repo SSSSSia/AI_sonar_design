@@ -7,6 +7,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { deleteSession, deleteSessions, listSessions } from '../api/sessions'
+import { errText } from '../api/client'
 import { getKbStatus } from '../api/kb'
 import type { DesignSession } from '../api/types'
 import { useSessionSockets } from '../hooks/useSessionSockets'
@@ -65,11 +66,11 @@ export default function DashboardPage() {
     const force = r.displayStatus === 'running' || r.displayStatus === 'paused'
     try {
       const res = await deleteSession(r.id, force)
-      message.success(`已删除「${r.title}」：快照 ${res.ir_snapshots} 份、裁决记录 ${res.review_records} 条、溯源链 ${res.trace_chain_rows} 行；已沉淀知识保留`)
+      message.success(`已删除「${r.title}」：阶段产物 ${res.ir_snapshots} 份 · 审阅记录 ${res.review_records} 条 · 溯源记录 ${res.trace_chain_rows} 条；沉淀入库的知识已保留`)
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
       setRefreshKey((k) => k + 1)
     } catch (e) {
-      message.error(String((e as { message?: string }).message ?? e).slice(0, 160))
+      message.error(errText(e, 160))
     }
   }
 
@@ -92,7 +93,7 @@ export default function DashboardPage() {
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
       setRefreshKey((k) => k + 1)
     } catch (e) {
-      message.error(String((e as { message?: string }).message ?? e).slice(0, 160))
+      message.error(errText(e, 160))
     } finally {
       setBatching(false)
     }

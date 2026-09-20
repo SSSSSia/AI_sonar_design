@@ -10,15 +10,25 @@ import {
   deleteDocument, getBuildTask, listDocuments, startBuild, startExtract,
   type KbDocument,
 } from '../../api/kb'
+import { errText } from '../../api/client'
 import { QueryEmpty } from '../../components/QueryEmpty'
 
 const STATUS_META: Record<string, { color: string; text: string }> = {
-  parsed: { color: 'default', text: 'parsed' },
-  chunked: { color: 'processing', text: 'chunked' },
-  extracting: { color: 'processing', text: 'extracting' },
-  extracted: { color: 'processing', text: 'extracted' },
-  indexed: { color: 'success', text: 'indexed' },
-  failed: { color: 'error', text: 'failed' },
+  parsed: { color: 'default', text: '已解析' },
+  chunked: { color: 'processing', text: '已分块' },
+  extracting: { color: 'processing', text: '抽取中' },
+  extracted: { color: 'processing', text: '已抽取' },
+  indexed: { color: 'success', text: '已入索引' },
+  failed: { color: 'error', text: '失败' },
+}
+
+/** 级联清理结果 → 人话（true/数量=已清；skipped=未启用；其余为后端 failed: 字符串）。 */
+function cleanupPart(label: string, v: unknown): string {
+  if (v === true) return `${label}已清理`
+  if (typeof v === 'number') return `${label}已清理 ${v} 项`
+  if (v === false || v == null) return `${label}未执行`
+  if (v === 'skipped') return `${label}未启用，跳过`
+  return `${label}清理失败（已记录日志）`
 }
 
 /** 文档库页签：上传（同步解析）、列表、删除级联、增量构建。 */
@@ -56,7 +66,7 @@ export function DocumentsTab() {
       else message.success(`已解析${res.ocr_pages ? `，OCR 识别 ${res.ocr_pages} 页` : ''}${res.ocr_pending ? `，${res.ocr_pending} 页待补` : ''}`)
       void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
     } catch (e) {
-      message.error('上传失败：' + String(e).slice(0, 120))
+      message.error('上传失败：' + errText(e, 120))
     }
     return false
   }
@@ -67,11 +77,11 @@ export function DocumentsTab() {
       const c = r.cleanup ?? {}
       modal.info({
         title: `已删除 ${doc.filename}`,
-        content: `级联清理：MinIO ${JSON.stringify(c.minio ?? '—')} · 向量 ${JSON.stringify(c.vectors ?? '—')} · 图谱 ${JSON.stringify(c.graph ?? '—')}`,
+        content: `已同步清理：${cleanupPart('原件', c.minio)} · ${cleanupPart('向量索引', c.vectors)} · ${cleanupPart('图谱引用', c.graph)}`,
       })
       void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
     } catch (e) {
-      message.error('删除失败：' + String(e).slice(0, 120))
+      message.error('删除失败：' + errText(e, 120))
     }
   }
 
@@ -117,10 +127,10 @@ export function DocumentsTab() {
               size="small"
               onClick={async () => {
                 try {
-                  const t = await startExtract(r.doc_id)
-                  message.success('抽取任务已启动：' + t.task_id.slice(0, 12))
+                  await startExtract(r.doc_id)
+                  message.success('抽取任务已启动，完成后状态自动更新')
                   void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
-                } catch (e) { message.error(String(e).slice(0, 120)) }
+                } catch (e) { message.error(errText(e, 120)) }
               }}
             >抽取</Button>
           )}
@@ -147,8 +157,8 @@ export function DocumentsTab() {
               try {
                 const t = await startBuild()
                 setBuildTaskId(t.task_id)
-                message.info('增量构建已启动（只处理未 indexed 文档）')
-              } catch (e) { message.error(String(e).slice(0, 120)) }
+                message.info('增量构建已启动（只处理尚未入索引的文档）')
+              } catch (e) { message.error(errText(e, 120)) }
             }}
           >构建索引（增量）</Button>
         </Space>

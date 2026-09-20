@@ -110,7 +110,8 @@ export interface ReviewEffects {
   resumed_to?: string
   rework_stage?: string
   invalidated?: string[]
-  writeback?: Record<string, unknown>
+  /** py-engine 回写响应对象；失败时为状态字符串 'failed'（决策已落库、IR5 保持 pending）。 */
+  writeback?: unknown
 }
 
 /** content 可能是 JSON 字符串或对象（契约实现差异收敛处）。 */

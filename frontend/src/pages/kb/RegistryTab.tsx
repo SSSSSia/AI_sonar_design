@@ -7,6 +7,7 @@ import {
   type RegistryKind, type RegistryRow,
 } from '../../api/kb'
 import { QueryEmpty } from '../../components/QueryEmpty'
+import { errText } from '../../api/client'
 
 const KIND_TAB: { value: RegistryKind; label: string }[] = [
   { value: 'formulas', label: '公式库' },
@@ -32,7 +33,7 @@ export function RegistryTab() {
     try {
       await updateRegistryRow(kind, id, fields)
       void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
-    } catch (e) { message.error(String(e).slice(0, 140)) }
+    } catch (e) { message.error(errText(e, 140)) }
   }
 
   const columns: ColumnsType<RegistryRow> = [
@@ -79,7 +80,7 @@ export function RegistryTab() {
           try {
             await deleteRegistryRow(kind, String(r.row_id ?? r.id ?? r.key))
             void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
-          } catch (e) { message.error(String(e).slice(0, 140)) }
+          } catch (e) { message.error(errText(e, 140)) }
         }}>
           <Button size="small" danger type="text">删除</Button>
         </Popconfirm>
@@ -135,7 +136,7 @@ export function RegistryTab() {
                     message.success('已新增')
                     setAdding(false); setNewKey(''); setNewName(''); setNewExpr('')
                     void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
-                  } catch (e) { message.error(String(e).slice(0, 140)) }
+                  } catch (e) { message.error(errText(e, 140)) }
                 }}
               >保存</Button>
             </Space>

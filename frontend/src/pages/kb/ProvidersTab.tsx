@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { App, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { createProvider, listProviders, updateProvider, type LlmProvider } from '../../api/kb'
+import { errText } from '../../api/client'
 import { QueryEmpty } from '../../components/QueryEmpty'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 
@@ -24,7 +25,7 @@ export function ProvidersTab() {
     try {
       await updateProvider(row.name, { enabled })
       void queryClient.invalidateQueries({ queryKey: ['kb-providers'] })
-    } catch (e) { message.error(String(e).slice(0, 140)) }
+    } catch (e) { message.error(errText(e, 140)) }
   }
 
   const columns: ColumnsType<LlmProvider> = [
@@ -54,7 +55,7 @@ export function ProvidersTab() {
       }
       setEditing(null); setCreating(false); form.resetFields()
       void queryClient.invalidateQueries({ queryKey: ['kb-providers'] })
-    } catch (e) { message.error(String(e).slice(0, 160)) }
+    } catch (e) { message.error(errText(e, 160)) }
   }
 
   return (

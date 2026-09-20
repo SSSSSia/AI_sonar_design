@@ -103,7 +103,7 @@ function unwrapAnnotationPayload(a: unknown): { text: string; meta: Record<strin
     }
   }
   if (Array.isArray(a)) {
-    return { text: a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('；'), meta: {} }
+    return { text: a.map((x) => (typeof x === 'string' ? x : pickObjText(x) || '（结构化批注）')).join('；'), meta: {} }
   }
   if (a != null && typeof a === 'object') {
     const obj = a as Record<string, unknown>
@@ -111,9 +111,20 @@ function unwrapAnnotationPayload(a: unknown): { text: string; meta: Record<strin
       const { annotations, ...meta } = obj
       return { text: annotationsText(annotations), meta }
     }
-    return { text: JSON.stringify(a), meta: {} }
+    return { text: pickObjText(obj) || '（结构化批注）', meta: {} }
   }
   return { text: '', meta: {} }
+}
+
+/** 从结构化对象里捞人能读的字段（text/reason/…）；捞不到返回空——界面不倾倒原始 JSON。 */
+function pickObjText(x: unknown): string {
+  if (x == null || typeof x !== 'object') return ''
+  const obj = x as Record<string, unknown>
+  for (const k of ['text', 'reason', 'message', 'comment', 'note']) {
+    const v = obj[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return ''
 }
 
 /** IR1 是否为降级产物（LLM 规划不可用，目标仅登记原始需求）。 */

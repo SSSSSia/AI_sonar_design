@@ -59,8 +59,9 @@ function payloadToText(p: Record<string, unknown>): string {
   if (Array.isArray(p.retrieved) && p.retrieved.length > 0) lines.push(`命中知识 ${p.retrieved.length} 条`)
 
   if (lines.length > 0) return lines.join('\n')
+  // 未识别的步骤类型：如实给出技术兜底，但明确标注这不是给人读的内容
   const json = JSON.stringify(p, null, 1)
-  return json.length > 400 ? `${json.slice(0, 400)}…` : json
+  return `（未识别的步骤类型，原始数据如下）\n${json.length > 400 ? `${json.slice(0, 400)}…` : json}`
 }
 
 /** 溯源反查抽屉：参数行点击 → trace 链（IR0 原文 → A1 检索引用 → A2 推导 → A4 复核）。 */

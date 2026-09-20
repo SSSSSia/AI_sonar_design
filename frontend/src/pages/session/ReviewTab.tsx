@@ -9,7 +9,7 @@ import { ParamTable } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
-import { ir1Degraded, normalizeMissingItems, gateLabel } from '../../lib/stageLabel'
+import { ir1Degraded, normalizeMissingItems, gateLabel, stageLabel } from '../../lib/stageLabel'
 
 const GATE_TITLE: Record<string, string> = { gate1: '审阅关①（IR2 参数方案）', gate2: '审阅关②（IR3 + IR4）' }
 const REWORK_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -83,8 +83,8 @@ export function ReviewTab({
       })
       message.success(
         decision === 'approved'
-          ? `已批准，管线恢复至 ${effects.resumed_to ?? '下一阶段'}`
-          : `已驳回，回退 ${effects.rework_stage}，失效 ${effects.invalidated?.length ?? 0} 份下游快照`,
+          ? `已批准，流程进入${effects.resumed_to ? stageLabel(effects.resumed_to) : '下一阶段'}`
+          : `已驳回，回退${stageLabel(effects.rework_stage)}重算（原 ${effects.invalidated?.length ?? 0} 份下游产物已作废）`,
       )
       setAnnotations('')
       onDecided()

@@ -53,7 +53,7 @@ export function ReportTab({
         : `确认写入 ${newCandidates.length} 条知识候选？`,
       content: allDuplicates
         ? '候选均与库内已有知识重复，批准后不会写入任何内容，仅记录本次确认归档。也可选「全部跳过」直接关闭。'
-        : `写入 Neo4j 图谱后成为共享知识；${dupCount > 0 ? `${dupCount} 条重复项自动放弃（不会重复写入）。` : ''}驳回则本会话候选不入图。`,
+        : `写入知识图谱后成为共享知识，后续新会话即可复用；${dupCount > 0 ? `${dupCount} 条重复项自动放弃（不会重复写入）。` : ''}驳回则本会话候选不入图。`,
       okText: allDuplicates ? '确认归档' : '批准写入',
       cancelText: '再想想',
       onOk: () => decideKnowledge('approved'),
@@ -67,7 +67,9 @@ export function ReportTab({
         decision,
         annotations: annotations.trim() ? [annotations.trim()] : [],
       })
-      message.success(effects.writeback ? writebackToastText(effects.writeback) : '知识审阅完成')
+      if (decision === 'rejected') message.success('本次知识沉淀已跳过——候选不入库，会话流程结束')
+      else if (effects.writeback === 'failed') message.warning(writebackToastText(effects.writeback))
+      else message.success(effects.writeback ? writebackToastText(effects.writeback) : '知识归档完成')
       onDecided()
     } catch (e) {
       message.error(e instanceof ApiError ? e.message : '裁决提交失败')

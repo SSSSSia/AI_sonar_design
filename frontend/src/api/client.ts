@@ -72,3 +72,10 @@ export async function patch<T>(url: string, data?: unknown): Promise<T> {
 export async function del<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   return (await http.delete<T>(url, { params })).data
 }
+
+/** 用户可见的统一错误文案：Error/ApiError 取 message；其余不把对象直接 String 给用户。 */
+export function errText(e: unknown, max = 140): string {
+  let t = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
+  if (!t) t = '操作失败，请稍后重试'
+  return t.length > max ? `${t.slice(0, max)}…` : t
+}

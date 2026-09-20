@@ -75,18 +75,19 @@ export function CandidateDedupTag({ status }: { status: string }) {
   return <Tag color={meta.color} style={{ marginInlineEnd: 0 }}>{meta.text}</Tag>
 }
 
-/** 知识关裁决 toast 文案（审查 P2-5 联动）：effects.writeback 摘要为人话。 */
+/** 知识关裁决 toast 文案：effects.writeback 摘要为人话（不向用户倾倒原始 JSON）。
+ *  实际响应结构：{written: {written, deprecated}, selected_indexes, ir_version}；
+ *  回写失败时 workflow 侧给字符串 'failed'（决策已落库、IR5 保持 pending 可重试）。 */
 export function writebackToastText(writeback: unknown): string {
+  if (writeback === 'failed') {
+    return '裁决已记录，但知识写入失败——知识图谱暂不可用；候选仍在待归档列表，稍后再次批准即可重试'
+  }
   const w = (writeback ?? {}) as Record<string, unknown>
-  const parts: string[] = []
-  for (const k of ['formulas', 'relations', 'constraints', 'cases', 'entities', 'nodes', 'edges']) {
-    const v = w[k]
-    if (typeof v === 'number' && v > 0) parts.push(`${k} ${v}`)
+  const inner = (w.written != null && typeof w.written === 'object' ? w.written : w) as Record<string, unknown>
+  if (typeof inner.written === 'number') {
+    const dep = typeof inner.deprecated === 'number' ? inner.deprecated : 0
+    return `知识归档完成：已写入 ${inner.written} 条${dep > 0 ? `，${dep} 条同名旧知识自动标记废弃` : ''}`
   }
-  const skipped = typeof w.skipped === 'number' ? w.skipped : undefined
-  if (parts.length === 0 && skipped === undefined) {
-    // 后端语义未枚举全时退回简短 JSON，但截断且不再整段倾倒
-    return `知识回写完成（${JSON.stringify(w).slice(0, 80)}）`
-  }
-  return `已写入：${parts.join(' / ') || '无新知识'}${skipped ? `；${skipped} 条重复放弃` : ''}`
+  // 计数字段缺失（后端形态演进）：只说结论，不再截断倾倒 JSON
+  return '知识归档完成'
 }

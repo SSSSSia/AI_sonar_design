@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { App, Button, Card, Form, Input, Modal, Select, Typography } from 'antd'
 import { listProjects, createSession, createProject } from '../api/sessions'
+import { errText } from '../api/client'
 import type { Project } from '../api/types'
 
 /** 需求输入页（T4.2）：提交即创建会话并固化为 IR0，自动启动 A1。 */
@@ -26,7 +27,7 @@ export default function RequirementInputPage() {
       const session = await createSession(values)
       await createAndStart(session.id)
     } catch (e) {
-      message.error(String(e))
+      message.error(errText(e))
     } finally {
       setSubmitting(false)
     }
