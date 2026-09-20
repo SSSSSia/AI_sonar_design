@@ -47,6 +47,24 @@ export function checkLabel(code: string): string {
   return IR4_CHECK_CN[code] ?? code
 }
 
+/** IR 快照类型 → 中文名（裁决历史「审阅对象」等展示处，与总览 IR 快照卡一致）。 */
+export const IR_TYPE_CN: Record<string, string> = {
+  IR0: '需求原文',
+  IR1: '设计目标',
+  IR2: '参数方案',
+  IR3: 'CAD 建模产物',
+  IR4: '合规校验报告',
+  IR5: '知识沉淀候选',
+}
+
+/** "IR2 v1" → "IR2 v1 · 参数方案"（不识别的原样返回）。 */
+export function irTypeLabel(reviewedIr: string): string {
+  const m = reviewedIr.match(/^(IR[0-5])\b/i)
+  if (!m) return reviewedIr
+  const cn = IR_TYPE_CN[m[1].toUpperCase()]
+  return cn ? `${reviewedIr} · ${cn}` : reviewedIr
+}
+
 export const STATUS_TAG: Record<string, { color: string; text: string }> = {
   pending: { color: 'default', text: '待启动' },
   running: { color: 'processing', text: '运行中' },
