@@ -34,7 +34,7 @@ export interface Ir1 {
 }
 
 // ---- IR2 ----
-export type SourceType = 'formula' | 'case' | 'standard' | 'estimated'
+export type SourceType = 'formula' | 'case' | 'standard' | 'estimated' | 'retrieved'
 export interface Ir2Param {
   id: string
   name: string

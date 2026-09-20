@@ -568,3 +568,31 @@ def kb_status(user: str = Depends(require_user)) -> dict[str, Any]:
         except Exception:
             status["neo4j_available"] = False
     return status
+
+
+# ----------------------------------------------------------------------
+# PHASE-006 T6.6 命中原文预览：审阅参数 source_ref(doc#loc) → 知识原文段落
+# ----------------------------------------------------------------------
+@router.get("/refs")
+def resolve_ref(doc_id: str, location: str, user: str = Depends(require_user)) -> dict:
+    """引用解析：返回 chunk 原文 + 文档名 + 所属库（审阅页「查看知识原文」用）。
+
+    文档已物理删除 → 404 如实（出处三件套缺失时前端提示「出处文档已删除」）。
+    """
+    doc = kb_store.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="出处文档已删除")
+    chunks = kb_store.get_chunks(doc_id)
+    # location 精确匹配优先（管线 chunk.location 即解析页码/章节）；未命中给相邻原文兜底
+    text = next((c["text"] for c in chunks if c["location"] == location), None)
+    if text is None and chunks:
+        text = chunks[0]["text"]
+        location = chunks[0]["location"]
+    base_names = [t["base_name"] for t in kb_store._doc_base_tags([doc_id]) if t["doc_id"] == doc_id]
+    return {
+        "doc_id": doc_id,
+        "filename": doc["filename"],
+        "location": location,
+        "text": text,
+        "bases": base_names,
+    }

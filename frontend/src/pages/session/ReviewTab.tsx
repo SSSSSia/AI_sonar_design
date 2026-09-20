@@ -5,8 +5,9 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir1, type Ir2, type Ir2Param, type Ir4, type ReviewRecord } from '../../api/workflow'
 import { ApiError } from '../../api/client'
-import { ParamTable } from '../../components/ParamTable'
+import { ParamTable, parseKbRef } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
+import { KbRefDrawer } from '../../components/KbRefDrawer'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ir1Degraded, normalizeMissingItems, gateLabel, stageLabel } from '../../lib/stageLabel'
@@ -49,6 +50,7 @@ export function ReviewTab({
   const canDecide = hasAnyRole(roles, ['admin', 'reviewer'])
 
   const [traceParam, setTraceParam] = useState<Ir2Param | null>(null)
+  const [kbRefParam, setKbRefParam] = useState<Ir2Param | null>(null)
   const [decision, setDecision] = useState<'approved' | 'rejected'>('approved')
   const [reworkStage, setReworkStage] = useState<string>(gate === 'gate2' ? (ir4?.issues.find((i) => i.suggestion)?.suggestion?.replace('back_to_', '') ?? 'A2') : 'A2')
   const [annotations, setAnnotations] = useState('')
@@ -187,7 +189,11 @@ export function ReviewTab({
               />
             </div>
           ) : (
-            <ParamTable params={params(ir2)} onTrace={setTraceParam} />
+            <ParamTable
+              params={params(ir2)}
+              onTrace={setTraceParam}
+              onKbRef={(p) => setKbRefParam(p)}
+            />
           )}
         </Card>
       ) : (
@@ -244,6 +250,14 @@ export function ReviewTab({
       )}
 
       <TraceDrawer param={traceParam} onClose={() => setTraceParam(null)} />
+      <KbRefDrawer
+        ref={(() => {
+          if (!kbRefParam) return null
+          const parsed = parseKbRef(kbRefParam.source_ref)
+          return parsed ? { ...parsed, paramName: kbRefParam.name } : null
+        })()}
+        onClose={() => setKbRefParam(null)}
+      />
     </div>
   )
 }

@@ -169,6 +169,19 @@ export function getNeighborhood(key: string, depth = 2, limit = 100) {
   return get<GraphData>(`/kb/graph/neighborhood`, { key, depth, limit })
 }
 
+// ---- 引用解析（PHASE-006 T6.6 命中原文预览） ----
+export interface KbRef {
+  doc_id: string
+  filename: string
+  location: string
+  text: string | null
+  bases: string[]
+}
+
+export function getKbRef(docId: string, location: string) {
+  return get<KbRef>('/kb/refs', { doc_id: docId, location })
+}
+
 // ---- 状态（系统管理页） ----
 export interface KbStatus {
   kb_levels_enabled?: boolean
