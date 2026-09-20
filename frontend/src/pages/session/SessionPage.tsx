@@ -8,7 +8,7 @@ import { ApiError } from '../../api/client'
 import { getIr, listReviews, parseIr, type Ir1, type Ir2, type Ir3, type Ir4, type Ir5 } from '../../api/workflow'
 import { useSessionSockets } from '../../hooks/useSessionSockets'
 import { PipelineTimeline, buildTimeline } from '../../components/PipelineTimeline'
-import { stageLabel, statusTag, fmtTime } from '../../lib/stageLabel'
+import { stageLabel, statusTag, fmtTime, normalizeStage } from '../../lib/stageLabel'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { useProgressStore } from '../../stores/progressStore'
 import { OverviewTab } from './OverviewTab'
@@ -37,7 +37,8 @@ export default function SessionPage() {
   // WS 实时进度叠加（比 10s 轮询快）：时间线/状态徽标先用推送值，HTTP 对账兜底
   const live = useProgressStore((s) => (id ? s.bySession[id] : undefined))
   const liveNewer = !!(session && live && live.updatedAt > dayjs(session.updatedAt).valueOf())
-  const displayStage = liveNewer ? live.stage : session?.currentStage
+  // WS 暂停推送用契约名 review_gate_*，归一到库中 gate1/gate2（横幅/时间线比对统一口径）
+  const displayStage = normalizeStage(liveNewer ? live.stage : session?.currentStage)
   const displayStatus = liveNewer ? live.status : session?.pipelineStatus
 
   const reviewsQuery = useQuery({
@@ -98,25 +99,31 @@ export default function SessionPage() {
       </Card>
 
       {pausedAtGate && activeTab === 'overview' && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginTop: 14 }}
-          message={`${stageLabel(displayStage)} 待人工裁决`}
-          description={
-            displayStage === 'gate2'
+        (() => {
+          const ir2Empty = !!ir2Data && (ir2Data.parameters ?? []).length === 0
+          const desc = ir2Empty
+            ? '本会话为降级产物：IR2 参数方案为 0 项（LLM 不可用时降级生成），后续 A3 模型与 A4 校验均基于空方案产生——A4 的「pass」只表示无可校验内容，不代表设计合规。建议驳回并回退，待 LLM 恢复后重算。'
+            : displayStage === 'gate2'
               ? '请先在「校验报告」页签查看 IR4 合规结论，再到「审阅与参数」页签底部完成批准/驳回。驳回将触发局部回算（A-11），下游版本标记失效。'
               : '请在「审阅与参数」页签查看参数方案并在页面底部完成批准/驳回。驳回将触发局部回算（A-11），下游版本标记失效。'
-          }
-          action={
-            <Button
-              size="small" type="primary"
-              onClick={() => setActiveTab(displayStage === 'gate2' ? 'report' : 'review')}
-            >
-              {displayStage === 'gate2' ? '去校验报告' : '去审阅参数'}
-            </Button>
-          }
-        />
+          return (
+            <Alert
+              type={ir2Empty ? 'error' : 'warning'}
+              showIcon
+              style={{ marginTop: 14 }}
+              message={ir2Empty ? `${stageLabel(displayStage)} 待人工裁决——注意：方案为空` : `${stageLabel(displayStage)} 待人工裁决`}
+              description={desc}
+              action={
+                <Button
+                  size="small" type="primary" danger={ir2Empty}
+                  onClick={() => setActiveTab(displayStage === 'gate2' ? 'report' : 'review')}
+                >
+                  {displayStage === 'gate2' ? (ir2Empty ? '查看情况' : '去校验报告') : '去审阅参数'}
+                </Button>
+              }
+            />
+          )
+        })()
       )}
 
       {session.pipelineStatus === 'failed' && (
@@ -185,6 +192,7 @@ export default function SessionPage() {
                 ir3={ir3Data}
                 reviews={reviewsQuery.data ?? []}
                 pipelineStatus={session.pipelineStatus}
+                ir2Empty={!!ir2Data && (ir2Data.parameters ?? []).length === 0}
                 onDecided={() => {
                   void queryClient.invalidateQueries({ queryKey: ['session', id] })
                   void queryClient.invalidateQueries({ queryKey: ['ir', id] })

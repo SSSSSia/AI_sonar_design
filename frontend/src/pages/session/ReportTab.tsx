@@ -23,6 +23,7 @@ export function ReportTab({
   ir3,
   reviews,
   pipelineStatus,
+  ir2Empty,
   onDecided,
 }: {
   sessionId: string
@@ -33,6 +34,8 @@ export function ReportTab({
   ir3: Ir3 | null
   reviews: ReviewRecord[]
   pipelineStatus?: string
+  /** IR2 为 0 参数（降级生成）——A4 的 pass 是空转，需要显式提示避免误导 */
+  ir2Empty?: boolean
   onDecided: () => void
 }) {
   const { message } = App.useApp()
@@ -87,7 +90,16 @@ export function ReportTab({
         {!ir4 ? (
           <Typography.Text type="secondary">IR4 尚未生成</Typography.Text>
         ) : (
-          <IssueGroups issues={ir4.issues} />
+          <>
+            {ir2Empty && (
+              <Alert
+                type="warning" showIcon style={{ marginBottom: 12 }}
+                message="本次校验基于空参数方案"
+                description="IR2 参数方案为 0 项（LLM 不可用时降级生成），A4 无实质检查项——「pass」仅表示无可校验内容，不代表设计合规。建议到「审阅与参数」页签驳回并回退 A2，待 LLM 恢复后重算。"
+              />
+            )}
+            <IssueGroups issues={ir4.issues} />
+          </>
         )}
       </Card>
 

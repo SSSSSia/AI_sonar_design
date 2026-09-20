@@ -77,9 +77,17 @@ export function statusTag(status: DesignSession['pipelineStatus'] | string) {
   return STATUS_TAG[status] ?? { color: 'default', text: status }
 }
 
+/** WS 契约阶段名归一：暂停时推送的是 review_gate_1/2（契约 §5.5），库中 current_stage 是 gate1/2——统一到后者。 */
+export function normalizeStage(stage?: string | null): string | undefined {
+  if (stage === 'review_gate_1') return 'gate1'
+  if (stage === 'review_gate_2') return 'gate2'
+  return stage ?? undefined
+}
+
 export function stageLabel(stage?: string | null): string {
-  if (!stage) return '—'
-  return STAGE_LABEL[stage] ?? stage
+  const s = normalizeStage(stage) ?? ''
+  if (!s) return '—'
+  return STAGE_LABEL[s] ?? s
 }
 
 /** 裁决批注归一化：后端可能是数组/JSON 字符串/null（jsonb 映射差异）。 */

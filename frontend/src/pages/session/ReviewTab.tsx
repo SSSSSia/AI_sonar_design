@@ -59,10 +59,10 @@ export function ReviewTab({
       message.warning('驳回必须填写批注（整改依据）')
       return
     }
-    if (decision === 'approved' && gate === 'gate1' && ir2 && params(ir2).length === 0) {
+    if (decision === 'approved' && ir2 && params(ir2).length === 0) {
       Modal.confirm({
-        title: 'IR2 为 0 项参数，确认放行空方案？',
-        content: '空方案无法支撑 CAD 建模，进入 A3 大概率失败。建议驳回并回退 A2（LLM 恢复后重算）。',
+        title: 'IR2 为 0 项参数（降级产物），确认放行空方案？',
+        content: '空方案无法支撑 CAD 建模与合规校验，A4 的「pass」只是无可校验项。建议驳回并回退 A2（LLM 恢复后重算）；若批准，空方案将继续走到知识沉淀。',
         okText: '仍要批准',
         okButtonProps: { danger: true },
         cancelText: '返回驳回',
