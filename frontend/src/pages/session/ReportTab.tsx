@@ -6,7 +6,7 @@ import { ApiError } from '../../api/client'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { CandidateContent, CandidateDedupTag, CandidateKindTag, writebackToastText } from '../../components/CandidateContent'
-import { gateLabel, WRITEBACK_LABEL } from '../../lib/stageLabel'
+import { gateLabel, WRITEBACK_LABEL, checkLabel } from '../../lib/stageLabel'
 
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
   error: { label: '错误', color: 'error' },
@@ -43,12 +43,18 @@ export function ReportTab({
 
   const knowledgePending = ir5?.writeback_status === 'pending'
   const newCandidates = ir5?.candidates.filter((c) => c.dedup_status === 'new') ?? []
+  const dupCount = ir5 ? ir5.candidates.length - newCandidates.length : 0
+  const allDuplicates = !!ir5 && ir5.candidates.length > 0 && newCandidates.length === 0
 
   function confirmWrite() {
     Modal.confirm({
-      title: `确认写入 ${newCandidates.length} 条知识候选？`,
-      content: '写入 Neo4j 图谱后成为共享知识（重复项自动放弃）；驳回则本会话候选不入图。',
-      okText: '批准写入',
+      title: allDuplicates
+        ? `确认本会话无新增知识（${dupCount} 条重复）？`
+        : `确认写入 ${newCandidates.length} 条知识候选？`,
+      content: allDuplicates
+        ? '候选均与库内已有知识重复，批准后不会写入任何内容，仅记录本次确认归档。也可选「全部跳过」直接关闭。'
+        : `写入 Neo4j 图谱后成为共享知识；${dupCount > 0 ? `${dupCount} 条重复项自动放弃（不会重复写入）。` : ''}驳回则本会话候选不入图。`,
+      okText: allDuplicates ? '确认归档' : '批准写入',
       cancelText: '再想想',
       onOk: () => decideKnowledge('approved'),
     })
@@ -101,19 +107,32 @@ export function ReportTab({
               }
               style={{ marginBottom: 10 }}
             />
+            {knowledgePending && allDuplicates && (
+              <Alert
+                type="info" showIcon style={{ marginBottom: 10 }}
+                message={`本会话 ${dupCount} 条候选均与知识库已有内容重复`}
+                description="A5 会把本会话知识与库内（图谱+语料）自动比对：全部重复说明方案参数均源自现有库、未产生新知识，属正常结果。可「全部跳过」直接关闭本次沉淀（推荐），「确认归档」也不会重复写入任何内容。"
+              />
+            )}
             {knowledgePending && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
                 <div>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>裁决</Typography.Text>
                   <div style={{ marginTop: 6 }}>
-                    <Radio checked disabled>确认 {newCandidates.length} 条 new 候选入图（duplicate 放弃）</Radio>
+                    <Radio checked disabled>
+                      {allDuplicates
+                        ? `无新增知识（${dupCount} 条候选均与库内重复）`
+                        : `确认 ${newCandidates.length} 条新增知识入图${dupCount > 0 ? `（另 ${dupCount} 条重复自动放弃）` : ''}`}
+                    </Radio>
                   </div>
                 </div>
                 <div>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>批注</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>批注（可选，留痕到裁决记录）</Typography.Text>
                   <Input.TextArea style={{ marginTop: 6 }} rows={2} value={annotations} onChange={(e) => setAnnotations(e.target.value)} placeholder="确认/放弃依据…" />
                   <SpaceForButtons>
-                    <Button size="small" type="primary" disabled={!canDecide} loading={submitting} onClick={confirmWrite}>批准写入</Button>
+                    <Button size="small" type="primary" disabled={!canDecide} loading={submitting} onClick={confirmWrite}>
+                      {allDuplicates ? '确认归档' : '批准写入'}
+                    </Button>
                     <Button size="small" disabled={!canDecide} loading={submitting} onClick={() => decideKnowledge('rejected')}>全部跳过</Button>
                   </SpaceForButtons>
                 </div>
@@ -163,7 +182,8 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
             {g.items.map((i) => (
               <div key={i.constraint_id} style={{ border: '1px solid #f0f1f3', borderLeft: `3px solid ${g.sev === 'error' ? '#c92a2a' : g.sev === 'warning' ? '#d97706' : '#d1d5db'}`, borderRadius: 6, padding: '8px 12px' }}>
                 <div style={{ fontSize: 12.5 }}>
-                  <Tag color={SEVERITY_META[g.sev].color} style={{ marginInlineEnd: 6 }}>{i.constraint_id}</Tag>
+                  <Tag color={SEVERITY_META[g.sev].color} style={{ marginInlineEnd: 6 }}>{checkLabel(i.constraint_id)}</Tag>
+                  <span className="mono" style={{ fontSize: 10.5, color: '#8b949e', marginRight: 6 }}>{i.constraint_id}</span>
                   {i.suggestion && <Tag color="warning">建议 {i.suggestion.replace('back_to_', '回退 ')}</Tag>}
                 </div>
                 {i.message && <div style={{ fontSize: 12, color: '#57606a', marginTop: 4, lineHeight: 1.7 }}>{i.message}</div>}

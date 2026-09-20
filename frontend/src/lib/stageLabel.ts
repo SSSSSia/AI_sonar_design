@@ -29,6 +29,24 @@ export const WRITEBACK_LABEL: Record<string, string> = {
   written: '已回写',
 }
 
+/** IR4 合规检查码 → 中文说明（审查反馈：CHK-* 裸码不可读；与 py-engine a4 agent 检查项一一对应）。 */
+export const IR4_CHECK_CN: Record<string, string> = {
+  'CHK-EST-UNVERIFIED': '估算参数未验证',
+  'CHK-FORMULA-RECOMPUTE': '公式重算偏差',
+  'CHK-CASE-INTERVAL': '案例取值越界',
+  'CHK-CASE-CONFLICT': '案例取值冲突',
+  'CHK-STD-VIOLATION': '军标条款违规',
+  'CHK-STD-PENDING': '军标库未覆盖（待补）',
+  'CHK-GEO-LINK': '特征未关联参数',
+  'CHK-GEO-DUP-FEATURE': '重复几何特征',
+  'CHK-GEO-SCRIPT': '建模脚本问题',
+  'CHK-GEO-STEP': 'STEP 产物问题',
+}
+
+export function checkLabel(code: string): string {
+  return IR4_CHECK_CN[code] ?? code
+}
+
 export const STATUS_TAG: Record<string, { color: string; text: string }> = {
   pending: { color: 'default', text: '待启动' },
   running: { color: 'processing', text: '运行中' },
