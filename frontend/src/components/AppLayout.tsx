@@ -4,7 +4,7 @@ import {
   Avatar, Badge, Button, Drawer, Dropdown, Grid, Layout, List, Menu, Popover, Space, Tag, Typography,
 } from 'antd'
 import {
-  BellOutlined, DashboardOutlined, DatabaseOutlined, EditOutlined, FolderOutlined, LogoutOutlined,
+  BellOutlined, DashboardOutlined, DatabaseOutlined, FolderOutlined, LogoutOutlined,
   MenuOutlined, SettingOutlined, UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -28,7 +28,6 @@ function menuGroupsFor(roles: string[]) {
       children: [
         { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
         { key: '/projects', icon: <FolderOutlined />, label: '项目管理' },
-        { key: '/sessions/new', icon: <EditOutlined />, label: '需求输入' },
       ],
     },
     {
@@ -45,8 +44,9 @@ function menuGroupsFor(roles: string[]) {
   return groups
 }
 
-/** 品牌标记：石墨底声呐同心环。中性灰绘制，装饰不占用交互蓝。 */
-function SonarMark({ size = 24 }: { size?: number }) {
+/** 品牌标记：石墨底声呐同心环。中性灰绘制，装饰不占用交互蓝。
+ *  导出供项目卡片等处复用（2026-09-20 项目页视觉重塑）。 */
+export function SonarMark({ size = 24 }: { size?: number }) {
   return (
     <span
       aria-hidden

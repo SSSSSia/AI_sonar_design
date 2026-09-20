@@ -15,7 +15,12 @@ public interface ProjectMapper extends BaseMapper<ProjectEntity> {
     @Select("select count(*) from design_sessions where project_id = #{projectId}")
     long countSessions(@Param("projectId") String projectId);
 
-    /** 全表 project_id → 会话数（列表页一次取齐，避免逐项目 N+1）。 */
-    @Select("select project_id, count(*) as cnt from design_sessions group by project_id")
-    List<Map<String, Object>> countSessionsGrouped();
+    /** 按 (project_id, pipeline_status) 分组计数（项目卡片状态分布 + 总数）。 */
+    @Select("select project_id, pipeline_status as status, count(*) as cnt "
+            + "from design_sessions group by project_id, pipeline_status")
+    List<Map<String, Object>> countSessionsByStatus();
+
+    /** 每项目最近一次会话活动时间（max(updated_at)）。 */
+    @Select("select project_id, max(updated_at) as last_at from design_sessions group by project_id")
+    List<Map<String, Object>> lastSessionActivity();
 }

@@ -11,9 +11,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * 项目最小 API（PHASE-001 §2，T1.1 仅支撑会话创建所需的最小 CRUD；完整 §5.7 能力随阶段 2/3 补全）：
@@ -83,9 +83,18 @@ public class ProjectController {
                 new LambdaQueryWrapper<ProjectEntity>()
                         .like(keyword != null && !keyword.isBlank(), ProjectEntity::getName, keyword)
                         .orderByDesc(ProjectEntity::getCreatedAt));
-        Map<String, Long> counts = projectMapper.countSessionsGrouped().stream()
-                .collect(Collectors.toMap(m -> String.valueOf(m.get("project_id")),
-                        m -> ((Number) m.get("cnt")).longValue()));
+        // 状态分布（含总数）与最近活动：一次分组查询取齐，避免逐项目 N+1
+        Map<String, Map<String, Long>> statsByProject = new java.util.HashMap<>();
+        for (Map<String, Object> row : projectMapper.countSessionsByStatus()) {
+            String pid = String.valueOf(row.get("project_id"));
+            long cnt = ((Number) row.get("cnt")).longValue();
+            String status = String.valueOf(row.get("status"));
+            statsByProject.computeIfAbsent(pid, k -> new java.util.HashMap<>()).merge(status, cnt, Long::sum);
+        }
+        Map<String, Object> lastByProject = new java.util.HashMap<>();
+        for (Map<String, Object> row : projectMapper.lastSessionActivity()) {
+            lastByProject.put(String.valueOf(row.get("project_id")), row.get("last_at"));
+        }
         return ApiResponse.ok(result.convert(p -> {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", p.getId());
@@ -95,7 +104,14 @@ public class ProjectController {
             row.put("owner_id", p.getOwnerId());
             row.put("status", p.getStatus());
             row.put("created_at", p.getCreatedAt());
-            row.put("session_count", counts.getOrDefault(p.getId(), 0L));
+            Map<String, Long> stats = statsByProject.getOrDefault(p.getId(), Map.of());
+            row.put("session_count", stats.values().stream().mapToLong(Long::longValue).sum());
+            Map<String, Long> statDetail = new LinkedHashMap<>();
+            for (String s : java.util.List.of("pending", "running", "paused", "completed", "failed")) {
+                statDetail.put(s, stats.getOrDefault(s, 0L));
+            }
+            row.put("session_stats", statDetail);
+            row.put("last_active_at", lastByProject.get(p.getId()));
             return row;
         }));
     }

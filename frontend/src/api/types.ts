@@ -8,8 +8,11 @@ export interface Project {
   status: string
   ownerId?: string | null
   createdAt: string
-  /** 列表接口附带（项目管理弹窗用；单查接口无此字段） */
+  /** 列表接口附带（项目卡片用；单查接口无此字段） */
   session_count?: number
+  session_stats?: { pending?: number; running?: number; paused?: number; completed?: number; failed?: number }
+  /** 项目下最近一次会话活动（无会话时为空，卡片回退显示创建时间） */
+  last_active_at?: string | null
 }
 
 export type PipelineStatusValue = 'pending' | 'running' | 'paused' | 'completed' | 'failed'

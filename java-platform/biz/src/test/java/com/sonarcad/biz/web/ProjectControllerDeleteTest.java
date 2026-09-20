@@ -1,5 +1,7 @@
 package com.sonarcad.biz.web;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+
 import com.sonarcad.biz.project.ProjectEntity;
 import com.sonarcad.biz.project.ProjectMapper;
 import org.junit.jupiter.api.Test;
@@ -90,5 +92,29 @@ class ProjectControllerDeleteTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("至少");
         verify(mapper, never()).updateById(any(ProjectEntity.class));
+    }
+
+    @Test
+    void listMergesSessionStatsAndLastActive() {
+        ProjectEntity p1 = project("p1", "有会话项目");
+        Page<ProjectEntity> page = new Page<>(1, 10);
+        page.setRecords(java.util.List.of(p1));
+        when(mapper.selectPage(any(), any())).thenReturn(page);
+        // p1: 1 running + 2 completed；p2（不在列表）不应污染
+        when(mapper.countSessionsByStatus()).thenReturn(java.util.List.of(
+                Map.of("project_id", "p1", "status", "running", "cnt", 1L),
+                Map.of("project_id", "p1", "status", "completed", "cnt", 2L),
+                Map.of("project_id", "p2", "status", "running", "cnt", 5L)));
+        java.time.OffsetDateTime last = java.time.OffsetDateTime.now();
+        when(mapper.lastSessionActivity()).thenReturn(java.util.List.of(
+                Map.of("project_id", "p1", "last_at", last)));
+
+        var row = controller.list(1, 20, null).data().getRecords().get(0);
+        assertThat(row.get("session_count")).isEqualTo(3L);
+        @SuppressWarnings("unchecked")
+        Map<String, Long> stats = (Map<String, Long>) row.get("session_stats");
+        assertThat(stats).containsEntry("running", 1L).containsEntry("completed", 2L)
+                .containsEntry("failed", 0L).containsEntry("paused", 0L);
+        assertThat(row.get("last_active_at")).isEqualTo(last);
     }
 }
