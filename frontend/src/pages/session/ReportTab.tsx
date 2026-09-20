@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { App, Alert, Button, Card, Input, Modal, Radio, Table, Tag, Typography } from 'antd'
+import { useQuery } from '@tanstack/react-query'
+import { App, Alert, Button, Card, Input, Modal, Radio, Select, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
 import { ApiError } from '../../api/client'
+import { listBases, type KbBase } from '../../api/kb'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { CandidateContent, CandidateDedupTag, CandidateKindTag, writebackToastText } from '../../components/CandidateContent'
@@ -43,6 +45,14 @@ export function ReportTab({
   const canDecide = hasAnyRole(roles, ['admin', 'reviewer'])
   const [annotations, setAnnotations] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [targetKbId, setTargetKbId] = useState<string | undefined>(undefined)
+
+  const basesQuery = useQuery({
+    queryKey: ['kb-bases'],
+    queryFn: listBases,
+    enabled: ir5?.writeback_status === 'pending',
+  })
+  const bases: KbBase[] = basesQuery.data?.bases ?? []
 
   const knowledgePending = ir5?.writeback_status === 'pending'
   const newCandidates = ir5?.candidates.filter((c) => c.dedup_status === 'new') ?? []
@@ -50,13 +60,14 @@ export function ReportTab({
   const allDuplicates = !!ir5 && ir5.candidates.length > 0 && newCandidates.length === 0
 
   function confirmWrite() {
+    const target = bases.find((b) => b.id === targetKbId)
     Modal.confirm({
       title: allDuplicates
         ? `确认本会话无新增知识（${dupCount} 条重复）？`
-        : `确认写入 ${newCandidates.length} 条知识候选？`,
+        : `确认写入 ${newCandidates.length} 条知识候选${target ? `到「${target.name}」` : ''}？`,
       content: allDuplicates
         ? '候选均与库内已有知识重复，批准后不会写入任何内容，仅记录本次确认归档。也可选「全部跳过」直接关闭。'
-        : `写入知识图谱后成为共享知识，后续新会话即可复用；${dupCount > 0 ? `${dupCount} 条重复项自动放弃（不会重复写入）。` : ''}驳回则本会话候选不入图。`,
+        : `写入知识图谱后成为共享知识（${target ? `归属「${target.name}」` : '归属会话首选知识库'}），后续新会话即可复用；${dupCount > 0 ? `${dupCount} 条重复项自动放弃（不会重复写入）。` : ''}驳回则本会话候选不入图。`,
       okText: allDuplicates ? '确认归档' : '批准写入',
       cancelText: '再想想',
       onOk: () => decideKnowledge('approved'),
@@ -69,6 +80,7 @@ export function ReportTab({
       const effects = await postReview(sessionId, 'knowledge', {
         decision,
         annotations: annotations.trim() ? [annotations.trim()] : [],
+        ...(decision === 'approved' && targetKbId ? { kbId: targetKbId } : {}),
       })
       if (decision === 'rejected') message.success('本次知识沉淀已跳过——候选不入库，会话流程结束')
       else if (effects.writeback === 'failed') message.warning(writebackToastText(effects.writeback))
@@ -142,7 +154,20 @@ export function ReportTab({
                   </div>
                 </div>
                 <div>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>批注（可选，留痕到裁决记录）</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    写入的知识归属哪个库
+                    <span style={{ fontSize: 11, marginLeft: 6 }}>（默认会话首选库；后续可被选该库的会话复用）</span>
+                  </Typography.Text>
+                  <Select
+                    style={{ marginTop: 6, width: '100%' }}
+                    allowClear
+                    placeholder="不选 = 会话首选知识库（未选库则默认库）"
+                    loading={basesQuery.isLoading}
+                    value={targetKbId}
+                    onChange={(v) => setTargetKbId(v)}
+                    options={bases.map((b) => ({ value: b.id, label: b.is_default ? `${b.name}（默认）` : b.name }))}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>批注（可选，留痕到裁决记录）</Typography.Text>
                   <Input.TextArea style={{ marginTop: 6 }} rows={2} value={annotations} onChange={(e) => setAnnotations(e.target.value)} placeholder="确认/放弃依据…" />
                   <SpaceForButtons>
                     <Button size="small" type="primary" disabled={!canDecide} loading={submitting} onClick={confirmWrite}>

@@ -71,7 +71,7 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate1"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR2", 1, "{}"));
 
-        Map<String, Object> effects = service.decide("s1", "gate1", "approved", null, null, "reviewer-1");
+        Map<String, Object> effects = service.decide("s1", "gate1", "approved", null, null, null, "reviewer-1");
 
         verify(sessionService).resumeFromGate("s1", "A3");
         verify(taskPublisher).publishA3Task("s1");
@@ -101,7 +101,7 @@ class ReviewServiceDecisionTest {
                 .thenReturn(snapshot("IR3", 1, "{}"))   // 被审主快照
                 .thenReturn(snapshot("IR4", 1, ir4));   // 驳回目标推断
 
-        service.decide("s1", "gate2", "rejected", List.of("参数不合理"), null, "reviewer-1");
+        service.decide("s1", "gate2", "rejected", List.of("参数不合理"), null, null, "reviewer-1");
 
         verify(sessionService).resumeFromGate("s1", "A2");
         verify(irSnapshotMapper).markInvalidated(eq("s1"), eq(List.of("IR2", "IR3", "IR4", "IR5")));
@@ -117,7 +117,7 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate2"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR3", 2, "{}"));
 
-        Map<String, Object> effects = service.decide("s1", "gate2", "rejected", null, "A3", "reviewer-1");
+        Map<String, Object> effects = service.decide("s1", "gate2", "rejected", null, "A3", null, "reviewer-1");
 
         verify(sessionService).resumeFromGate("s1", "A3");
         verify(irSnapshotMapper).markInvalidated(eq("s1"), eq(List.of("IR3", "IR4", "IR5")));
@@ -130,7 +130,7 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("running", "A2"));
 
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "gate1", "approved", null, null, "r"));
+                () -> service.decide("s1", "gate1", "approved", null, null, null, "r"));
         verify(taskPublisher, never()).publishA3Task(any());
     }
 
@@ -140,7 +140,7 @@ class ReviewServiceDecisionTest {
         when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR3", 1, "{}"));
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.decide("s1", "gate2", "rejected", null, "A1", "r"));
+                () -> service.decide("s1", "gate2", "rejected", null, "A1", null, "r"));
     }
 
     @Test
@@ -148,11 +148,11 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 1, "{\"writeback_status\": \"pending\"}"));
-        when(writebackClient.writeback("s1")).thenReturn(Map.of("written", Map.of("written", 2)));
+        when(writebackClient.writeback("s1", null)).thenReturn(Map.of("written", Map.of("written", 2)));
 
-        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, "r");
+        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r");
 
-        verify(writebackClient).writeback("s1");
+        verify(writebackClient).writeback("s1", null);
         assertEquals(effects.get("writeback"), Map.of("written", Map.of("written", 2)));
         ArgumentCaptor<ReviewRecordEntity> record = ArgumentCaptor.forClass(ReviewRecordEntity.class);
         verify(reviewRecordMapper).insert(record.capture());
@@ -164,9 +164,9 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 1, "{\"writeback_status\": \"pending\"}"));
-        when(writebackClient.writeback("s1")).thenThrow(new RuntimeException("Neo4j down"));
+        when(writebackClient.writeback("s1", null)).thenThrow(new RuntimeException("Neo4j down"));
 
-        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, "r");
+        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r");
 
         assertEquals("failed", effects.get("writeback"));
         ArgumentCaptor<ReviewRecordEntity> record = ArgumentCaptor.forClass(ReviewRecordEntity.class);
@@ -180,7 +180,7 @@ class ReviewServiceDecisionTest {
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 1, "{\"writeback_status\": \"pending\"}"));
 
-        service.decide("s1", "knowledge", "rejected", null, null, "r");
+        service.decide("s1", "knowledge", "rejected", null, null, null, "r");
 
         verifyNoInteractions(writebackClient);
         verify(reviewRecordMapper).insert(any(ReviewRecordEntity.class));
@@ -190,20 +190,20 @@ class ReviewServiceDecisionTest {
     void knowledgeGateRequiresCompletedSessionAndPendingIr5() {
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate1"));
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "knowledge", "approved", null, null, "r"));
+                () -> service.decide("s1", "knowledge", "approved", null, null, null, "r"));
 
         when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 2, "{\"writeback_status\": \"written\"}"));
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "knowledge", "approved", null, null, "r"));
+                () -> service.decide("s1", "knowledge", "approved", null, null, null, "r"));
     }
 
     @Test
     void invalidDecisionOrGateRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.decide("s1", "gate1", "maybe", null, null, "r"));
+                () -> service.decide("s1", "gate1", "maybe", null, null, null, "r"));
         assertThrows(IllegalArgumentException.class,
-                () -> service.decide("s1", "gate9", "approved", null, null, "r"));
+                () -> service.decide("s1", "gate9", "approved", null, null, null, "r"));
     }
 }

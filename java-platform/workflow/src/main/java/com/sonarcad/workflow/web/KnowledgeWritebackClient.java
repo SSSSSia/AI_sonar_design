@@ -36,10 +36,15 @@ public class KnowledgeWritebackClient {
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> writeback(String sessionId) {
+    public Map<String, Object> writeback(String sessionId, String kbId) {
         String body;
         try {
-            body = JSON.writeValueAsString(Map.of("session_id", sessionId));
+            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("session_id", sessionId);
+            if (kbId != null && !kbId.isBlank()) {
+                payload.put("kb_id", kbId);  // PHASE-006 D6-8：人工选定的目标库
+            }
+            body = JSON.writeValueAsString(payload);
             HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/knowledge/writeback"))
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(25))

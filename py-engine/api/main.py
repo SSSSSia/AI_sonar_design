@@ -152,16 +152,17 @@ class WritebackRequest(BaseModel):
 
     session_id: str
     candidate_indexes: list[int] | None = None  # 缺省=全部 dedup_status=new 的候选
+    kb_id: str | None = None  # PHASE-006 D6-8：目标库（前端弹窗手选；缺省 = 会话首选库/默认库）
 
 
 @app.post("/knowledge/writeback")
 def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
-    """人工确认后回写 Neo4j：选定候选 → 图谱 MERGE（旧同名实体标 deprecated）→ IR5 v2 written。
+    """人工确认后回写 Neo4j：选定候选 → 图谱 MERGE（旧同名实体标 deprecated，节点带库归属 kb_id）→ IR5 v2 written。
 
     Neo4j 不可达/写入失败：503 如实上报，IR5 保持 pending 可重试（A-16 不伪造成功）。
     """
     from ir_contract import IrContractError
-    from storage import ir_store
+    from storage import ir_store, kb_store, session_meta
     from storage.neo4j_store import Neo4jStore
 
     ir5 = ir_store.get_latest_snapshot(req.session_id, "IR5")
@@ -169,6 +170,18 @@ def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"session {req.session_id} 无 IR5 快照")
     if ir5.get("writeback_status") != "pending":
         raise HTTPException(status_code=409, detail="IR5 非 pending 状态，无可回写候选")
+
+    # D6-8 目标库解析：手选优先（校验存在）→ 会话首选库 → 默认库；响应回带实际归属（链路留痕）
+    kb_id: str | None = None
+    if req.kb_id:
+        if kb_store.get_base(req.kb_id) is None:
+            raise HTTPException(status_code=404, detail=f"目标知识库不存在: {req.kb_id}")
+        kb_id = req.kb_id
+    else:
+        kb_id = (session_meta.get_kb_ids(req.session_id) or [None])[0]
+        if not kb_id:
+            default = next((b for b in kb_store.list_bases() if b["is_default"]), None)
+            kb_id = str(default["id"]) if default else None
 
     candidates = ir5.get("candidates", [])
     if req.candidate_indexes is None:
@@ -187,7 +200,7 @@ def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
     if not store.available():
         raise HTTPException(status_code=503, detail="Neo4j 不可达，回写未执行（IR5 保持 pending）")
     try:
-        stats = store.write_candidates(selected, req.session_id)
+        stats = store.write_candidates(selected, req.session_id, kb_id=kb_id)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Neo4j 回写失败（IR5 保持 pending）: {exc}") from exc
 
@@ -200,6 +213,7 @@ def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
         "session_id": req.session_id,
         "written": stats,
         "ir_version": version,
+        "kb_id": kb_id,
         "selected_indexes": (
             req.candidate_indexes
             if req.candidate_indexes is not None

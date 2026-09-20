@@ -69,8 +69,8 @@ class FakeGraph:
     def find_duplicates(self, name):
         return list(self.dups)
 
-    def write_candidates(self, candidates, session_id):
-        self.write_calls.append((candidates, session_id))
+    def write_candidates(self, candidates, session_id, kb_id=None):
+        self.write_calls.append((candidates, session_id, kb_id))
         return {"written": len(candidates), "deprecated": 0, "details": []}
 
 
@@ -318,7 +318,7 @@ def test_writeback_happy_path_default_selects_new_only(client, monkeypatch):
     body = resp.json()
     assert body["written"]["written"] == 1
     # 未确认（duplicate）候选绝不入图：只有 new 进了写入名单
-    written_candidates, _ = fake.write_calls[0]
+    written_candidates, _, _kb = fake.write_calls[0]
     assert [c["payload"]["name"] for c in written_candidates] == ["新约束"]
     # IR5 v2 written 只含已写入子集
     assert saved[-1]["writeback_status"] == "written"
@@ -340,7 +340,7 @@ def test_writeback_explicit_indexes_and_range_check(client, monkeypatch):
 
     resp = client.post("/knowledge/writeback", json={"session_id": "s1", "candidate_indexes": [0]})
     assert resp.status_code == 200
-    written, _ = fake.write_calls[0]
+    written, _, _kb = fake.write_calls[0]
     assert written[0]["payload"]["name"] == "A"
 
     resp = client.post("/knowledge/writeback", json={"session_id": "s1", "candidate_indexes": [5]})

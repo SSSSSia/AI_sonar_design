@@ -157,7 +157,7 @@ export function listReviews(sid: string) {
 export function postReview(
   sid: string,
   gate: 'gate1' | 'gate2' | 'knowledge',
-  body: { decision: 'approved' | 'rejected'; annotations: unknown[]; reworkStage?: string },
+  body: { decision: 'approved' | 'rejected'; annotations: unknown[]; reworkStage?: string; kbId?: string },
 ) {
   return post<ReviewEffects>(`/workflow/sessions/${sid}/reviews/${gate}`, body)
 }

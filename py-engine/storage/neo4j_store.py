@@ -220,8 +220,10 @@ class Neo4jStore:
         return {"center": center[0], "nodes": nodes, "edges": edges}
 
     # ------------------------------------------------------------------
-    def write_candidates(self, candidates: list[dict[str, Any]], session_id: str) -> dict[str, Any]:
-        """写入确认候选。返回 {"written": n, "deprecated": m, "details": [...]}。
+    def write_candidates(self, candidates: list[dict[str, Any]], session_id: str,
+                         kb_id: str | None = None) -> dict[str, Any]:
+        """写入确认候选（kb_id = PHASE-006 D6-8 库归属，source_session 类节点无 source_doc、
+        靠该属性参与库范围检索）。返回 {"written": n, "deprecated": m, "details": [...]}。
 
         任一条失败抛 Neo4jStoreError（说明已成功条数，不静默半写）。
         """
@@ -234,11 +236,11 @@ class Neo4jStore:
                     ctype = cand.get("type")
                     payload = cand.get("payload") or {}
                     if ctype == "relation":
-                        stats = self._write_relation(session, payload, session_id)
+                        stats = self._write_relation(session, payload, session_id, kb_id)
                     elif ctype == "case":
-                        stats = self._write_case(session, payload, session_id)
+                        stats = self._write_case(session, payload, session_id, kb_id)
                     elif ctype == "constraint":
-                        stats = self._write_constraint(session, payload, session_id)
+                        stats = self._write_constraint(session, payload, session_id, kb_id)
                     else:
                         raise Neo4jStoreError(f"未知候选类型 {ctype!r}（第 {i + 1} 条）")
                     written += 1
@@ -264,7 +266,8 @@ class Neo4jStore:
         record = result.single()
         return record["c"] if record else 0
 
-    def _write_constraint(self, session: Any, payload: dict[str, Any], session_id: str) -> dict[str, Any]:
+    def _write_constraint(self, session: Any, payload: dict[str, Any], session_id: str,
+             kb_id: str | None = None) -> dict[str, Any]:
         name = str(payload.get("name") or "").strip()
         expression = str(payload.get("expression") or "").strip()
         if not name:
@@ -273,15 +276,16 @@ class Neo4jStore:
         session.run(
             "MERGE (c:DesignConstraint {key: $key}) "
             "ON CREATE SET c.name = $name, c.expression = $expression, "
-            "c.context = $context, c.source_session = $session, c.created_at = datetime(), "
-            "c.deprecated = false",
+            "c.context = $context, c.source_session = $session, c.kb_id = $kb_id, "
+            "c.created_at = datetime(), c.deprecated = false",
             key=key, name=name, expression=expression,
-            context=str(payload.get("context") or ""), session=session_id,
+            context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
         deprecated = self._deprecate_same_name(session, "DesignConstraint", name, key)
         return {"key": key, "label": "DesignConstraint", "deprecated": deprecated}
 
-    def _write_case(self, session: Any, payload: dict[str, Any], session_id: str) -> dict[str, Any]:
+    def _write_case(self, session: Any, payload: dict[str, Any], session_id: str,
+             kb_id: str | None = None) -> dict[str, Any]:
         name = str(payload.get("name") or "").strip()
         params = payload.get("params") or []
         if not name or not params:
@@ -291,15 +295,16 @@ class Neo4jStore:
         session.run(
             "MERGE (c:DesignCase {key: $key}) "
             "ON CREATE SET c.name = $name, c.params_json = $params, "
-            "c.context = $context, c.source_session = $session, c.created_at = datetime(), "
-            "c.deprecated = false",
+            "c.context = $context, c.source_session = $session, c.kb_id = $kb_id, "
+            "c.created_at = datetime(), c.deprecated = false",
             key=key, name=name, params=params_json,
-            context=str(payload.get("context") or ""), session=session_id,
+            context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
         deprecated = self._deprecate_same_name(session, "DesignCase", name, key)
         return {"key": key, "label": "DesignCase", "deprecated": deprecated}
 
-    def _write_relation(self, session: Any, payload: dict[str, Any], session_id: str) -> dict[str, Any]:
+    def _write_relation(self, session: Any, payload: dict[str, Any], session_id: str,
+                        kb_id: str | None = None) -> dict[str, Any]:
         src, dst = payload.get("from") or {}, payload.get("to") or {}
         src_name, dst_name = str(src.get("name") or "").strip(), str(dst.get("name") or "").strip()
         if not src_name or not dst_name:
@@ -311,12 +316,12 @@ class Neo4jStore:
         dst_key = _content_key(dst_name)
         session.run(
             f"MERGE (a:`{src_label}` {{key: $src_key}}) "
-            "ON CREATE SET a.name = $src_name, a.source_session = $session, a.created_at = datetime() "
+            "ON CREATE SET a.name = $src_name, a.source_session = $session, a.kb_id = $kb_id, a.created_at = datetime() "
             f"MERGE (b:`{dst_label}` {{key: $dst_key}}) "
-            "ON CREATE SET b.name = $dst_name, b.source_session = $session, b.created_at = datetime() "
+            "ON CREATE SET b.name = $dst_name, b.source_session = $session, b.kb_id = $kb_id, b.created_at = datetime() "
             f"MERGE (a)-[r:`{rel_type}`]->(b) "
-            "ON CREATE SET r.context = $context, r.source_session = $session",
+            "ON CREATE SET r.context = $context, r.source_session = $session, r.kb_id = $kb_id",
             src_key=src_key, src_name=src_name, dst_key=dst_key, dst_name=dst_name,
-            context=str(payload.get("context") or ""), session=session_id,
+            context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
         return {"key": f"{src_key}->{dst_key}", "label": src_label, "relation": rel_type, "deprecated": 0}

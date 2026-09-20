@@ -26,7 +26,7 @@ public class ReviewController {
         this.reviewService = reviewService;
     }
 
-    public record DecideRequest(String decision, List<Object> annotations, String reworkStage) {
+    public record DecideRequest(String decision, List<Object> annotations, String reworkStage, String kbId) {
     }
 
     @PostMapping("/{gate}")
@@ -39,7 +39,7 @@ public class ReviewController {
             throw new IllegalArgumentException("decision 不能为空（approved|rejected）");
         }
         return ApiResponse.ok(reviewService.decide(
-                sid, gate, req.decision(), req.annotations(), req.reworkStage(), reviewerId));
+                sid, gate, req.decision(), req.annotations(), req.reworkStage(), req.kbId(), reviewerId));
     }
 
     @GetMapping

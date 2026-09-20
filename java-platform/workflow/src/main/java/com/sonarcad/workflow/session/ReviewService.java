@@ -59,7 +59,8 @@ public class ReviewService {
     /** 裁决入口。gate ∈ gate1|gate2|knowledge；decision ∈ approved|rejected。 */
     @Transactional
     public Map<String, Object> decide(String sessionId, String gate, String decision,
-                                      List<Object> annotations, String reworkStage, String reviewerId) {
+                                      List<Object> annotations, String reworkStage, String kbId,
+                                      String reviewerId) {
         validateGate(gate);
         if (!"approved".equals(decision) && !"rejected".equals(decision)) {
             throw new IllegalArgumentException("decision 只允许 approved|rejected: " + decision);
@@ -78,7 +79,7 @@ public class ReviewService {
         };
 
         if ("knowledge".equals(gate)) {
-            decideKnowledgeGate(sessionId, session, status, decision, annotations, reviewerId, effects);
+            decideKnowledgeGate(sessionId, session, status, decision, annotations, kbId, reviewerId, effects);
             return effects;
         }
 
@@ -130,7 +131,7 @@ public class ReviewService {
     // ------------------------------------------------------------------
     private void decideKnowledgeGate(String sessionId, DesignSessionEntity session,
                                      PipelineStatus status, String decision,
-                                     List<Object> annotations, String reviewerId,
+                                     List<Object> annotations, String kbId, String reviewerId,
                                      Map<String, Object> effects) {
         if (status != PipelineStatus.completed) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -153,7 +154,7 @@ public class ReviewService {
         Map<String, Object> auto = new LinkedHashMap<>();
         auto.put("reviewed_ir", "IR5 v" + ir5.getVersion());
         try {
-            Object result = writebackClient.writeback(sessionId);
+            Object result = writebackClient.writeback(sessionId, kbId);
             auto.put("writeback", result);
             effects.put("writeback", result);
         } catch (Exception exc) {
