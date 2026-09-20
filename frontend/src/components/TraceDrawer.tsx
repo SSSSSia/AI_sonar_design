@@ -1,32 +1,63 @@
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Drawer, Space, Spin, Tag, Timeline, Typography } from 'antd'
+import { Alert, Button, Drawer, Space, Spin, Timeline, Typography } from 'antd'
 import { getTrace, type Ir2Param, type TraceChain, type TraceStep } from '../api/workflow'
 import { fmtTime } from '../lib/stageLabel'
+import { SOURCE_CN, SourceBadge, ConfidenceBadge } from './sourceMeta'
 
 const ACTION_LABEL: Record<string, string> = {
   parse: '解析', retrieve: '检索', derive: '推导', compute: '计算', generate: '生成',
   validate: '校验', confirm: '确认', assign: '关联', review: '审阅', extract: '抽取',
+  transform: '建模',
 }
 
-/** trace 步骤 payload → 可读句子（审查 P1-2）：不再整段 JSON 倾倒，未知形状退回截断 JSON。 */
+const CONF_CN: Record<string, string> = { high: '高', medium: '中', low: '低' }
+const SEV_CN: Record<string, string> = { error: '错误', warning: '警告', info: '提示' }
+
+/** trace 步骤 payload → 可读句子（审查反馈：case/estimated 等裸枚举不可读、来源指向模糊）。
+ *  A2 步骤 2026-09-20 起带四件套（source_ref/derivation/confidence），旧链路缺字段时降级显示。 */
 function payloadToText(p: Record<string, unknown>): string {
   const lines: string[] = []
   const name = typeof p.name === 'string' ? p.name : ''
   const unit = typeof p.unit === 'string' && p.unit !== '-' ? ` ${p.unit}` : ''
   const value = p.value !== undefined ? String(p.value) : ''
-  if (name || value) lines.push(`参数 ${name || '?'}${value ? ` = ${value}${unit}` : ''}`.replace('参数 ?', '参数'))
-  for (const k of ['source_type', 'confidence']) {
-    if (typeof p[k] === 'string' && p[k]) lines.push(`${k === 'source_type' ? '来源' : '置信度'} ${p[k]}`)
+
+  // A2 derive：参数取值 + 来源类型（带指向）+ 置信度 + 推导依据
+  if (name || value) {
+    lines.push(`参数 ${name || '？'}${value ? ` = ${value}${unit}` : ''}`)
   }
-  if (typeof p.derivation === 'string' && p.derivation) lines.push(p.derivation)
-  if (typeof p.expression === 'string' && p.expression) lines.push(p.expression)
-  if (typeof p.reason === 'string' && p.reason) lines.push(p.reason)
+  if (p.source_type) {
+    const cn = SOURCE_CN[p.source_type as string] ?? String(p.source_type)
+    lines.push(`来源：${cn}${typeof p.source_ref === 'string' && p.source_ref ? `（${p.source_ref}）` : ''}`)
+  }
+  if (p.confidence) lines.push(`置信度：${CONF_CN[p.confidence as string] ?? p.confidence}`)
+  if (typeof p.derivation === 'string' && p.derivation) lines.push(`推导依据：${p.derivation}`)
+
+  // A3 transform：特征 ← 驱动参数
+  if (p.feature_id) {
+    lines.push(`特征 ${p.feature_id}${p.segment ? `（${p.segment}）` : ''}${p.linked_param_id ? ` ← 由参数 ${p.linked_param_id} 驱动` : ''}`)
+  }
+
+  // A4 validate：校验项 + 级别 + 消息 + 建议
+  if (p.constraint_id) {
+    lines.push(`合规校验 ${p.constraint_id}：${SEV_CN[p.severity as string] ?? p.severity ?? '—'}`)
+  }
   if (typeof p.message === 'string' && p.message) lines.push(p.message)
+  if (typeof p.suggestion === 'string' && p.suggestion) {
+    lines.push(`建议：${p.suggestion.startsWith('back_to_') ? p.suggestion.replace('back_to_', '回退 ') : p.suggestion}`)
+  }
+
+  // A5 assign：知识候选
+  if (p.candidate_index !== undefined) {
+    lines.push(`提炼为知识候选 #${p.candidate_index}（${p.type ?? '—'}）`)
+  }
+
+  // 通用：关联参数/子查询/命中知识
   if (Array.isArray(p.related_params) && p.related_params.length > 0) {
     lines.push(`关联参数 ${p.related_params.slice(0, 6).join('、')}${p.related_params.length > 6 ? ` 等 ${p.related_params.length} 项` : ''}`)
   }
   if (Array.isArray(p.sub_queries) && p.sub_queries.length > 0) lines.push(`子查询 ${p.sub_queries.length} 条`)
   if (Array.isArray(p.retrieved) && p.retrieved.length > 0) lines.push(`命中知识 ${p.retrieved.length} 条`)
+
   if (lines.length > 0) return lines.join('\n')
   const json = JSON.stringify(p, null, 1)
   return json.length > 400 ? `${json.slice(0, 400)}…` : json
@@ -54,10 +85,19 @@ export function TraceDrawer({ param, onClose }: { param: Ir2Param | null; onClos
           <div>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>参数</Typography.Text>
             <div><b>{param.id} {param.name}</b> = {String(param.value)} {param.unit && param.unit !== '-' ? param.unit : ''}</div>
-            <div style={{ marginTop: 4 }}>
-              <Tag>{param.source_type}</Tag>
+            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <SourceBadge type={param.source_type} />
+              {param.confidence && <ConfidenceBadge value={param.confidence} />}
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>{param.source_ref}</Typography.Text>
             </div>
+            {typeof param.derivation === 'string' && param.derivation && (
+              <Typography.Paragraph
+                type="secondary" style={{ fontSize: 11.5, marginTop: 6, marginBottom: 0 }}
+                ellipsis={{ rows: 2, expandable: true, symbol: '展开推导依据' }}
+              >
+                {param.derivation}
+              </Typography.Paragraph>
+            )}
           </div>
 
           {isLoading && <Spin />}

@@ -35,6 +35,10 @@ def build_a2_steps(ir2: dict[str, Any], snapshot_id: str, session_id: str) -> li
             "payload": {
                 "param_id": p["id"], "name": p.get("name"),
                 "source_type": p.get("source_type"),
+                # 四件套其余三项一并入链（2026-09-20 用户反馈：A2 推导来源在溯源链中不可读）
+                "source_ref": p.get("source_ref"),
+                "derivation": p.get("derivation"),
+                "confidence": p.get("confidence"),
                 "value": p.get("value"), "unit": p.get("unit"),
             },
         })
@@ -82,6 +86,7 @@ def build_a4_steps(ir4: dict[str, Any], ir2: dict[str, Any] | None, snapshot_id:
         payload = {
             "constraint_id": issue.get("constraint_id"),
             "severity": issue.get("severity"),
+            "message": issue.get("message"),
             "related_params": related,
         }
         if issue.get("suggestion"):

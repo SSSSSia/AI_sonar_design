@@ -36,7 +36,9 @@ def test_build_a2_steps_derive_rows():
     assert first["ir_snapshot_id"] == "snap-1"
     assert first["payload"] == {
         "param_id": "P-001", "name": "阵元总数",
-        "source_type": "estimated", "value": 16, "unit": "个",
+        "source_type": "estimated",
+        "source_ref": "ref-P-001", "derivation": "推导 P-001", "confidence": "high",
+        "value": 16, "unit": "个",
     }
 
 
