@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Space, Table, Typography } from 'antd'
 import { Canvas } from '@react-three/fiber'
 import { Bounds, OrbitControls, useGLTF } from '@react-three/drei'
+import { MOUSE } from 'three'
 import { http } from '../../api/client'
 import { getIr, type Ir3 } from '../../api/workflow'
 
@@ -103,6 +104,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
 }) {
   const [wireframe, setWireframe] = useState(false)
   const [showAllScript, setShowAllScript] = useState(false)
+  const [resetKey, setResetKey] = useState(0)
   const { state, detail, url, retry } = useGltf(sessionId)
 
   async function download(kind: 'step' | 'script' | 'ir2' | 'ir4') {
@@ -133,21 +135,39 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
         title="三维预览"
         extra={
           <Space>
+            <Button size="small" autoInsertSpace={false} onClick={() => setResetKey((k) => k + 1)}>复位视角</Button>
             <Button size="small" autoInsertSpace={false} onClick={() => setWireframe((w) => !w)}>{wireframe ? '实体' : '线框'}</Button>
           </Space>
         }
       >
         {state === 'ready' && url && (
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+          <div
+            key={resetKey}
+            style={{ position: 'relative', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}
+            // 中键留给平移：拦掉浏览器的自动滚动/小圆盘；右键拖动平移时不弹菜单
+            onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
+            onAuxClick={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
             <Canvas style={{ height: 460, background: '#f2f3f5' }} camera={{ fov: 45 }}>
               <hemisphereLight intensity={0.9} />
               <directionalLight position={[1, 1.5, 1]} intensity={1.2} />
               <Bounds fit clip observe margin={1.15}>
                 <GltfModel url={url} wireframe={wireframe} />
               </Bounds>
-              <OrbitControls makeDefault autoRotate autoRotateSpeed={0.6} />
+              <OrbitControls
+                makeDefault
+                mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.PAN }}
+              />
               <gridHelper args={[100, 20, '#d1d5db', '#e5e7eb']} />
             </Canvas>
+            <div style={{
+              position: 'absolute', left: 8, bottom: 8, pointerEvents: 'none',
+              background: 'rgba(255,255,255,0.82)', borderRadius: 6, padding: '2px 8px',
+              fontSize: 11, color: '#57606a',
+            }}>
+              左键旋转 · 右键/中键拖动平移 · 滚轮缩放
+            </div>
           </div>
         )}
         {state === 'converting' && (
