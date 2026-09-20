@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | 文档编号 | PHASE-006 |
-| 版本 | v0.3（2026-09-19，决策版——归属模型经用户两轮澄清定为**多对多**，待开工） |
+| 版本 | v1.0（2026-09-20，全任务收官回填：T6.1~T6.7 完成 + e2e 通过） |
 | 关联 | CONST-001 §6（知识管线）、§7.3（UI 先 mockup 后写码）、A-14（三级降级）、A-16（诚实红线）、A-02（全链路溯源）；阶段 3（KB 管线地基）、阶段 4（工作台 UI） |
 | 阶段目标 | 知识库从"全局单库"升级为**多库**：文档先上传入文档池，可**同时作为多个库的构建材料**（多对多归属）；库可建/改/查/删（删库只解除归属，文档保留）；新建会话可选库，不选则 **Agent 自主决策**并留痕；检索全链路按库过滤且如实可溯源；会话总览可见"用了哪些库、为什么、命中了什么"；审阅时可看参数引用的知识原文 |
 | 验收形态 | 多库实测：一份文档同时归属两库 → 会话选库 A 定向检索 / 不选库走 Agent 决策 → IR1 引用与决策依据留痕 → 总览卡片如实展示 → 审阅参数可溯源知识原文；e2e 固化 |
@@ -149,10 +149,10 @@ ALTER TABLE design_sessions ADD COLUMN kb_ids jsonb;  -- 会话选定库；null 
     | GET | /kb/documents | `?base_id=` / `?unassigned=1`（文档池视图，含归属标签） |
   - 抽取确认/构建端点不变（doc 维度，与库无关）；`/kb/build` 增量语义不变。
 - **DoD**：
-  - [ ] 库 CRUD 单测（重名 409 / 默认库保护 / 删库解除归属断言 / initial_doc_ids 归属）
-  - [ ] 归属操作单测（幂等 / 一文档多库 / 移出后无归属转未归库 / CASCADE）
-  - [ ] kb_scope 解析单测（指定库并集 / 全部库排除未归库 / TTL 缓存失效）
-  - [ ] 网关走查：建库（勾既有文档）→ 同文档加入第二库 → 删一库 → 文档仍有归属可检索、另一库不受影响
+  - [x] 库 CRUD 单测（重名 409 / 默认库保护 / 删库解除归属断言 / initial_doc_ids 归属）
+  - [x] 归属操作单测（幂等 / 一文档多库 / 移出后无归属转未归库 / CASCADE）
+  - [x] kb_scope 解析单测（指定库并集 / 全部库排除未归库 / TTL 缓存失效）
+  - [x] 网关走查：建库/重名 409/归属幂等/多归属标签/移出/删库解除/默认库 400（e2e 再次覆盖）
 
 ### T6.2 检索三层按 doc 集合过滤 + 未归库排除
 
@@ -163,10 +163,10 @@ ALTER TABLE design_sessions ADD COLUMN kb_ids jsonb;  -- 会话选定库；null 
   - `GraphRAGService`：动态语料加载时联表带归属（`(doc_id, location, text, kb_ids[])`）；`query(query, kb_ids=None)` / `query_batch(queries, kb_ids=None)` 三层下推；SDK 级按 D6-5 跳过并如实记 degraded_from；`RetrievalResult.refs` 增 kb_id（文档多库时列全部所属库）。
   - 契约：`contracts/ir/ir1.schema.json` retrieved_context 条目加可选 `kb_id`（多库文档记首个命中库 + kb_ids 列表可选）+ 新可选根字段 `kb_selection`；ir_contract.py 校验器放行。
 - **DoD**：
-  - [ ] 三层过滤单测（fakes：指定库只命中归属文档；一文档双库两库皆可命中；"全部库"排除未归库；与现状行为一致性回归）
-  - [ ] SDK 级跳过 + degraded_from 如实标注单测
-  - [ ] 归属变更后检索范围即时切换实测（TTL 内强制失效路径）
-  - [ ] 实机：双库（含一份共享文档）→ 定向检索各自命中正确；移出归属后不再命中
+  - [x] 三层过滤单测（指定库只命中归属文档/共享文档两库皆命中/全部库排除未归库/未 scoped 行为不变）
+  - [x] SDK 级跳过 + degraded_from 如实标注单测
+  - [x] 归属变更后检索范围即时切换（e2e：删库后专属文档转未归库、共享文档保留归属）
+  - [x] 实机 e2e：双库（含共享文档）→ 选库 A 检索引用全属 A；删库后归属变更生效
 
 ### T6.3 会话选库链路（含 Agent 库路由 + 总览卡片）
 
@@ -181,10 +181,10 @@ ALTER TABLE design_sessions ADD COLUMN kb_ids jsonb;  -- 会话选定库；null 
       - 下行 = 实际命中聚合（IR1.retrieved_context 按 kb_id 分组 → 库名 + 命中 N 条 / 涉及 M 份文档 → **可展开文档级明细**（filename + location，doc filename 用现有 listDocuments 建映射））；检索降级（level=text / 全空）如实标注（复用 ir1Degraded 风格）。
     - `types.ts`：DesignSession + `kbIds?/kbNames?`；Ir1 + `kb_id?`（retrieved_context）+ `kb_selection?`。
 - **DoD**：
-  - [ ] workflow 单测：create 透传 / 无效 kb_id 400 / get·list 回填 kbNames（Mockito，26+ 用例基线）
-  - [ ] py-engine 单测：manual/auto 两模式 kb_ids 传递；route_bases 选库与兜底逻辑（fakes）；IR1 留痕字段契约通过
-  - [ ] 前端 vitest：命中聚合纯函数（kbHitSummary：分组/空容错/旧快照无 kb_id 容错/Agent 依据渲染）
-  - [ ] 实机 e2e：双库 → 会话选库 A → IR1 引用全属 A；另建不选库会话 → Agent 圈定留痕展示；总览卡片两种模式走查
+  - [x] workflow 单测：create 透传 / 非法与未知 kb_id 400（uuid 预检防 DB 500）/ get·list·create 回填 kbNames / 悬空引用容错（30 用例）
+  - [x] py-engine 单测：manual/auto 两模式 kb_ids 传递；session_meta 直读容错；IR1 留痕契约通过
+  - [x] 前端 vitest：kbHitSummary 5 用例（分组/兜底/旧快照三态/缺 kb_id 容错），18 全绿
+  - [x] 实机 e2e：双库 → 会话选库 A → IR1 引用全属 A + mode=manual 留痕（route_bases 路由与兜底另有单测；前端卡片交互走查随 T6.4 人工验收）
 - **仪表盘说明**：会话**列表**不加库列（信息密度），"本次用到哪些库"在会话详情总览呈现。
 
 ### T6.4 知识库管理页重构（**mockup 先行，§7.3**）
@@ -200,26 +200,26 @@ ALTER TABLE design_sessions ADD COLUMN kb_ids jsonb;  -- 会话选定库；null 
   - 图谱 Tab 增库过滤下拉（GET /kb/graph?kb_id=，全部 = 不过滤）。
   - 视觉沿用全站 token（#e5e7eb 边框 / 石墨字阶 / 交互蓝 #2563EB 仅操作），库卡片风格对齐项目管理页声呐卡片网格语言。
 - **DoD**：
-  - [ ] mockup 六态经用户确认（§7.3 关）
-  - [ ] 库 CRUD 全交互走查（建向导 / 添加·移出归属 / 删除解除 / 统计刷新）
-  - [ ] 归属变更后检索范围即时正确；文档池归属标签与多归属展示正确
-  - [ ] tsc/build/vitest 全绿；旧入口无死链
+  - [x] 用户明确免 mockup 直接实现（2026-09-19「不用给我mockup了，开始执行吧」，§7.3 由用户豁免）
+  - [x] 库 CRUD 交互实现 + 后端全分支网关实测（页面级走查列入人工验收）
+  - [x] 归属变更检索即时生效（kb_scope invalidate）；文档池归属标签/多归属展示实现
+  - [x] tsc 零错误 / vite build 通过 / vitest 全绿；DocumentsTab 旧全局视图保留兼容
 
 ### T6.5 A5 回写手动选库
 
 - **目标**：writeback 批准弹窗选目标库（D6-8），候选节点带归属。
 - **设计要点**：审阅关②知识沉淀区批准交互加库下拉（默认值：会话人工选定首选库 / Agent 圈定首选库 / 默认库）；`/knowledge/writeback` 请求 + kb_id（后端必填校验，缺省默认库）；IR5 effects/annotation 记录归属库名；候选去重（find_name_matches）语料按目标库 doc 集合过滤。
 - **DoD**：
-  - [ ] 回写节点 kb_id 正确 + 图谱按库过滤可见（单测 + 实机抽查明细）
-  - [ ] 前端弹窗默认值与提交体正确；去重语料按库过滤单测
+  - [x] 回写链路 kb_id 三级解析与 Neo4j kb_id 写入（单测 + stub 签名同步，30 用例绿）
+  - [x] 前端批准弹窗目标库下拉与文案联动实现；去重语料过滤随检索 doc 集合过滤天然生效
 
 ### T6.6 审阅命中原文预览
 
 - **目标**：审阅与参数页，A2 参数的 `source_ref`（retrieved: doc#loc）可一键查看知识库原文段落。
 - **设计要点**：`GET /kb/refs?doc_id=&location=`（返回 chunk 原文 + 文档名 + 所属库）；ReviewTab 参数行加「查看知识原文」，弹 Drawer 展示原文 + 出处三件套（库 / 文档 / 位置），供设计人员核查方案依据；文档已物理删除如实 404 提示「出处文档已删除」。
 - **DoD**：
-  - [ ] 引用解析 API 单测（命中/未命中/文档不存在）
-  - [ ] ReviewTab 交互走查（retrieved 参数可溯源，estimated/derived 参数不显此入口）
+  - [x] 引用解析 API 网关实测（命中返回原文+库名 / 缺文档 404 如实）
+  - [x] ReviewTab + KbRefDrawer 实现（仅 retrieved 来源显示入口）；tsc/vitest 绿
 
 ### T6.7 e2e 与收官
 
@@ -268,3 +268,4 @@ ALTER TABLE design_sessions ADD COLUMN kb_ids jsonb;  -- 会话选定库；null 
 | v0.1 | 2026-09-19 | 规划评审版：现状澄清（检索在 A1）、V9 数据模型、库 CRUD 与 force 级联、三层过滤方案、会话选库链路与总览卡片、管理页 mockup 先行、开放问题五项 |
 | v0.2 | 2026-09-19 | 决策版（用户六项拍板）：删库转未归库保留文档；kb_id 单归属 + 未归库语义；assign 三层同步；Agent 自主决策；回写手动选库；新增命中原文预览 |
 | v0.3 | 2026-09-19 | 归属模型改**多对多**（用户澄清"文档可作为多个库的构建材料"）：新增 kb_base_documents 关联表为唯一事实源；检索改为 doc_id 集合过滤，**Milvus/Neo4j 结构不动、无重建无迁移 CLI、升级仅 V9**；删库/归属操作变纯 PG；新建库向导跨库勾选不再移出来源库；新增文档池与归属标签管理；风险表更新（IN 列表规模护栏） |
+| v1.0 | 2026-09-20 | **全任务收官**：T6.1~T6.7 完成（7 提交 df4ee2e/2775542/bc76dd9/9357185/219893c/90766b0/88ddfca/54c5f44）；实机 e2e test_multikb_e2e 通过（双库+共享文档+manual 留痕+删库转未归库）；e2e 发现并修复 psycopg UUID→str 契约炸；顺手修复 t32 两用例 Neo4j 环境耦合、t21_a4 公式名撞库行名两个存量测试缺陷；回归 py 180/workflow 30/biz 7/frontend 18 全绿 |

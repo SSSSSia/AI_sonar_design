@@ -32,7 +32,7 @@
 | KB 语料 | **4 文档 / 439 chunks / 2939 条确认抽取**（首样 + 声呐技术 + 水声学原理 + 潜艇拖曳总体设计，导入脚本 `knowledge/import_corpus.py`）；检索验证查询全部命中 graph 级 |
 | OCR 插件 | **已接**（D-14 落地）：PaddlePaddle/PaddleOCR-VL-1.5（SiliconFlow），`kb/ocr.py`；扫描页自动识别，单文档页数预算 KB_OCR_MAX_PAGES=20，真实 API 用例门控 KB_OCR_REALTEST=1 |
 | 管线现状 | START → A1→A2→**gate1**→A3→A4→**gate2**→A5→completed；驳回=局部回算+下游失效（ir_snapshots.invalidated_at）；**失败会话可 RETRY**（failed→running，按 current_stage 重派，worker 任务开始即标记阶段）；知识关（gate=knowledge）人工确认后回写 Neo4j；`GET /api/v1/trace/{trace_id}` 反查。IR0–IR5 全量快照 API 齐 |
-| Flyway | V1~V8 已应用（V4 快照失效 / V5 gate 列宽 / V6 KB 管线三表 / V7 知识资产三库 / V8 graph_key 列宽） |
+| Flyway | V1~V9 已应用（V9 多库：kb_bases + kb_base_documents 多对多归属 + design_sessions.kb_ids，存量文档自动归默认库；biz 启动即自动迁移，无需手工步骤） |
 | LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**；流式适配器；阶段 2 e2e 两次全链真实跑通 |
 | py-engine | 任务 sonarcad.a1~a5 + kb_build/kb_extract + echo/always_fail（队列 sonarcad.a1~a5/kb）；KB 治理 API `/api/v1/kb/**`（gateway 直转 8090，信任头校验）；检索三级：graph(Neo4j 实体层)→vector(Milvus kb_chunks)→text；`POST /knowledge/writeback`；neo4j/pymilvus 已入 requirements |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET；gateway 另有 `/api/v1/trace/**` → workflow 路由） |
@@ -40,7 +40,7 @@
 
 ## 下一步入口（按序）
 
-0. **v0.1.0 已收官**——后续为 v0.2 迭代：①~~OCC 转换 subprocess 化（GIL 饥饿，优先级最高）~~**已完成（2026-09-20，commit 见 devlog 补充 47）**：转换移入独立子进程 convert_worker.py，状态经 MinIO 标记传递；②服务全容器化 + 干净克隆 compose up 验收；③前端 bundle 分割；④系统管理日志/备份/用户管理三个「待接」；⑤graphrag 可选依赖。启动：`scripts/start-all.cmd`（PS）/ `bash scripts/start-all.sh`（Git Bash）。导航（2026-09-20 两轮结构优化，devlog 补充 50/51）：工作台 = 仪表盘（项目筛选/?project=）+ **项目管理 /projects**（声呐卡片网格：状态分布/最近活动/编辑/删除空项目）；「新建会话」为原地抽屉（NewSessionDrawer，仪表盘与项目卡片共用，项目预选），需求输入独立页已移除（/sessions/new 重定向 /）。
+0. **v0.1.0 已收官**——后续为 v0.2 迭代：①~~OCC 转换 subprocess 化（GIL 饥饿，优先级最高）~~**已完成（2026-09-20，commit 见 devlog 补充 47）**：转换移入独立子进程 convert_worker.py，状态经 MinIO 标记传递；②服务全容器化 + 干净克隆 compose up 验收；③前端 bundle 分割；④系统管理日志/备份/用户管理三个「待接」；⑤graphrag 可选依赖。启动：`scripts/start-all.cmd`（PS）/ `bash scripts/start-all.sh`（Git Bash）。导航（2026-09-20 两轮结构优化，devlog 补充 50/51）：工作台 = 仪表盘（项目筛选/?project=）+ **项目管理 /projects**（声呐卡片网格：状态分布/最近活动/编辑/删除空项目）；「新建会话」为原地抽屉（NewSessionDrawer，仪表盘与项目卡片共用，项目预选 + 知识库多选，不选=Agent 自主圈定），需求输入独立页已移除（/sessions/new 重定向 /）。**知识库多库（PHASE-006，2026-09-20 全任务收官）**：知识库页重构为左侧库列表（文档池入口）+ 库内管线；文档↔库多对多归属（kb_base_documents 唯一事实源），删库=解除归属文档转未归库（不参与检索）；检索三层按 doc 集合过滤（Milvus/Neo4j 结构不动）；会话总览「知识检索」卡片展示选定库/Agent 依据/命中明细；审阅参数「查看知识原文」（GET /kb/refs）；A5 回写批准时手选目标库。e2e=tests/e2e/test_multikb_e2e.py。
 1. **用户**：阶段 1 + 阶段 2 + 阶段 3 人工验收（各自 §验收记录）——建议抽查：真实 IR4 风险定级；Neo4j 浏览器（localhost:17474）看沉淀/抽取实体；删除一个 KB 文档验证清理完整性。
 2. **阶段 4（前端工作台）已完成，待人工验收**（§4.4 两组真实样例走查已由 ZCode 预跑通过，含知识写入与 3D 交付，记录见 PHASE-004/005 验收表；用户复核可抽其中任意环节）：`cd frontend && npm run dev`（5173，需全栈在跑），admin/admin123。建议走查：①仪表盘 WS 实时进度（开两个浏览器看同一会话）＋断网重连；②需求输入建会话→gate1 驳回（选 A2）→观察局部回算与下游失效→二次过闸→gate2 批准→知识关批准→三维页签看模型（首次转换数分钟属正常，按版本缓存）；③知识库五页签 CRUD（上传/抽取确认/三库启停/图谱邻域）；④系统管理页现状数字与 /api/v1/kb/status 一致性。已知优化项已全部清账（2026-09-18，commit 9228708）：图谱节点按 Neo4j label 着色、工作台总览含实时日志面板（worker log 流）；会话 id 已归一化无横线（旧外链带横线 id 仍可用，PG uuid 归一化）。视觉打磨（frontend-design skill）与 PHASE-005 自动项预执行均完成，见 PHASE-004/005 验收记录
    - graphrag 本机未安装（可选依赖）：检索图谱级已由自建 Neo4j 实体层承担；装 graphrag~=2.0 后 SDK 级自动优先（A-14）

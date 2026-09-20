@@ -500,7 +500,7 @@ def _refs_with_kb(refs: list[dict[str, str]]) -> list[dict[str, str]]:
         for doc_id in doc_ids:
             bases = kb_store.doc_base_ids(doc_id)
             if bases:
-                tags[doc_id] = bases[0]
+                tags[doc_id] = str(bases[0])  # psycopg uuid 列返回 UUID 对象，契约要 str
         return [dict(r, kb_id=tags.get(r.get("doc_id", ""))) for r in refs]
     except Exception as exc:
         logger.warning("refs 补 kb_id 失败（原样返回）: %s", exc)
