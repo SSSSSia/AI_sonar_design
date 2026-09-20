@@ -45,7 +45,7 @@
 | 2026-09-18 | 真实样例走查预跑（清单 #3） | **通过**：组1 正常流（bfd44f59ddf029ea2180a55811a14a8a，44 元/500Hz–8kHz）A1→A2→gate1 批→A3(16min)→A4→gate2 批→A5→completed→知识关批准写入（POST /knowledge/writeback 200）→3D 转换 31.2MB GLB 缓存命中（HTTP 200）；组2 驳回回流（a16827bb0e30c2854919291732c25023，32 元/2m 间距）gate1 驳回（批注+回退 A2）→下游失效→A2 局部回算→二次过闸→gate2 批→A5 completed（6 候选）。全程 API 驱动 + 会话页实时日志面板观测，驱动输出存档 |
 | 2026-09-18 | e2e 冒烟（清单 #2） | **通过**：mock 流式兼容修复后 `test_towed_array_e2e.py` 1 passed（60s）；mock 行已删，真实供应商恢复 |
 | — | 人工验收（清单 #5）+ tag v0.1.0（#8） | 待用户 |
-| — | 已知问题挂账（不阻塞 tag，A-16） | ①OCC 转换在 uvicorn daemon 线程内长持 GIL，转换窗口（约 15–25 分钟/大型阵）py-engine API 响应被拖慢（转换完成即恢复）；v0.2 候选：转换 subprocess 化。②服务全容器化（干净 clone + compose up 一轮验收）v0.2 候选 |
+| — | 已知问题挂账（不阻塞 tag，A-16） | ①~~OCC 转换在 uvicorn daemon 线程内长持 GIL~~**已修复（2026-09-20）**：转换移入独立子进程 convert_worker.py（状态经 MinIO 标记 cad-previews/{sid}/{v}.status 传递，超 30 分钟无产出判中断），实机验证 31MB GLB 转换全程 API healthz ≤0.04s；②服务全容器化（干净 clone + compose up 一轮验收）v0.2 候选 |
 
 ## 5. 修订记录
 

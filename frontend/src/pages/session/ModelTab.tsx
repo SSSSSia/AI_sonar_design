@@ -7,12 +7,16 @@ import { getIr, type Ir3 } from '../../api/workflow'
 
 type GltfState = 'idle' | 'converting' | 'ready' | 'failed' | 'no-ir3'
 
-/** STEP→GLB 异步转换状态轮询；ready 后建 blob URL 交给 R3F。 */
+/** STEP→GLB 异步转换状态轮询；ready 后建 blob URL 交给 R3F。
+ *  网络抖动容错：连续 3 次查询失败才判失败（此前任一次超时都会把 axios 原码甩给用户）；
+ *  retry() 重新触发转换并恢复轮询。 */
 function useGltf(sid: string) {
   const [state, setState] = useState<GltfState>('idle')
   const [detail, setDetail] = useState('')
   const [url, setUrl] = useState<string | null>(null)
+  const [nonce, setNonce] = useState(0)
   const urlRef = useRef<string | null>(null)
+  const failCount = useRef(0)
 
   useEffect(() => {
     let stopped = false
@@ -20,7 +24,8 @@ function useGltf(sid: string) {
 
     async function poll() {
       try {
-        const resp = await http.get(`/cad/sessions/${sid}/gltf`, { responseType: 'arraybuffer' })
+        const resp = await http.get(`/cad/sessions/${sid}/gltf`, { responseType: 'arraybuffer', timeout: 20_000 })
+        failCount.current = 0
         const ct = String(resp.headers['content-type'] ?? '')
         if (ct.includes('model/gltf-binary')) {
           const blob = new Blob([resp.data], { type: 'model/gltf-binary' })
@@ -44,8 +49,13 @@ function useGltf(sid: string) {
           setDetail(respDetail ?? '')
           return
         }
-        setState('failed')
-        setDetail(String(e))
+        failCount.current += 1
+        if (failCount.current >= 3) {
+          setState('failed')
+          setDetail('三维服务暂时无响应——模型较大时转换可能仍在后台进行，请稍后点击重试或刷新页面。')
+          return
+        }
+        setState('converting') // 单次查询失败先容忍，继续轮询
       }
       if (!stopped) timer = window.setTimeout(poll, 5000)
     }
@@ -59,9 +69,17 @@ function useGltf(sid: string) {
       if (timer) window.clearTimeout(timer)
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
     }
-  }, [sid])
+  }, [sid, nonce])
 
-  return { state, detail, url }
+  return {
+    state, detail, url,
+    retry() {
+      failCount.current = 0
+      setState('idle')
+      setDetail('')
+      setNonce((n) => n + 1)
+    },
+  }
 }
 
 function GltfModel({ url, wireframe }: { url: string; wireframe: boolean }) {
@@ -85,7 +103,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
 }) {
   const [wireframe, setWireframe] = useState(false)
   const [showAllScript, setShowAllScript] = useState(false)
-  const { state, detail, url } = useGltf(sessionId)
+  const { state, detail, url, retry } = useGltf(sessionId)
 
   async function download(kind: 'step' | 'script' | 'ir2' | 'ir4') {
     if (kind === 'ir2' || kind === 'ir4') {
@@ -112,7 +130,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,3fr) minmax(280px,1fr)', gap: 16 }}>
       <Card
-        title={<>三维预览 <Typography.Text type="secondary" style={{ fontSize: 12 }}>STEP → glTF（按 IR 版本缓存）</Typography.Text></>}
+        title="三维预览"
         extra={
           <Space>
             <Button size="small" autoInsertSpace={false} onClick={() => setWireframe((w) => !w)}>{wireframe ? '实体' : '线框'}</Button>
@@ -133,23 +151,24 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
           </div>
         )}
         {state === 'converting' && (
-          <Alert type="warning" showIcon message="三维预览转换中…" description="大装配首次镶嵌可能需要数分钟，转换结果按 IR 版本缓存，之后秒开。此页每 5 秒自动查询。" />
+          <Alert type="warning" showIcon message="正在生成三维预览…" description="首次打开需要把设计模型转换为预览格式，结构复杂时可能需要几分钟；完成后自动显示，下次打开同一版本即刻呈现。" />
         )}
         {state === 'failed' && (
-          <Alert type="error" showIcon message="三维预览转换失败" description={detail || '可先下载 STEP 查看，转换失败原因如实展示。'} />
+          <Alert
+            type="error" showIcon message="三维预览生成失败"
+            description={detail || '可先下载 STEP 模型查看，或点击重试再次转换。'}
+            action={<Button size="small" onClick={retry}>重试</Button>}
+          />
         )}
         {state === 'idle' && <Alert type="info" showIcon message="准备转换…" />}
-        <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 10, marginBottom: 0 }}>
-          转换链路：IR3 快照 → MinIO STEP → cadquery 镶嵌 → GLB 缓存（cad-previews/{'{session}'}/{'{version}'}.glb），版本变更自动重转。
-        </Typography.Paragraph>
       </Card>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <Card title="交付物下载" size="small" extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>预签名 15 分钟</Typography.Text>} styles={{ body: { padding: 0 } }}>
+        <Card title="交付物下载" size="small" extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>下载链接 15 分钟内有效</Typography.Text>} styles={{ body: { padding: 0 } }}>
           <Table
             rowKey="k" size="small" pagination={false}
             dataSource={[
-              { k: 'step', name: 'STEP 模型', meta: `ir3_v${ir3Version ?? '?'} · ${ir3.step_file.bucket}` },
+              { k: 'step', name: 'STEP 模型', meta: ir3.step_file.object_key.split('/').pop() || `ir3_v${ir3Version ?? '?'}.step` },
               { k: 'script', name: 'CadQuery 脚本', meta: `${ir3.cadquery_script.split('\n').length} 行` },
               { k: 'ir2', name: 'IR2 参数方案', meta: ir2Version ? `JSON · v${ir2Version}` : 'JSON' },
               { k: 'ir4', name: 'IR4 校验报告', meta: ir4Version ? `JSON · v${ir4Version}` : 'JSON' },
