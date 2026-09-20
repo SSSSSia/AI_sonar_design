@@ -48,12 +48,14 @@ public class SessionCleanupService {
                     "会话未结束（当前 " + status + "）：任务可能仍在执行，确认要删请带 force=true");
         }
 
-        int ir = irSnapshotMapper.delete(new LambdaQueryWrapper<IrSnapshotEntity>()
-                .eq(IrSnapshotEntity::getSessionId, id));
+        // 删除顺序按外键依赖（子表先删）：review_records/trace_chains 均以 ir_snapshot_id
+        // 引用 ir_snapshots，先删快照会触发 FK 违约（2026-09-20 用户实测踩中）。
         int reviews = reviewRecordMapper.delete(new LambdaQueryWrapper<ReviewRecordEntity>()
                 .eq(ReviewRecordEntity::getSessionId, id));
         int traces = traceChainMapper.delete(new LambdaQueryWrapper<TraceChainEntity>()
                 .eq(TraceChainEntity::getSessionId, id));
+        int ir = irSnapshotMapper.delete(new LambdaQueryWrapper<IrSnapshotEntity>()
+                .eq(IrSnapshotEntity::getSessionId, id));
         int removed = sessionMapper.deleteById(id);
         if (removed == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "会话已被并发删除");

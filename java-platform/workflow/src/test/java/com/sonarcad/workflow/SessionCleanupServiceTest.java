@@ -9,6 +9,7 @@ import com.sonarcad.workflow.session.SessionCleanupService;
 import com.sonarcad.workflow.session.TraceChainMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
@@ -83,6 +84,21 @@ class SessionCleanupServiceTest {
         assertEquals(2, r.get("review_records"));
         assertEquals(9, r.get("trace_chain_rows"));
         verify(cadClient).purgeQuietly(eq("s1"));
+    }
+
+    /** 外键依赖顺序（2026-09-20 用户实测 FK 违约修复）：review/trace 先于 snapshots 删除。 */
+    @Test
+    void childrenDeletedBeforeSnapshots() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", "completed"));
+        when(sessionMapper.deleteById("s1")).thenReturn(1);
+
+        service.delete("s1", false);
+
+        InOrder order = inOrder(reviewMapper, traceMapper, irMapper, sessionMapper);
+        order.verify(reviewMapper).delete(any());
+        order.verify(traceMapper).delete(any());
+        order.verify(irMapper).delete(any());
+        order.verify(sessionMapper).deleteById("s1");
     }
 
     @Test
