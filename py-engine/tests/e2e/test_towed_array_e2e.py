@@ -91,6 +91,21 @@ def _login() -> str:
     return r.json()["data"]["token"]
 
 
+def _cleanup(headers, sid=None, pid=None):
+    """成功后清理本 run 的会话与项目（失败不清理，保留现场排查）。
+
+    会话强删走 workflow 级联（快照/审阅/溯源 + MinIO 产物；已沉淀知识保留）；
+    项目删除要求其下无会话，故顺序为先会话后项目。清理失败只打印不 assert。
+    """
+    if sid:
+        r = httpx.delete(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers,
+                         params={"force": "true"}, timeout=120)
+        print(f"cleanup session -> {r.status_code}")
+    if pid:
+        r = httpx.delete(f"{GATEWAY}/api/v1/projects/{pid}", headers=headers, timeout=15)
+        print(f"cleanup project -> {r.status_code}")
+
+
 def test_towed_array_full_chain(stack):
     token = _login()
     headers = {"Authorization": f"Bearer {token}"}
@@ -194,3 +209,4 @@ def test_towed_array_full_chain(stack):
     assert r.json()["data"]["currentStage"] == "A5"
 
     print(f"\ne2e 通过：session={sid} run={run_tag} step={step_ref}")
+    _cleanup(headers, sid, pid)

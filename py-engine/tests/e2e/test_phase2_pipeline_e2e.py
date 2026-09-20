@@ -94,6 +94,17 @@ def _login() -> str:
     return r.json()["data"]["token"]
 
 
+def _cleanup(headers, sid=None, pid=None):
+    """成功后清理本 run 的会话与项目（失败不清理，保留现场排查）。先会话后项目。"""
+    if sid:
+        r = httpx.delete(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers,
+                         params={"force": "true"}, timeout=120)
+        print(f"cleanup session -> {r.status_code}")
+    if pid:
+        r = httpx.delete(f"{GATEWAY}/api/v1/projects/{pid}", headers=headers, timeout=15)
+        print(f"cleanup project -> {r.status_code}")
+
+
 def _session_state(headers, sid: str) -> dict:
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
     assert r.status_code == 200, r.text
@@ -244,3 +255,4 @@ def test_phase2_full_gate_loop(stack):
     print(f"\n阶段2 e2e 通过：session={sid} run={run_tag}")
     print(f"  IR2 v1(invalidated)→v2；gate 流：gate1批→gate2驳(rework A2)→gate1批→gate2批→knowledge批")
     print(f"  IR5 written；trace 反查 {trace_param['trace_id']} OK")
+    _cleanup(headers, sid, pid)

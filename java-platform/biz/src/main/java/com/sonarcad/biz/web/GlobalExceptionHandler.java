@@ -23,6 +23,16 @@ public class GlobalExceptionHandler {
                 .body(new ProjectController.ApiResponse<>(400, e.getMessage(), null, java.util.UUID.randomUUID().toString()));
     }
 
+    /** 业务状态异常（404/409 等）：按原状态码透出 reason，不被兜底成 500。 */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ProjectController.ApiResponse<Void>> handleStatus(org.springframework.web.server.ResponseStatusException e) {
+        HttpStatus status = HttpStatus.resolve(e.getStatusCode().value());
+        String message = e.getReason() != null ? e.getReason()
+                : (status != null ? status.getReasonPhrase() : "请求失败");
+        return ResponseEntity.status(status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ProjectController.ApiResponse<>(e.getStatusCode().value(), message, null, java.util.UUID.randomUUID().toString()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProjectController.ApiResponse<Void>> handleUnexpected(Exception e) {
         return ResponseEntity.internalServerError()

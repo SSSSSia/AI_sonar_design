@@ -46,3 +46,8 @@ export function listProjects(params?: { page?: number; size?: number; keyword?: 
 export function createProject(body: { name: string; code?: string; description?: string }) {
   return post<Project>('/projects', body)
 }
+
+/** 删除空项目（admin；项目下仍有会话时后端 409 拒绝）。 */
+export function deleteProject(id: string) {
+  return del<{ id: string; deleted: boolean; name: string }>(`/projects/${id}`)
+}
