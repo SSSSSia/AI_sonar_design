@@ -29,28 +29,36 @@ public class SessionService {
     private final NotifyClient notifyClient;
     private final UserLookupMapper userLookupMapper;
     private final ProjectLookupMapper projectLookupMapper;
+    private final KbBaseLookupMapper kbBaseLookupMapper;
 
     public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper,
                           TaskPublisher taskPublisher, NotifyClient notifyClient,
-                          UserLookupMapper userLookupMapper, ProjectLookupMapper projectLookupMapper) {
+                          UserLookupMapper userLookupMapper, ProjectLookupMapper projectLookupMapper,
+                          KbBaseLookupMapper kbBaseLookupMapper) {
         this.mapper = mapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
         this.notifyClient = notifyClient;
         this.userLookupMapper = userLookupMapper;
         this.projectLookupMapper = projectLookupMapper;
+        this.kbBaseLookupMapper = kbBaseLookupMapper;
     }
 
     /**
      * 创建会话（pending）。requirement 非空时固化为 IR0 快照 v1（created_by=user），
      * 供 A1 消费（A-04：需求原文一经创建不可变，修订 = 新会话或 IR0 新快照）。
+     * kbIds 非空时逐个校验存在（PHASE-006 D6-6）；null/空 = Agent 自主决策模式。
      */
-    public DesignSessionEntity create(String projectId, String title, String requirement, String createdBy) {
+    public DesignSessionEntity create(String projectId, String title, String requirement,
+                                      java.util.List<String> kbIds, String createdBy) {
         DesignSessionEntity s = new DesignSessionEntity();
         s.setProjectId(projectId);
         s.setTitle(title);
         s.setPipelineStatus(PipelineStatus.pending.name());
         s.setCreatedBy(createdBy);
+        if (kbIds != null && !kbIds.isEmpty()) {
+            s.setKbIds(serializeKbIds(validateKbIds(kbIds)));
+        }
         mapper.insert(s);
         if (requirement != null && !requirement.isBlank()) {
             IrSnapshotEntity ir0 = new IrSnapshotEntity();
@@ -62,7 +70,48 @@ public class SessionService {
             ir0.setCreatedBy("user");
             irSnapshotMapper.insert(ir0);
         }
+        if (kbIds != null && !kbIds.isEmpty()) {
+            // 创建响应直接带库名（前端抽屉/toast 即显，不等二次查询）
+            s.setKbNames(validateKbIds(kbIds).stream()
+                    .map(KbBaseLookupEntity::getName)
+                    .collect(java.util.stream.Collectors.toList()));
+        }
         return s;
+    }
+
+    /** PHASE-006 D6-6：无效 kb_id 创建时报 400（优于运行时静默零命中）。uuid 列格式预检防 DB 500。 */
+    private java.util.List<KbBaseLookupEntity> validateKbIds(java.util.List<String> kbIds) {
+        java.util.LinkedHashSet<String> distinct = new java.util.LinkedHashSet<>(kbIds);
+        for (String id : distinct) {
+            if (!id.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "知识库不存在: " + id);
+            }
+        }
+        java.util.List<KbBaseLookupEntity> found = kbBaseLookupMapper.selectList(
+                new LambdaQueryWrapper<KbBaseLookupEntity>().in(KbBaseLookupEntity::getId, distinct));
+        java.util.Set<String> foundIds = found.stream()
+                .map(KbBaseLookupEntity::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        for (String id : distinct) {
+            if (!foundIds.contains(id)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "知识库不存在: " + id);
+            }
+        }
+        // 保持去重后的请求顺序
+        java.util.List<KbBaseLookupEntity> ordered = new java.util.ArrayList<>();
+        for (String id : distinct) {
+            found.stream().filter(r -> r.getId().equals(id)).findFirst().ifPresent(ordered::add);
+        }
+        return ordered;
+    }
+
+    private String serializeKbIds(java.util.List<KbBaseLookupEntity> bases) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < bases.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append('"').append(bases.get(i).getId()).append('"');
+        }
+        return sb.append("]").toString();
     }
 
     private String serializeIr0(String requirement) {
@@ -79,6 +128,7 @@ public class SessionService {
         if (s == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在: " + id);
         fillCreatorNames(java.util.List.of(s));
         fillProjectNames(java.util.List.of(s));
+        fillKbNames(java.util.List.of(s));
         return s;
     }
 
@@ -89,7 +139,53 @@ public class SessionService {
                         .orderByDesc(DesignSessionEntity::getCreatedAt));
         fillCreatorNames(p.getRecords());
         fillProjectNames(p.getRecords());
+        fillKbNames(p.getRecords());
         return p;
+    }
+
+    /** kb_ids JSON 数组 → 库名列表（kb_bases 同库只读回填，与 fillProjectNames 同模式；PHASE-006）。 */
+    private void fillKbNames(java.util.List<DesignSessionEntity> sessions) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (DesignSessionEntity s : sessions) {
+            ids.addAll(parseKbIds(s.getKbIds()));
+        }
+        if (ids.isEmpty()) return;
+        java.util.List<KbBaseLookupEntity> rows = kbBaseLookupMapper.selectList(
+                new LambdaQueryWrapper<KbBaseLookupEntity>()
+                        .in(KbBaseLookupEntity::getId, ids)
+                        .select(KbBaseLookupEntity::getId, KbBaseLookupEntity::getName));
+        java.util.Map<String, String> byId = new java.util.HashMap<>();
+        for (KbBaseLookupEntity r : rows) {
+            byId.put(r.getId(), r.getName());
+        }
+        for (DesignSessionEntity s : sessions) {
+            java.util.List<String> parsed = parseKbIds(s.getKbIds());
+            if (parsed.isEmpty()) continue;
+            java.util.List<String> names = new java.util.ArrayList<>();
+            for (String id : parsed) {
+                String name = byId.get(id);
+                if (name != null) names.add(name);
+            }
+            if (!names.isEmpty()) s.setKbNames(names);
+        }
+    }
+
+    /** kb_ids JSON 数组字符串容错解析（null/坏 JSON/非数组 → 空列表，D-05 如实不炸）。 */
+    public static java.util.List<String> parseKbIds(String kbIds) {
+        if (kbIds == null || kbIds.isBlank()) return java.util.List.of();
+        try {
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(kbIds);
+            java.util.List<String> out = new java.util.ArrayList<>();
+            if (node.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode n : node) {
+                    if (n.isTextual() && !n.asText().isBlank()) out.add(n.asText());
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            return java.util.List.of();
+        }
     }
 
     /** project_id → 项目名（projects 由 biz 维护、同库只读；删除悬空时留空，前端回退短 id）。 */

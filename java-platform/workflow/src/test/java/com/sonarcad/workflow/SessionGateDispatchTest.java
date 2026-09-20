@@ -29,6 +29,7 @@ class SessionGateDispatchTest {
     private IrSnapshotMapper irSnapshotMapper;
     private TaskPublisher taskPublisher;
     private ProjectLookupMapper projectLookupMapper;
+    private com.sonarcad.workflow.session.KbBaseLookupMapper kbBaseLookupMapper;
     private SessionService service;
 
     @BeforeEach
@@ -36,12 +37,12 @@ class SessionGateDispatchTest {
         sessionMapper = mock(DesignSessionMapper.class);
         irSnapshotMapper = mock(IrSnapshotMapper.class);
         taskPublisher = mock(TaskPublisher.class);
-        taskPublisher = mock(TaskPublisher.class);
         projectLookupMapper = mock(ProjectLookupMapper.class);
+        kbBaseLookupMapper = mock(com.sonarcad.workflow.session.KbBaseLookupMapper.class);
         // 真实 NotifyClient：发布为异步 fire-and-forget，测试中连不上只记日志、不影响断言
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
                 new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
-                projectLookupMapper);
+                projectLookupMapper, kbBaseLookupMapper);
     }
 
     @Test
@@ -64,6 +65,69 @@ class SessionGateDispatchTest {
 
         Page<DesignSessionEntity> out = service.list(null, 1, 10);
         assertEquals("人工测试", out.getRecords().get(0).getProjectName());
+    }
+
+    @Test
+    void listFillsKbNames() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                com.sonarcad.workflow.session.KbBaseLookupEntity.class);
+        DesignSessionEntity s = session("s1", "pending", null);
+        s.setKbIds("[\"kb-1\",\"kb-2\"]");
+        Page<DesignSessionEntity> page = new Page<>(1, 10);
+        page.setRecords(java.util.List.of(s));
+        when(sessionMapper.selectPage(any(), any())).thenReturn(page);
+        when(projectLookupMapper.selectList(any())).thenReturn(java.util.List.of());
+        com.sonarcad.workflow.session.KbBaseLookupEntity kb1 =
+                new com.sonarcad.workflow.session.KbBaseLookupEntity();
+        kb1.setId("kb-1");
+        kb1.setName("默认知识库");
+        when(kbBaseLookupMapper.selectList(any())).thenReturn(java.util.List.of(kb1));
+
+        Page<DesignSessionEntity> out = service.list(null, 1, 10);
+        // kb-2 已被删除（悬空引用）：只回填存在的库名，不炸、不补假名（A-16）
+        assertEquals(java.util.List.of("默认知识库"), out.getRecords().get(0).getKbNames());
+    }
+
+    @Test
+    void createPersistsKbIds() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                com.sonarcad.workflow.session.KbBaseLookupEntity.class);
+        com.sonarcad.workflow.session.KbBaseLookupEntity kb =
+                new com.sonarcad.workflow.session.KbBaseLookupEntity();
+        // uuid 列（V9）→ 非法格式在预检即 400；用合法 uuid 才走到 mapper stub
+        kb.setId("0eb22589-055c-4453-921a-42206e2e6948");
+        kb.setName("默认知识库");
+        when(kbBaseLookupMapper.selectList(any())).thenReturn(java.util.List.of(kb));
+
+        service.create("p-1", "标题", "需求",
+                java.util.List.of("0eb22589-055c-4453-921a-42206e2e6948"), "u1");
+
+        ArgumentCaptor<DesignSessionEntity> inserted = ArgumentCaptor.forClass(DesignSessionEntity.class);
+        verify(sessionMapper).insert(inserted.capture());
+        assertEquals(java.util.List.of("0eb22589-055c-4453-921a-42206e2e6948"),
+                SessionService.parseKbIds(inserted.getValue().getKbIds()));
+    }
+
+    @Test
+    void createRejectsMalformedKbId() {
+        // 非法 uuid 格式：预检直接 400（不触 DB——真实场景曾打出 500）
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.create("p-1", "标题", "需求", java.util.List.of("kb-1"), "u1"));
+        assertEquals(400, ex.getStatusCode().value());
+    }
+
+    @Test
+    void createRejectsUnknownKbId() {
+        when(kbBaseLookupMapper.selectList(any())).thenReturn(java.util.List.of());
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.create("p-1", "标题", "需求",
+                        java.util.List.of("00000000-0000-0000-0000-000000000000"), "u1"));
+        assertEquals(400, ex.getStatusCode().value());
     }
 
     private DesignSessionEntity session(String id, String status, String stage) {

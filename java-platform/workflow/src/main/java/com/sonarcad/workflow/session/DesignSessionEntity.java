@@ -27,10 +27,21 @@ public class DesignSessionEntity {
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     private String projectName;
 
+    /** 会话选定的知识库 id JSON 数组字符串（V9 jsonb 列；null = 不选，Agent 自主决策，PHASE-006 D6-3）。 */
+    private String kbIds;
+
+    /** 非表列：选定知识库名列表（kb_bases 同库只读回填，与 projectName 同模式）。 */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private java.util.List<String> kbNames;
+
     public String getCreatedByName() { return createdByName; }
     public void setCreatedByName(String createdByName) { this.createdByName = createdByName; }
     public String getProjectName() { return projectName; }
     public void setProjectName(String projectName) { this.projectName = projectName; }
+    public String getKbIds() { return kbIds; }
+    public void setKbIds(String kbIds) { this.kbIds = kbIds; }
+    public java.util.List<String> getKbNames() { return kbNames; }
+    public void setKbNames(java.util.List<String> kbNames) { this.kbNames = kbNames; }
 
     public String getId() { return id; }
 

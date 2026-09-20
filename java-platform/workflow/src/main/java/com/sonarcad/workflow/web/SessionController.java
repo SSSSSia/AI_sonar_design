@@ -30,7 +30,9 @@ public class SessionController {
         this.cleanupService = cleanupService;
     }
 
-    public record CreateSessionRequest(String projectId, String title, String requirement) {}
+    /** kbIds 可选（PHASE-006 会话选库；null/空 = Agent 自主决策模式）。 */
+    public record CreateSessionRequest(String projectId, String title, String requirement,
+                                       java.util.List<String> kbIds) {}
 
     @PostMapping
     @PreAuthorize("hasAnyRole('admin','designer')")
@@ -39,7 +41,8 @@ public class SessionController {
         if (req.projectId() == null || req.projectId().isBlank()) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
-        return ApiResponse.ok(sessionService.create(req.projectId(), req.title(), req.requirement(), userId));
+        return ApiResponse.ok(sessionService.create(req.projectId(), req.title(), req.requirement(),
+                req.kbIds(), userId));
     }
 
     @GetMapping
