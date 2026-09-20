@@ -53,3 +53,4 @@ Thumbs.db
 .workbuddy/
 .zcode/
 /logs-*.log
+java-platform/workflow/workflow-run.log
