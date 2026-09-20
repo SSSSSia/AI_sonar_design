@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, App, Badge, Button, Card, Popconfirm, Select, Space, Table, Tag, Upload,
+  Alert, App, Badge, Button, Card, Modal, Popconfirm, Select, Space, Table, Tag, Upload,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { UploadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
-  deleteDocument, getBuildTask, listDocuments, startBuild, startExtract,
-  type KbDocument,
+  deleteDocument, getBuildTask, listBases, listDocuments, startBuild, startExtract,
+  removeBaseDocs,
+  type KbBase, type KbDocument,
 } from '../../api/kb'
 import { errText } from '../../api/client'
 import { QueryEmpty } from '../../components/QueryEmpty'
@@ -31,14 +32,35 @@ function cleanupPart(label: string, v: unknown): string {
   return `${label}清理失败（已记录日志）`
 }
 
-/** 文档库页签：上传（同步解析）、列表、删除级联、增量构建。 */
-export function DocumentsTab() {
+/** 文档行「所属库」标签（多归属 Tag 列表；PHASE-006 多对多）。 */
+export function BaseTags({ doc, bases }: { doc: KbDocument; bases?: KbBase[] }) {
+  const tags = doc.bases ?? []
+  if (tags.length === 0) return <Tag>未归库</Tag>
+  return (
+    <>
+      {tags.map((t) => (
+        <Tag key={t.base_id} color={bases?.find((b) => b.id === t.base_id)?.is_default ? 'blue' : undefined}>
+          {t.base_name}
+        </Tag>
+      ))}
+    </>
+  )
+}
+
+/** 管理页文档表（PHASE-006）：baseId 传库 id=库内视图（可移出）；'pool'=文档池全量；undefined=旧全局视图。 */
+export function DocumentsTab({ baseId, pool }: { baseId?: string; pool?: boolean }) {
   const { message, modal } = App.useApp()
   const queryClient = useQueryClient()
   const [buildTaskId, setBuildTaskId] = useState<string | null>(null)
 
-  const docsQuery = useQuery({ queryKey: ['kb-docs'], queryFn: listDocuments, refetchInterval: 10_000 })
+  const docsQuery = useQuery({
+    queryKey: ['kb-docs', baseId ?? (pool ? 'pool' : 'all')],
+    queryFn: () => listDocuments(baseId ? { baseId } : pool ? { unassigned: true } : undefined),
+    refetchInterval: 10_000,
+  })
   const docs: KbDocument[] = docsQuery.data?.documents ?? []
+  const basesQuery = useQuery({ queryKey: ['kb-bases'], queryFn: listBases })
+  const bases: KbBase[] = basesQuery.data?.bases ?? []
 
   const buildQuery = useQuery({
     queryKey: ['kb-build', buildTaskId],
@@ -60,11 +82,12 @@ export function DocumentsTab() {
 
   async function beforeUpload(file: File) {
     try {
-      const r = await import('../../api/kb').then((m) => m.uploadDocument(file))
+      const r = await import('../../api/kb').then((m) => m.uploadDocument(file, baseId))
       const res = r as { status?: string; ocr_pages?: number; ocr_pending?: number; note?: string; error?: string }
       if (res.status === 'failed') message.error(`解析失败：${res.error ?? ''}`)
       else message.success(`已解析${res.ocr_pages ? `，OCR 识别 ${res.ocr_pages} 页` : ''}${res.ocr_pending ? `，${res.ocr_pending} 页待补` : ''}`)
       void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
+      void queryClient.invalidateQueries({ queryKey: ['kb-bases'] })
     } catch (e) {
       message.error('上传失败：' + errText(e, 120))
     }
@@ -80,8 +103,21 @@ export function DocumentsTab() {
         content: `已同步清理：${cleanupPart('原件', c.minio)} · ${cleanupPart('向量索引', c.vectors)} · ${cleanupPart('图谱引用', c.graph)}`,
       })
       void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
+      void queryClient.invalidateQueries({ queryKey: ['kb-bases'] })
     } catch (e) {
       message.error('删除失败：' + errText(e, 120))
+    }
+  }
+
+  async function moveOut(doc: KbDocument) {
+    if (!baseId) return
+    try {
+      const r = await removeBaseDocs(baseId, [doc.doc_id])
+      message.success(`已移出本库（${r.removed} 条）；文档与其索引保留，可在「文档池」重新归库`)
+      void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
+      void queryClient.invalidateQueries({ queryKey: ['kb-bases'] })
+    } catch (e) {
+      message.error('移出失败：' + errText(e, 120))
     }
   }
 
@@ -97,6 +133,12 @@ export function DocumentsTab() {
         </div>
       ),
     },
+    ...(pool !== undefined
+      ? [{
+          title: '所属库', key: 'bases', width: 200,
+          render: (_: unknown, r: KbDocument) => <BaseTags doc={r} bases={bases} />,
+        } as ColumnsType<KbDocument>[number]]
+      : []),
     {
       title: '状态',
       dataIndex: 'status',
@@ -119,7 +161,7 @@ export function DocumentsTab() {
     {
       title: '操作',
       key: 'act',
-      width: 170,
+      width: 190,
       render: (_, r) => (
         <Space>
           {r.status !== 'indexed' && (
@@ -134,6 +176,11 @@ export function DocumentsTab() {
               }}
             >抽取</Button>
           )}
+          {baseId && (
+            <Popconfirm title="移出本库？文档与索引保留，仅退出本库检索范围" onConfirm={() => moveOut(r)}>
+              <Button size="small">移出</Button>
+            </Popconfirm>
+          )}
           <Popconfirm title="删除将级联清理向量与图谱来源" onConfirm={() => remove(r)}>
             <Button size="small" danger>删除</Button>
           </Popconfirm>
@@ -142,13 +189,14 @@ export function DocumentsTab() {
     },
   ]
 
+  const uploadTitle = baseId ? '上传到本库' : '上传（解析保留位置）'
   return (
     <Card
-      title="文档库"
+      title={pool ? '文档池' : '文档'}
       extra={
         <Space>
           <Upload beforeUpload={beforeUpload} showUploadList={false} multiple>
-            <Button icon={<UploadOutlined />}>上传（解析保留位置）</Button>
+            <Button icon={<UploadOutlined />}>{uploadTitle}</Button>
           </Upload>
           <Button
             type="primary"
@@ -167,7 +215,13 @@ export function DocumentsTab() {
     >
       <Alert
         type="info" showIcon style={{ margin: '10px 16px' }}
-        message="拖拽或点击上方「上传」即建档解析（扫描页自动 OCR）；失败或超预算页如实计 ocr_pending，不静默丢弃。删除即级联清理。"
+        message={
+          pool
+            ? '文档池收存全部上传文档（含未归库）。未归库文档可查看、预览，但暂不参与任何会话的知识检索；归入知识库即恢复。'
+            : baseId
+              ? '拖拽或点击「上传到本库」即建档解析并自动归属当前库；删除即级联清理，「移出」仅解除本库归属。'
+              : '拖拽或点击上方「上传」即建档解析（扫描页自动 OCR）；失败或超预算页如实计 ocr_pending，不静默丢弃。删除即级联清理。'
+        }
       />
       {docs.length === 0 && !docsQuery.isLoading && !docsQuery.isError ? (
         <Upload.Dragger
@@ -187,13 +241,16 @@ export function DocumentsTab() {
   )
 }
 
-/** 抽取确认页签（独立导出，KnowledgePage 内用）。 */
-export function ExtractionsTab() {
+/** 抽取确认页签（PHASE-006：可按库过滤文档；独立导出，KnowledgePage 内用）。 */
+export function ExtractionsTab({ baseId }: { baseId?: string }) {
   const { message } = App.useApp()
   const queryClient = useQueryClient()
   const [docId, setDocId] = useState<string | null>(null)
   const [status, setStatus] = useState<'pending' | 'confirmed' | 'rejected'>('pending')
-  const docsQuery = useQuery({ queryKey: ['kb-docs'], queryFn: listDocuments })
+  const docsQuery = useQuery({
+    queryKey: ['kb-docs', baseId ?? 'all'],
+    queryFn: () => listDocuments(baseId ? { baseId } : undefined),
+  })
   const docs = docsQuery.data?.documents ?? []
 
   const exQuery = useQuery({
@@ -258,5 +315,122 @@ export function ExtractionsTab() {
             locale={{ emptyText: exQuery.isError ? <QueryEmpty query={exQuery} subject="抽取记录" /> : undefined }}
           />}
     </Card>
+  )
+}
+
+/** 新建库向导（PHASE-006 D6-10）：名称/描述 + 从文档池勾选（多归属，互不影响来源库）。 */
+export function NewBaseWizard({ open, onClose, onCreated }: {
+  open: boolean
+  onClose: () => void
+  onCreated: (b: KbBase) => void
+}) {
+  const { message } = App.useApp()
+  const queryClient = useQueryClient()
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [selected, setSelected] = useState<React.Key[]>([])
+  const [creating, setCreating] = useState(false)
+
+  const docsQuery = useQuery({
+    queryKey: ['kb-docs', 'wizard'],
+    queryFn: () => listDocuments({}),
+    enabled: open,
+  })
+  const docs = docsQuery.data?.documents ?? []
+
+  function reset() {
+    setName('')
+    setDescription('')
+    setSelected([])
+  }
+
+  async function create() {
+    if (!name.trim()) {
+      message.warning('请输入知识库名称')
+      return
+    }
+    setCreating(true)
+    try {
+      const { createBase } = await import('../../api/kb')
+      const r = await createBase({ name: name.trim(), description: description.trim() || undefined, initial_doc_ids: selected.map(String) })
+      message.success(`知识库「${r.base.name}」已创建${r.initial_docs ? `，已归入 ${r.initial_docs} 份文档` : ''}`)
+      void queryClient.invalidateQueries({ queryKey: ['kb-bases'] })
+      void queryClient.invalidateQueries({ queryKey: ['kb-docs'] })
+      reset()
+      onCreated(r.base)
+    } catch (e) {
+      message.error('创建失败：' + errText(e, 120))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  function handleClose() {
+    reset()
+    onClose()
+  }
+
+  return (
+    <Modal
+      title="新建知识库"
+      open={open}
+      onOk={create}
+      onCancel={handleClose}
+      okText="创建"
+      confirmLoading={creating}
+      okButtonProps={{ disabled: !name.trim() }}
+      width={640}
+      destroyOnClose
+    >
+      <div style={{ display: 'grid', gap: 12, paddingTop: 4 }}>
+        <div>
+          <div style={{ fontSize: 12.5, marginBottom: 4 }}>名称 <span style={{ color: '#c92a2a' }}>*</span></div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={128}
+            placeholder="如：拖曳阵总体设计资料"
+            style={{ width: '100%', border: '1px solid #d0d7de', borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 12.5, marginBottom: 4 }}>描述</div>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={512}
+            placeholder="一句话说明该库收存什么（可空）"
+            style={{ width: '100%', border: '1px solid #d0d7de', borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 12.5, marginBottom: 4 }}>
+            归入文档 <span style={{ color: '#8b949e', fontSize: 11 }}>（可多选；同一文档可同时属于多个库，互不影响）</span>
+          </div>
+          <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+            {docs.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#8b949e', fontSize: 12 }}>
+                暂无已上传文档——创建后可在库内直接上传
+              </div>
+            ) : (
+              docs.map((d) => (
+                <label
+                  key={d.doc_id}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', fontSize: 12.5, borderBottom: '1px solid #f0f1f3', cursor: 'pointer' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(d.doc_id)}
+                    onChange={(e) => setSelected((prev) => e.target.checked ? [...prev, d.doc_id] : prev.filter((k) => k !== d.doc_id))}
+                  />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.filename}</span>
+                  <span style={{ color: '#8b949e', fontSize: 11 }}>{d.bases?.length ? `已属 ${d.bases.length} 个库` : '未归库'}</span>
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
   )
 }

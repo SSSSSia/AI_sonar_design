@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { App, Button, Drawer, Form, Input, Select } from 'antd'
 import { listProjects, createSession, fireEvent } from '../api/sessions'
+import { listBases } from '../api/kb'
 import { errText } from '../api/client'
 import type { Project } from '../api/types'
 import { NewProjectModal } from './ProjectModals'
@@ -11,6 +12,7 @@ import { NewProjectModal } from './ProjectModals'
  * 新建设计会话抽屉（2026-09-20 工作台流程重塑）：仪表盘 / 项目卡片原地弹出，
  * 不再跳独立页面——创建动作留在用户当前上下文里。
  * presetProjectId 用于项目卡片「新建会话」与仪表盘项目筛选态的预选。
+ * PHASE-006：知识库多选（不选 = Agent 根据需求自主圈定相关知识库）。
  */
 export function NewSessionDrawer({ open, onClose, presetProjectId }: {
   open: boolean
@@ -20,7 +22,7 @@ export function NewSessionDrawer({ open, onClose, presetProjectId }: {
   const navigate = useNavigate()
   const { message } = App.useApp()
   const queryClient = useQueryClient()
-  const [form] = Form.useForm<{ projectId: string; title: string; requirement: string }>()
+  const [form] = Form.useForm<{ projectId: string; title: string; requirement: string; kbIds?: string[] }>()
   const [submitting, setSubmitting] = useState(false)
   const [projectModal, setProjectModal] = useState(false)
 
@@ -31,6 +33,13 @@ export function NewSessionDrawer({ open, onClose, presetProjectId }: {
   })
   const projects: Project[] = projectsQuery.data?.records ?? []
 
+  const basesQuery = useQuery({
+    queryKey: ['kb-bases'],
+    queryFn: listBases,
+    enabled: open,
+  })
+  const bases = basesQuery.data?.bases ?? []
+
   useEffect(() => {
     if (!open) return
     form.resetFields()
@@ -40,10 +49,11 @@ export function NewSessionDrawer({ open, onClose, presetProjectId }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, presetProjectId])
 
-  async function submit(values: { projectId: string; title: string; requirement: string }) {
+  async function submit(values: { projectId: string; title: string; requirement: string; kbIds?: string[] }) {
     setSubmitting(true)
     try {
-      const session = await createSession(values)
+      const kbIds = values.kbIds?.length ? values.kbIds : undefined
+      const session = await createSession({ ...values, kbIds })
       await fireEvent(session.id, 'START')
       message.success('会话已创建，A1 需求解析已启动')
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
@@ -84,6 +94,20 @@ export function NewSessionDrawer({ open, onClose, presetProjectId }: {
           </Form.Item>
           <Form.Item name="title" label="会话标题" rules={[{ required: true, message: '请输入标题' }]}>
             <Input placeholder="如：某型拖曳线列阵声呐方案设计" maxLength={80} showCount />
+          </Form.Item>
+          <Form.Item
+            name="kbIds"
+            label="知识库（可多选）"
+            extra={bases.length === 0 ? undefined : '不选则由 Agent 根据需求自动圈定相关知识库，选择依据会记录在会话中'}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              maxTagCount="responsive"
+              placeholder="不选则由 Agent 自动选定相关知识库"
+              loading={basesQuery.isLoading}
+              options={bases.map((b) => ({ value: b.id, label: b.is_default ? `${b.name}（默认）` : b.name }))}
+            />
           </Form.Item>
           <Form.Item
             name="requirement"

@@ -1,4 +1,41 @@
-import { del, get, http, patch, post } from './client'
+import { del, delWithBody, get, http, patch, post } from './client'
+
+// ---- 知识库（PHASE-006 多库） ----
+export interface KbBase {
+  id: string
+  name: string
+  description?: string | null
+  is_default: boolean
+  documents?: number
+  indexed?: number
+  created_at?: string
+  [k: string]: unknown
+}
+
+export function listBases() {
+  return get<{ bases: KbBase[] }>('/kb/bases')
+}
+
+export function createBase(body: { name: string; description?: string; initial_doc_ids?: string[] }) {
+  return post<{ base: KbBase; initial_docs: number }>('/kb/bases', body)
+}
+
+export function updateBase(baseId: string, body: { name?: string; description?: string }) {
+  return patch<{ base: KbBase }>(`/kb/bases/${baseId}`, body)
+}
+
+/** 删库 = 解除归属（文档保留转未归库，D6-4）；默认库后端 400。 */
+export function deleteBase(baseId: string) {
+  return del<{ id: string; deleted: boolean; name: string; unassigned_docs: number }>(`/kb/bases/${baseId}`)
+}
+
+export function addBaseDocs(baseId: string, docIds: string[]) {
+  return post<{ base_id: string; added: number }>(`/kb/bases/${baseId}/docs`, { doc_ids: docIds })
+}
+
+export function removeBaseDocs(baseId: string, docIds: string[]) {
+  return delWithBody<{ base_id: string; removed: number }>(`/kb/bases/${baseId}/docs`, { doc_ids: docIds })
+}
 
 // ---- 文档 ----
 export interface KbDocument {
@@ -12,16 +49,21 @@ export interface KbDocument {
   ocr_pending?: number
   error?: string
   uploaded_at?: string
+  bases?: { base_id: string; base_name: string }[]
 }
 
-export function listDocuments() {
-  return get<{ documents: KbDocument[] }>('/kb/documents')
+export function listDocuments(opts?: { baseId?: string; unassigned?: boolean }) {
+  const params: Record<string, unknown> = {}
+  if (opts?.baseId) params.base_id = opts.baseId
+  if (opts?.unassigned) params.unassigned = 'true'
+  return get<{ documents: KbDocument[] }>('/kb/documents', params)
 }
 
-export async function uploadDocument(file: File) {
+export async function uploadDocument(file: File, baseId?: string) {
   const form = new FormData()
   form.append('file', file)
-  const resp = await http.post('/kb/documents', form, { timeout: 300_000 })
+  const url = baseId ? `/kb/documents?base_id=${encodeURIComponent(baseId)}` : '/kb/documents'
+  const resp = await http.post(url, form, { timeout: 300_000 })
   return resp.data
 }
 

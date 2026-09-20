@@ -11,11 +11,26 @@ export interface IrEnvelope {
 }
 
 // ---- IR1 ----
+export interface KbSelectionBase {
+  kb_id: string
+  kb_name: string
+  /** Agent 路由探测命中数（manual 模式为 -1，无依据可展示） */
+  hits: number
+  selected: boolean
+}
+export interface KbSelection {
+  mode: 'manual' | 'auto'
+  bases: KbSelectionBase[]
+  /** auto 模式全部零命中时回退全部库（如实标注，A-16） */
+  fallback_all?: boolean
+}
 export interface Ir1 {
   objectives: { dimension: string; value: unknown; explicit: boolean }[]
   missing_items: string[]
   sub_queries: string[]
-  retrieved_context: { doc_id: string; location: string; snippet: string }[]
+  retrieved_context: { doc_id: string; location: string; snippet: string; kb_id?: string }[]
+  /** 知识库选择留痕（PHASE-006 D6-3/D6-7；旧快照无此字段） */
+  kb_selection?: KbSelection
 }
 
 // ---- IR2 ----

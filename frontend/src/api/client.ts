@@ -73,6 +73,11 @@ export async function del<T>(url: string, params?: Record<string, unknown>): Pro
   return (await http.delete<T>(url, { params })).data
 }
 
+/** DELETE 带 JSON body（PHASE-006 批量移出归属等少量端点用；axios 原生支持 data）。 */
+export async function delWithBody<T>(url: string, data: unknown): Promise<T> {
+  return (await http.delete<T>(url, { data })).data
+}
+
 /** 用户可见的统一错误文案：Error/ApiError 取 message；其余不把对象直接 String 给用户。 */
 export function errText(e: unknown, max = 140): string {
   let t = e instanceof Error ? e.message : typeof e === 'string' ? e : ''

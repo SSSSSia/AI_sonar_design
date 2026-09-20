@@ -22,6 +22,10 @@ export interface DesignSession {
   projectId: string
   /** 后端列表/详情回填（projects 同库只读 join）；项目被删悬空时为空 */
   projectName?: string | null
+  /** 会话选定的知识库 id（JSON 数组串；空 = Agent 自主决策，PHASE-006 D6-3） */
+  kbIds?: string | null
+  /** 后端回填的库名列表（kb_bases 同库只读 join；悬空引用容错只回填存在的库） */
+  kbNames?: string[] | null
   title: string
   pipelineStatus: PipelineStatusValue
   currentStage?: string | null

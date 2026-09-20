@@ -9,7 +9,13 @@ export function getSession(id: string) {
   return get<DesignSession>(`/workflow/sessions/${id}`)
 }
 
-export function createSession(body: { projectId: string; title: string; requirement: string }) {
+export function createSession(body: {
+  projectId: string
+  title: string
+  requirement: string
+  /** 知识库多选（PHASE-006）；不传/空数组 = Agent 自主决策模式 */
+  kbIds?: string[]
+}) {
   return post<DesignSession>('/workflow/sessions', body)
 }
 
