@@ -133,13 +133,16 @@ def echo_task(self, session_id: str, payload: str = "") -> dict:
 
 @shared_task(bind=True, name="sonarcad.a1", max_retries=TASK_MAX_RETRIES)
 def a1_task(self, session_id: str) -> dict:
-    """A1 需求解析：IR0 → IR1。重试语义：LLM/检索瞬时故障可重试（上限 A-13）。"""
+    """A1 需求解析：IR0 → IR1。重试语义：LLM/检索瞬时故障可重试（上限 A-13）。
+
+    PHASE-006 会话选库：kb_ids 非空 → 定向检索；空 → Agent 库路由自主圈定（依据留痕 IR1.kb_selection）。
+    """
     try:
         from agents.a1_requirement.agent import A1Agent
         from ir_contract import IrContractError
         from knowledge.service import get_knowledge_service
         from llm.adapter import llm_adapter
-        from storage import ir_store
+        from storage import ir_store, session_meta
 
         # 任务开始即标记阶段（运行中/失败归位正确，RETRY 按此重派）
         ir_store.update_stage(session_id, "A1")
@@ -147,14 +150,33 @@ def a1_task(self, session_id: str) -> dict:
         ir0 = ir_store.get_latest_snapshot(session_id, "IR0")
         if ir0 is None:
             raise RuntimeError(f"session {session_id} 缺少 IR0 快照，无法执行 A1")
-        _publish_log(session_id, "info", "A1 开始：读取 IR0，检索知识库并解析需求")
+        kb_ids = session_meta.get_kb_ids(session_id)
+        svc = get_knowledge_service()
+        if kb_ids:
+            _publish_log(session_id, "info", f"A1 开始：读取 IR0，检索选定知识库（{len(kb_ids)} 个）并解析需求")
+        else:
+            _publish_log(session_id, "info", "A1 开始：读取 IR0，检索知识库（未选库，Agent 自主圈定）并解析需求")
 
-        agent = A1Agent(llm=llm_adapter, kb_batch=get_knowledge_service().query_batch)
+        agent = A1Agent(llm=llm_adapter, kb_batch=svc.query_batch)
         try:
-            ir1 = agent.run(ir0)
+            ir1 = agent.run(ir0, kb_ids=kb_ids)
         except IrContractError as exc:
             # 契约失败不重试（重试也是同样输出）——如实失败
             raise RuntimeError(f"A1 输出未过 IR1 契约: {exc}") from exc
+
+        # 库选择留痕（A-02/A-16）：manual 用会话选定；auto 用路由依据（零命中兜底全部库）
+        if kb_ids:
+            ir1["kb_selection"] = {
+                "mode": "manual",
+                "bases": [{"kb_id": k, "kb_name": _kb_name(k), "hits": -1, "selected": True}
+                          for k in kb_ids],
+            }
+        else:
+            try:
+                sub_queries = ir1.get("sub_queries") or []
+                ir1["kb_selection"] = svc.route_bases(sub_queries)
+            except Exception as exc:
+                logger.warning("session %s 库路由失败（不阻塞管线，留痕缺失如实）: %s", session_id, exc)
 
         version = ir_store.save_snapshot(session_id, "IR1", ir1, created_by="A1")
         ir_store.update_stage(session_id, "A1")
@@ -167,6 +189,17 @@ def a1_task(self, session_id: str) -> dict:
         _publish_log(session_id, "error", f"A1 失败：{exc}")
         _fire_session_event(session_id, "FAIL")
         raise
+
+
+def _kb_name(kb_id: str) -> str:
+    """库名（留痕展示用）；查不到返回短 id，不阻塞管线。"""
+    try:
+        from storage import kb_store
+
+        base = kb_store.get_base(kb_id)
+        return base["name"] if base else kb_id[:8]
+    except Exception:
+        return kb_id[:8]
 
 
 @shared_task(bind=True, name="sonarcad.a2", max_retries=TASK_MAX_RETRIES)

@@ -108,7 +108,7 @@ class FakeMilvus:
         doc = filter.split('"')[1]
         return [k for k in self.rows if k.startswith(doc + ":")]
 
-    def search(self, name, data, limit, output_fields):
+    def search(self, name, data, limit, output_fields, filter=None):
         return [[{"entity": {**v}, "distance": 0.9} for k, v in list(self.rows.items())[:limit]]]
 
     def list_collections(self):
@@ -210,12 +210,13 @@ def test_build_one_degrades_layer_by_layer(kb_doc_env, monkeypatch):
     import kb.index_build as ib
 
     monkeypatch.setattr("kb.vector_store.ChunkVectorStore.available", lambda self: False)
+    monkeypatch.setattr("storage.neo4j_store.Neo4jStore.available", lambda self: False)
     monkeypatch.setattr(ib, "_refresh_text_corpus", lambda: 1)
 
     result = ib.build_one("d1")
     assert result["status"] == "indexed"
     assert "skipped: Milvus 不可用" == result["detail"]["vector"]
-    assert "skipped: 无 confirmed 抽取" in str(result["detail"]["graph"]) or "skipped" in str(result["detail"]["graph"])
+    assert "skipped: Neo4j 不可用" in str(result["detail"]["graph"])
 
 
 def test_build_one_all_layers_fail_honest(kb_doc_env, monkeypatch):
@@ -226,12 +227,11 @@ def test_build_one_all_layers_fail_honest(kb_doc_env, monkeypatch):
 
     monkeypatch.setattr("kb.vector_store.ChunkVectorStore.available", lambda self: False)
     monkeypatch.setattr(ib, "_refresh_text_corpus", boom)
-    monkeypatch.setattr(kb_doc_env and ib, "get_confirmed_extractions",
-                        lambda doc_id=None: (_ for _ in ()).throw(RuntimeError("neo4j 挂")),
-                        raising=False)
-    # 图谱层：confirmed 存在但 store 不可用
+    monkeypatch.setattr("storage.neo4j_store.Neo4jStore.available", lambda self: False)
+    # 图谱层：confirmed 存在但 store 不可用 → skipped；向量 skipped、语料 failed → 全层无产出
     result = ib.build_one("d1")
     assert result["status"] == "chunked"  # 全部层失败 → 状态如实回退，不伪造 indexed
+    assert "skipped: Neo4j 不可用" in str(result["detail"]["graph"])
 
 
 def test_incremental_default_only_processes_unindexed(kb_doc_env, monkeypatch):
@@ -282,7 +282,7 @@ def test_graph_level_hit_with_fake_neo4j(monkeypatch):
         def available(self):
             return True
 
-        def find_entities_matching(self, query, limit=5):
+        def find_entities_matching(self, query, limit=5, doc_ids=None, kb_ids=None):
             return [{"label": "DesignConstraint", "name": "外径限制",
                      "description": "外径≤27mm", "source_doc": "docX"}]
 
@@ -293,7 +293,7 @@ def test_graph_level_hit_with_fake_neo4j(monkeypatch):
     assert hit is not None
     content, refs = hit
     assert "外径限制" in content
-    assert refs[0] == {"doc_id": "docX", "location": "DesignConstraint:外径限制"}
+    assert refs[0].items() >= {"doc_id": "docX", "location": "DesignConstraint:外径限制"}.items()
 
 
 def test_match_terms_extracts_chinese_bigrams():

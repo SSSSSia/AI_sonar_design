@@ -206,13 +206,13 @@ class GraphRAGService:
             content, refs = self._search_text_scoped(query, doc_scope or [])
             if self.sdk is None and not degraded:
                 degraded.append("graphrag_sdk_unavailable")  # 如实交代为何直接落在文本级
-            return RetrievalResult(content, "text", degraded, refs)
+            return RetrievalResult(content, "text", degraded, _refs_with_kb(refs))
 
         if self.kb_text or self._dynamic_sources:
             if self.sdk is None and not degraded:
                 degraded.append("graphrag_sdk_unavailable")  # 如实交代为何直接落在文本级
             content, refs = self._search_text(query)
-            return RetrievalResult(content, "text", degraded, refs)
+            return RetrievalResult(content, "text", degraded, _refs_with_kb(refs))
 
         return RetrievalResult(
             "知识库不可用：GraphRAG SDK 未初始化且知识库文本未加载", "unavailable", degraded
@@ -260,7 +260,7 @@ class GraphRAGService:
              "location": f"{r.get('label', '?')}:{r.get('name', '?')}"}
             for r in rows
         ]
-        return content, refs
+        return content, _refs_with_kb(refs)
 
     def _try_milvus(self, query: str, doc_scope: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]]]]:
         from kb.embeddings import embed_texts
@@ -283,7 +283,7 @@ class GraphRAGService:
             {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
             for h in hits
         ]
-        return content, refs
+        return content, _refs_with_kb(refs)
 
     # ------------------------------------------------------------------
     # 批量查询（并发 + 逐条降级，A1 的 4~8 条子查询用）
@@ -483,3 +483,25 @@ def get_knowledge_service() -> GraphRAGService:
             enable_kb_levels=app_config.KB_RETRIEVAL_LEVELS.lower() in ("1", "true", "yes"),
         )
     return _service
+
+
+def _refs_with_kb(refs: list[dict[str, str]]) -> list[dict[str, str]]:
+    """PHASE-006 D6-7：refs 补 kb_id（doc 首个归属库；悬空/未归库留空串，前端容错）。
+
+    打库失败不阻塞检索（refs 原样返回，kb_id 缺失 = 前端显示"—"）。
+    """
+    if not refs:
+        return refs
+    try:
+        from storage import kb_store
+
+        doc_ids = list({r["doc_id"] for r in refs if r.get("doc_id")})
+        tags: dict[str, str] = {}
+        for doc_id in doc_ids:
+            bases = kb_store.doc_base_ids(doc_id)
+            if bases:
+                tags[doc_id] = bases[0]
+        return [dict(r, kb_id=tags.get(r.get("doc_id", ""))) for r in refs]
+    except Exception as exc:
+        logger.warning("refs 补 kb_id 失败（原样返回）: %s", exc)
+        return refs

@@ -68,15 +68,19 @@ class A1Agent:
         self._max_workers = max_workers
 
     # ------------------------------------------------------------------
-    def run(self, ir0: dict[str, Any]) -> dict[str, Any]:
-        """IR0 → IR1（已过契约校验）。"""
+    def run(self, ir0: dict[str, Any], kb_ids: list[str] | None = None) -> dict[str, Any]:
+        """IR0 → IR1（已过契约校验）。
+
+        kb_ids（PHASE-006）：会话选定知识库；None = 未限定（全库/Agent 路由语义由上层定）。
+        传给 kb_batch 时恒为列表（None 转全量语义 []，保持检索接口单形）。
+        """
         raw_text = ir0["raw_text"]
 
         plan = self._plan(raw_text)
         sub_queries = plan["sub_queries"]
         logger.info("A1 规划 %s 条子查询（llm=%s）", len(sub_queries), plan["source"])
 
-        retrieved = self._retrieve(sub_queries)
+        retrieved = self._retrieve(sub_queries, kb_ids if kb_ids is not None else None)
 
         ir1: dict[str, Any] = {
             "objectives": plan["objectives"],
@@ -145,17 +149,18 @@ class A1Agent:
     # ------------------------------------------------------------------
     # Step 2: 并行检索（kb_batch 注入；降级到串行，复刻旧执行策略）
     # ------------------------------------------------------------------
-    def _retrieve(self, sub_queries: list[str]) -> list[dict[str, Any]]:
+    def _retrieve(self, sub_queries: list[str], kb_ids: list[str] | None = None) -> list[dict[str, Any]]:
         if not sub_queries or self._kb_batch is None:
             return []
 
         def _one(q: str) -> dict[str, Any]:
             try:
-                r = self._kb_single(q)
+                r = self._kb_single(q, kb_ids)
                 return {
                     "doc_id": r["doc_id"],
                     "location": r["location"],
                     "snippet": r["snippet"][:2000],
+                    **({"kb_id": r["kb_id"]} if r.get("kb_id") else {}),
                 }
             except Exception as exc:
                 logger.warning("A1 子查询失败 q=%s: %s", q[:40], exc)
@@ -171,15 +176,25 @@ class A1Agent:
             logger.warning("A1 并行检索失败，降级串行: %s", exc)
             return [_one(q) for q in sub_queries]
 
-    def _kb_single(self, query: str) -> dict[str, str]:
+    def _kb_single(self, query: str, kb_ids: list[str] | None = None) -> dict[str, str]:
         """单条检索。批量接口可用时走批（保持返回对齐），否则逐条。"""
         if self._kb_batch is None:
             raise RuntimeError("kb 不可用")
-        result = self._kb_batch([query])[0]
+        if kb_ids is not None and kb_ids:
+            results = self._kb_batch([query], kb_ids)
+        elif kb_ids is not None:
+            # 空列表 = "全部库"范围语义（knowledge.query 的 scoped 分支）
+            results = self._kb_batch([query], [])
+        else:
+            results = self._kb_batch([query])
+        result = results[0]
         refs = getattr(result, "refs", []) or []
         ref = refs[0] if refs else {}
-        return {
+        out = {
             "doc_id": ref.get("doc_id", "knowledge-base"),
             "location": ref.get("location", "unknown"),
             "snippet": result.content,
         }
+        if ref.get("kb_id"):
+            out["kb_id"] = ref["kb_id"]
+        return out

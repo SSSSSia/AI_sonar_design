@@ -91,6 +91,7 @@ def test_formula_unresolvable_source_ref_is_info_not_error():
     """无法定位注册公式的 formula 参数：info 请人工复核，不硬失败（注册表会增长）。"""
     params = _good_params()
     params[2]["source_ref"] = "自定义手册#某公式"
+    params[2]["name"] = "自定义指标"  # 避开 kb_formulas 现网行名（环境耦合：名称精确匹配会命中真库公式）
     ir4 = A4Agent().run(_ir2(params), _ir3())
     assert _severity(ir4["issues"], "CHK-FORMULA-RECOMPUTE") == ["info"]
     assert ir4["overall"] == "pass"
