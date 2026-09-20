@@ -39,11 +39,13 @@ public class ReviewService {
     private final SessionService sessionService;
     private final TaskPublisher taskPublisher;
     private final KnowledgeWritebackClient writebackClient;
+    private final UserLookupMapper userLookupMapper;
 
     public ReviewService(DesignSessionMapper sessionMapper, IrSnapshotMapper irSnapshotMapper,
                          ReviewRecordMapper reviewRecordMapper, TraceChainMapper traceChainMapper,
                          SessionService sessionService,
-                         TaskPublisher taskPublisher, KnowledgeWritebackClient writebackClient) {
+                         TaskPublisher taskPublisher, KnowledgeWritebackClient writebackClient,
+                         UserLookupMapper userLookupMapper) {
         this.sessionMapper = sessionMapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.reviewRecordMapper = reviewRecordMapper;
@@ -51,6 +53,7 @@ public class ReviewService {
         this.sessionService = sessionService;
         this.taskPublisher = taskPublisher;
         this.writebackClient = writebackClient;
+        this.userLookupMapper = userLookupMapper;
     }
 
     /** 裁决入口。gate ∈ gate1|gate2|knowledge；decision ∈ approved|rejected。 */
@@ -239,6 +242,24 @@ public class ReviewService {
         return reviewRecordMapper.selectList(new LambdaQueryWrapper<ReviewRecordEntity>()
                 .eq(ReviewRecordEntity::getSessionId, sessionId)
                 .orderByDesc(ReviewRecordEntity::getDecidedAt));
+    }
+
+    /** reviewer UUID(归一化去横线小写) → username（裁决历史展示实际操作者，2026-09-20 用户反馈）。 */
+    public Map<String, String> reviewerNames(List<ReviewRecordEntity> records) {
+        List<String> ids = records.stream()
+                .map(ReviewRecordEntity::getReviewerId)
+                .filter(id -> id != null && id.matches("[0-9a-fA-F-]{32,36}"))
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<String, String> byId = new LinkedHashMap<>();
+        for (UserLookupEntity r : userLookupMapper.selectList(
+                new LambdaQueryWrapper<UserLookupEntity>()
+                        .in(UserLookupEntity::getId, ids)
+                        .select(UserLookupEntity::getId, UserLookupEntity::getUsername))) {
+            byId.put(r.getId().replace("-", "").toLowerCase(), r.getUsername());
+        }
+        return byId;
     }
 
     // ------------------------------------------------------------------

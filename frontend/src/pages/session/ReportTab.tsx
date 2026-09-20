@@ -105,6 +105,7 @@ export function ReportTab({
                   ? '管线已完成，知识沉淀确认可随时补做（完成前未确认的候选不会自动入图）'
                   : '知识审阅关（A-10）：未经人工确认不会写入图谱；重复项不静默覆盖。'
               }
+              description="沉淀作用：过审方案提炼为知识（参数关系 / 设计案例 / 约束经验）写入图谱后，后续会话的 A1 检索与 A2 参数参考即可复用——系统随使用积累越用越准。"
               style={{ marginBottom: 10 }}
             />
             {knowledgePending && allDuplicates && (
@@ -149,6 +150,10 @@ export function ReportTab({
             columns={[
               { title: '审阅关', dataIndex: 'gate', width: 110, render: (v) => gateLabel(v) },
               { title: '裁决', dataIndex: 'decision', width: 90, render: (v) => <Tag color={v === 'approved' ? 'success' : 'error'}>{v === 'approved' ? '批准' : '驳回'}</Tag> },
+              {
+                title: '审阅人', key: 'reviewer', width: 110,
+                render: (_, r) => <span style={{ fontSize: 12 }}>{r.reviewer_name || (r.reviewer_id ? `${r.reviewer_id.slice(0, 8)}…` : '—')}</span>,
+              },
               { title: '批注', key: 'a', render: (_, r) => <ReviewAnnotation record={r} /> },
               { title: '时间', dataIndex: 'decided_at', width: 170, render: (v) => <span style={{ fontSize: 12 }}>{String(v).replace('T', ' ').slice(0, 19)}</span> },
             ]}

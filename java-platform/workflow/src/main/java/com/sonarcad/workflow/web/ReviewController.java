@@ -45,14 +45,22 @@ public class ReviewController {
     @GetMapping
     @PreAuthorize("hasAnyRole('admin','designer','reviewer','viewer')")
     public ApiResponse<List<Map<String, Object>>> list(@PathVariable String sid) {
-        List<Map<String, Object>> rows = reviewService.list(sid).stream().map(r -> Map.<String, Object>of(
-                "id", r.getId(),
-                "gate", r.getGate(),
-                "decision", r.getDecision(),
-                "ir_snapshot_id", r.getIrSnapshotId() == null ? "" : r.getIrSnapshotId(),
-                "annotations", r.getAnnotations() == null ? "" : r.getAnnotations(),
-                "reviewer_id", r.getReviewerId() == null ? "" : r.getReviewerId(),
-                "decided_at", String.valueOf(r.getDecidedAt()))).toList();
+        List<ReviewRecordEntity> records = reviewService.list(sid);
+        Map<String, String> names = reviewService.reviewerNames(records);
+        List<Map<String, Object>> rows = records.stream().map(r -> {
+            String reviewerId = r.getReviewerId() == null ? "" : r.getReviewerId();
+            String reviewerName = names.get(reviewerId.replace("-", "").toLowerCase());
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("id", r.getId());
+            row.put("gate", r.getGate());
+            row.put("decision", r.getDecision());
+            row.put("ir_snapshot_id", r.getIrSnapshotId() == null ? "" : r.getIrSnapshotId());
+            row.put("annotations", r.getAnnotations() == null ? "" : r.getAnnotations());
+            row.put("reviewer_id", reviewerId);
+            row.put("reviewer_name", reviewerName == null ? "" : reviewerName);
+            row.put("decided_at", String.valueOf(r.getDecidedAt()));
+            return row;
+        }).toList();
         return ApiResponse.ok(rows);
     }
 }

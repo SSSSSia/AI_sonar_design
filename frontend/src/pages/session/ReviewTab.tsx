@@ -256,6 +256,10 @@ function ReviewTable({ records }: { records: ReviewRecord[] }) {
   const columns: ColumnsType<ReviewRecord> = [
     { title: '审阅关', dataIndex: 'gate', width: 100, render: (v) => gateLabel(v) },
     { title: '裁决', dataIndex: 'decision', width: 90, render: (v) => <Tag color={v === 'approved' ? 'success' : 'error'}>{v === 'approved' ? '批准' : '驳回'}</Tag> },
+    {
+      title: '审阅人', key: 'reviewer', width: 110,
+      render: (_, r) => <span style={{ fontSize: 12 }}>{r.reviewer_name || (r.reviewer_id ? `${r.reviewer_id.slice(0, 8)}…` : '—')}</span>,
+    },
     { title: '批注', key: 'annotations', render: (_, r) => <ReviewAnnotation record={r} /> },
     { title: '时间', dataIndex: 'decided_at', width: 170, render: (v) => <span style={{ fontSize: 12 }}>{String(v).replace('T', ' ').slice(0, 19)}</span> },
   ]

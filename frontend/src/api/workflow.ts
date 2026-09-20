@@ -98,6 +98,8 @@ export interface ReviewRecord {
   ir_snapshot_id?: string
   annotations: unknown[]
   reviewer_id?: string
+  /** 实际操作者用户名（后端 join users；历史缺失时前端回退短 id） */
+  reviewer_name?: string
   decided_at: string
 }
 

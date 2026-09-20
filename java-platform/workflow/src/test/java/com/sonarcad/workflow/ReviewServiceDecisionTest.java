@@ -43,7 +43,8 @@ class ReviewServiceDecisionTest {
         writebackClient = mock(KnowledgeWritebackClient.class);
         traceChainMapper = mock(com.sonarcad.workflow.session.TraceChainMapper.class);
         service = new ReviewService(sessionMapper, irSnapshotMapper, reviewRecordMapper,
-                traceChainMapper, sessionService, taskPublisher, writebackClient);
+                traceChainMapper, sessionService, taskPublisher, writebackClient,
+                mock(com.sonarcad.workflow.session.UserLookupMapper.class));
     }
 
     private DesignSessionEntity session(String status, String stage) {
