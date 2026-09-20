@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Alert, Card, Tag, Typography } from 'antd'
 import dayjs from 'dayjs'
-import type { Ir1 } from '../../api/workflow'
+import type { Ir1, KbSelection } from '../../api/workflow'
 import { useLogStore } from '../../stores/logStore'
 import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
 
@@ -75,15 +75,128 @@ function SubQueriesCard({ subQueries }: { subQueries: string[] }) {
   )
 }
 
-/** 总览页签：实时日志 + IR 快照版本条 + IR1 目标摘要 + 缺失项如实展示。 */
+/** PHASE-006 D6-3/D6-7：库选择与命中聚合纯函数（可单测）。 */
+export interface KbHitGroup {
+  kbKey: string
+  kbName: string
+  selected: boolean
+  hits: number
+  hitRefs: { doc_id: string; location: string }[]
+  hitDocs: number
+}
+export function kbHitSummary(ir1: Ir1 | null, sessionKbNames?: string[] | null): {
+  mode: 'manual' | 'auto' | 'unknown'
+  fallbackAll: boolean
+  groups: KbHitGroup[]
+} {
+  const sel: KbSelection | undefined = ir1?.kb_selection
+  const refs = ir1?.retrieved_context ?? []
+  if (!sel || !sel.bases?.length) {
+    // 旧快照无留痕：用会话回填的库名兜底展示"选定库"，命中一律未知
+    const names = sessionKbNames?.length
+      ? sessionKbNames.map((n, i) => ({
+          kbKey: `name-${i}`, kbName: n, selected: true, hits: -1, hitRefs: [], hitDocs: 0,
+        }))
+      : []
+    const grouped = refs.length > 0 && !sessionKbNames?.length
+      ? [{ kbKey: 'all', kbName: '全部知识库', selected: true, hits: refs.length,
+           hitRefs: refs.map((r) => ({ doc_id: r.doc_id, location: r.location })), hitDocs: new Set(refs.map((r) => r.doc_id)).size }]
+      : names
+    return { mode: 'unknown', fallbackAll: false, groups: grouped }
+  }
+  const byKb = new Map<string, { doc_id: string; location: string }[]>()
+  for (const r of refs) {
+    const key = r.kb_id ?? 'unknown'
+    const arr = byKb.get(key) ?? []
+    arr.push({ doc_id: r.doc_id, location: r.location })
+    byKb.set(key, arr)
+  }
+  const groups = sel.bases
+    .filter((b) => b.selected)
+    .map((b) => {
+      const hitRefs = byKb.get(b.kb_id) ?? []
+      return {
+        kbKey: b.kb_id, kbName: b.kb_name, selected: b.selected, hits: b.hits,
+        hitRefs, hitDocs: new Set(hitRefs.map((r) => r.doc_id)).size,
+      }
+    })
+  // 引用没打上 kb_id（旧链路）：挂到"未标注"组
+  const unknownRefs = byKb.get('unknown')
+  if (unknownRefs?.length) {
+    groups.push({ kbKey: 'unknown', kbName: '未标注来源库', selected: true, hits: -1, hitRefs: unknownRefs, hitDocs: new Set(unknownRefs.map((r) => r.doc_id)).size })
+  }
+  return { mode: sel.mode, fallbackAll: !!sel.fallback_all, groups }
+}
+
+/** 知识检索卡片（PHASE-006）：检索模式 + 选定库依据 + 实际命中（库 → 文档明细可展开）。 */
+function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sessionKbNames?: string[] | null }) {
+  const summary = kbHitSummary(ir1, sessionKbNames)
+  if (!ir1 || summary.groups.length === 0) {
+    return (
+      <Card title="知识检索" size="small">
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {ir1 ? '知识库选择与命中信息尚未生成（A1 完成后显示）。' : 'A1 完成后展示本次使用的知识库与命中明细。'}
+        </Typography.Text>
+      </Card>
+    )
+  }
+  return (
+    <Card title="知识检索" size="small">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {summary.fallbackAll && (
+          <div style={{ borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
+            Agent 在各知识库均未发现相关内容，已回退到全部知识库检索（如实标注）。
+          </div>
+        )}
+        <div style={{ fontSize: 11.5, color: '#8b949e' }}>
+          {summary.mode === 'auto' ? 'Agent 根据需求自动圈定' : summary.mode === 'manual' ? '创建会话时人工选定' : '选定知识库'}
+          {' · '}命中 {ir1.retrieved_context.length} 条
+        </div>
+        {summary.groups.map((g) => (
+          <div key={g.kbKey}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <Typography.Text strong style={{ fontSize: 12.5 }}>{g.kbName}</Typography.Text>
+              <span style={{ fontSize: 11, color: '#8b949e' }}>
+                {g.hitRefs.length > 0
+                  ? `命中 ${g.hitRefs.length} 条 · 涉及 ${g.hitDocs} 份文档`
+                  : summary.mode === 'auto' && g.hits > 0
+                    ? `探测相关（${g.hits} 条候选）但本次未命中`
+                    : '本次无命中'}
+              </span>
+            </div>
+            {g.hitRefs.length > 0 && (
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#57606a' }}>
+                {Object.entries(
+                  g.hitRefs.reduce<Record<string, string[]>>((acc, r) => {
+                    ;(acc[r.doc_id] = acc[r.doc_id] ?? []).push(r.location)
+                    return acc
+                  }, {}),
+                ).map(([docId, locs]) => (
+                  <li key={docId} style={{ lineHeight: 1.7 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#8b949e' }}>{docId.slice(0, 10)}</span>{' '}
+                    {locs.slice(0, 3).join(' / ')}{locs.length > 3 ? ` 等 ${locs.length} 处` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+/** 总览页签：实时日志 + IR 快照版本条 + 知识检索 + IR1 目标摘要 + 缺失项如实展示。 */
 export function OverviewTab({
   sessionId,
   ir1,
   versions,
+  sessionKbNames,
 }: {
   sessionId: string
   ir1: Ir1 | null
   versions: { IR1?: number; IR2?: number; IR3?: number; IR4?: number; IR5?: number }
+  sessionKbNames?: string[] | null
 }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(260px,1fr)', gap: 16 }}>
@@ -101,6 +214,7 @@ export function OverviewTab({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <KnowledgeRetrievalCard ir1={ir1} sessionKbNames={sessionKbNames} />
         <Card title="IR 快照" extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>不可变 · A-12</Typography.Text>} size="small">
           {[
             { k: 'IR1 设计目标', v: versions.IR1 },

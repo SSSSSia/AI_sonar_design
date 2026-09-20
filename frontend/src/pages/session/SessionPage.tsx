@@ -153,6 +153,7 @@ export default function SessionPage() {
               <OverviewTab
                 sessionId={session.id}
                 ir1={ir1Data}
+                sessionKbNames={session.kbNames}
                 versions={{ IR1: ir1.data?.version, IR2: ir2.data?.version, IR3: ir3.data?.version, IR4: ir4.data?.version, IR5: ir5.data?.version }}
               />
             ),
