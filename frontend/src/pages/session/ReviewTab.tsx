@@ -3,7 +3,9 @@ import {
   Alert, App as AntdApp, Button, Card, Input, Modal, Radio, Space, Table, Tag, Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { postReview, type Ir1, type Ir2, type Ir2Param, type Ir4, type ReviewRecord } from '../../api/workflow'
+import {
+  postReview, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
+} from '../../api/workflow'
 import { ApiError } from '../../api/client'
 import { ParamTable, parseKbRef } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
@@ -30,6 +32,7 @@ export function ReviewTab({
   paused,
   ir1,
   ir2,
+  ir3,
   ir4,
   reviews,
   onGoReport,
@@ -40,6 +43,7 @@ export function ReviewTab({
   paused: boolean
   ir1: Ir1 | null
   ir2: Ir2 | null
+  ir3: Ir3 | null
   ir4: Ir4 | null
   reviews: ReviewRecord[]
   onGoReport?: () => void
@@ -200,6 +204,8 @@ export function ReviewTab({
         <Card size="small"><Typography.Text type="secondary">IR2 尚未生成</Typography.Text></Card>
       )}
 
+      {ir3 && <Ir3Card ir3={ir3} params={params(ir2 ?? { design_document: '', parameters: [] })} />}
+
       {gate && (
         <Card
           title="裁决"
@@ -264,6 +270,108 @@ export function ReviewTab({
 
 function params(ir2: Ir2): Ir2Param[] {
   return ir2.parameters ?? []
+}
+
+// ---- IR3 建模产物卡（PHASE-007 T7.5，呈现实测分段与参数联动）----
+function fmtMm(v: number): string {
+  return v.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
+}
+
+function fmtVol(v: number): string {
+  if (v >= 1e6) return `${(v / 1e6).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} L`
+  return `${(v / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} cm³`
+}
+
+function geomSummary(f: Ir3Feature): string {
+  const b = f.geometry.bbox_mm
+  if (!Array.isArray(b) || b.length !== 3) return '—'
+  const [dx, dy, dz] = b
+  const round = typeof dx === 'number' && typeof dy === 'number'
+    && Math.abs(dx - dy) / Math.max(dx, dy, 1e-9) < 0.02
+  const dims = round
+    ? `Ø${fmtMm(dx ?? 0)} × ${fmtMm(dz ?? 0)}`
+    : `${fmtMm(dx ?? 0)} × ${fmtMm(dy ?? 0)} × ${fmtMm(dz ?? 0)}`
+  const vol = f.geometry.volume_mm3
+  const volStr = typeof vol === 'number' && vol > 0 ? ` · ${fmtVol(vol)}` : ''
+  return `${dims} mm${volStr}`
+}
+
+function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
+  const summary = ir3.geometry_summary
+  const paramMap = new Map(params.map((p) => [p.id, p]))
+  const hasMeasured = (f: Ir3Feature) => Array.isArray(f.geometry.bbox_mm)
+
+  const columns: ColumnsType<Ir3Feature> = [
+    { title: '特征', dataIndex: 'feature_id', width: 90, render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+    { title: '所属段', dataIndex: 'segment', width: 90, render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+    { title: '几何摘要', key: 'geom', render: (_, f) => <span style={{ fontSize: 12.5 }}>{geomSummary(f)}</span> },
+    {
+      title: '联动参数', key: 'linked',
+      render: (_, f) => {
+        if (!f.linked_param_id) return <Typography.Text type="secondary" style={{ fontSize: 12 }}>—（未联动）</Typography.Text>
+        const p = paramMap.get(f.linked_param_id)
+        return (
+          <span style={{ fontSize: 12.5 }}>
+            <span style={{ fontFamily: 'monospace' }}>{f.linked_param_id}</span>
+            {p ? ` ${p.name}` : ''}
+          </span>
+        )
+      },
+    },
+  ]
+
+  return (
+    <Card
+      title="IR3 建模产物"
+      size="small"
+      extra={
+        summary?.source === 'extraction_failed'
+          ? <Tag color="warning">提取未成功</Tag>
+          : summary?.source === 'extracted'
+            ? <Tag color="success">实测提取</Tag>
+            : undefined
+      }
+      styles={{ body: { padding: 0 } }}
+    >
+      {summary?.source === 'extraction_failed' ? (
+        <div style={{ padding: '12px 16px' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="几何提取未成功，无实测特征"
+            description={summary.detail || '本轮 A4 仅完成引用完整性校验。'}
+          />
+        </div>
+      ) : ir3.features.length > 0 && !hasMeasured(ir3.features[0]) ? (
+        <div style={{ padding: '12px 16px' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="旧版本快照：特征未携带实测几何数值"
+            description="本会话生成于几何特征真实化（PHASE-007）之前，仅记录参数镜像，无数值校验物。"
+          />
+        </div>
+      ) : (
+        <>
+          <Table
+            rowKey="feature_id"
+            size="small"
+            dataSource={ir3.features}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: '无特征（降级产物）' }}
+          />
+          {summary?.source === 'extracted' && summary.bbox_mm && (
+            <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f0f0', fontSize: 12.5, color: '#595959' }}>
+              整体：{summary.part_count ?? '—'} 段 · 总包围盒{' '}
+              {summary.bbox_mm.map((v) => fmtMm(v)).join(' × ')} mm
+              {typeof summary.volume_mm3 === 'number' && summary.volume_mm3 > 0 ? ` · ${fmtVol(summary.volume_mm3)}` : ''}
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  )
 }
 
 function ReviewTable({ records }: { records: ReviewRecord[] }) {

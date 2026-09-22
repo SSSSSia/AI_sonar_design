@@ -21,18 +21,19 @@
 
 - 单位一律 mm / mm³（STEP 默认单位制）；center_mm 为该段包围盒中心；
   parts 按最长轴坐标升序（index 1 = 轴向起点）。
-- 分段三级降级（取第一个产出 >1 段的结果，全部失败兜底整体单段，meta.segmentation 如实记录）：
-  1. connected_components：连通体拆分（face 邻接 + 并查集，纯 numpy——不依赖 trimesh
-     图引擎的 scipy/networkx 可选依赖），对未融合多体模型有效；
-  2. radius_profile：半径剖面分段——面质心按最长轴分 bin 取半径中位数，相邻有效观测的
-     半径变化超过 max(5% 参考半径, 2×镶嵌容差) 时，在两观测 bin 中心的中点切分
-     （圆柱面镶嵌的质心只出现在每段 1/3、2/3 高度，观测间隙的中点恰为真实变径交接面）；
-     端盖面（|法向·轴| ≥ 0.9）不参与剖面，避免端部伪切分；碎片段（体积 < 1% 总体积）
-     并入轴向邻段；
-  3. fallback_single：整体作为单段（诚实降级；整体 bbox vs 全长类参数的校验价值仍在）。
-- 分段体积：面片有符号四面体和（按质心归段，总和与整体严格守恒）＋ 切面虚拟封盖修正
-  ±(1/3)·c·A——被切开的段在切面处缺盖，盖项用 c+δ 截面有向面积补齐（穿越三角形定向弦
-  求和，弦方向规则保证绕向一致、环形截面内孔自动负值抵消；纯 numpy，零额外依赖，精确）。
+- 提取策略（2026-09-22 实测 3MB / 67-solid 真实模型：纯网格路径 65s 超时）：
+  1. 多体（solids > 1）→ connected_components：逐 solid 取 OCCT B-rep 精确性质
+     （Volume / BoundingBox，零镶嵌，实测 5.5s；extractor=cadquery-occt/brep）；
+  2. 单体 → radius_profile：镶嵌 + trimesh，面质心按最长轴分 bin 取半径中位数，
+     相邻有效观测的半径变化超过 max(5% 参考半径, 2×镶嵌容差) 时，在两观测 bin 中心的
+     中点切分（圆柱面镶嵌的质心只出现在每段 1/3、2/3 高度，观测间隙的中点恰为真实
+     变径交接面）；端盖面（|法向·轴| ≥ 0.9）不参与剖面，避免端部伪切分；碎片段
+     （体积 < 1% 总体积）并入轴向邻段；
+  3. 兜底 fallback_single：整体作为单段（诚实降级；整体 bbox vs 全长类参数的校验价值仍在）。
+- 分段体积：B-rep 路径为 OCCT 精确体积；网格路径为面片有符号四面体和（按质心归段，
+  总和与整体严格守恒）＋ 切面虚拟封盖修正 ±(1/3)·c·A——被切开的段在切面处缺盖，
+  盖项用 c+δ 截面有向面积补齐（穿越三角形定向弦求和，弦方向规则保证绕向一致、
+  环形截面内孔自动负值抵消；纯 numpy，零额外依赖，精确）。
 - 失败绝不抛异常：CLI 捕获一切异常写 {"ok": false, "error": ...}，退出码 1（A-16 如实降级）。
 - 本模块对项目内零依赖（只 import cadquery/trimesh/numpy/stdlib），保证可独立子进程运行。
 """
@@ -47,44 +48,59 @@ import tempfile
 import time
 from pathlib import Path
 
-EXTRACTOR = "cadquery-occt/trimesh"
+EXTRACTOR_BREP = "cadquery-occt/brep"
+EXTRACTOR_MESH = "cadquery-occt/trimesh"
 
 
 # ------------------------------------------------------------------------------
 def inspect_step(step_bytes: bytes) -> dict:
-    """STEP 字节 → 实测几何 JSON（契约见模块 docstring）。任何失败返回 {"ok": false}，不抛异常。"""
+    """STEP 字节 → 实测几何 JSON（契约见模块 docstring）。任何失败返回 {"ok": false}，不抛异常。
+
+    提取策略（2026-09-22 实测 3MB/67-solid 真实模型：网格路径 65s 超时，B-rep 路径 5.5s）：
+    - 多体（solids > 1）：直接取 OCCT B-rep 精确性质（Volume / BoundingBox，零镶嵌）；
+    - 单体 / 无 solid：镶嵌 + trimesh 半径剖面（单体融合回转体的分段仍需网格剖面）。
+    """
     started = time.perf_counter()
     tmp_path: str | None = None
     try:
         import cadquery as cq  # 延迟导入：OCP 重依赖只在提取时加载
-        import trimesh
 
         fd, tmp_path = tempfile.mkstemp(suffix=".step", prefix="geo_inspect_")
         with os.fdopen(fd, "wb") as f:
             f.write(step_bytes)
         shape = cq.importers.importStep(tmp_path).val()
         bb = shape.BoundingBox()
-        diag = math.sqrt(bb.xlen ** 2 + bb.ylen ** 2 + bb.zlen ** 2) or 1000.0
-        tol = max(1.0, diag * 0.0003)  # 镶嵌容差与 convert_worker 同口径
-        verts, tris = shape.tessellate(tol)
-        mesh = trimesh.Trimesh(
-            vertices=[(v.x, v.y, v.z) for v in verts], faces=list(tris), process=True
-        )
-        if len(mesh.faces) == 0:
-            return {"ok": False, "error": "镶嵌结果为空网格"}
+        overall_bbox = [float(bb.xlen), float(bb.ylen), float(bb.zlen)]
+        diag = math.sqrt(sum(v * v for v in overall_bbox)) or 1000.0
+        tol = max(1.0, diag * 0.0003)  # 镶嵌容差与 convert_worker 同口径（仅网格路径用）
 
-        parts, method = _segment(mesh, tol)
-        b0, b1 = mesh.bounds
+        try:
+            solids = shape.Solids()
+        except Exception:
+            solids = []
+
+        if len(solids) > 1:
+            parts = _parts_from_brep_solids(solids)
+            method = "connected_components"
+            extractor = EXTRACTOR_BREP
+            overall_volume = sum(p["volume_mm3"] for p in parts)
+        else:
+            parts, method, overall_bbox, overall_volume = _segment_by_mesh(shape, tol)
+            extractor = EXTRACTOR_MESH
+
+        if not parts:
+            return {"ok": False, "error": "无可用几何实体（solids 为空且镶嵌结果为空网格）"}
+
         return {
             "ok": True,
             "overall": {
-                "bbox_mm": [round(float(x), 4) for x in (b1 - b0)],
-                "volume_mm3": round(abs(float(mesh.volume)), 3),
+                "bbox_mm": [round(v, 4) for v in overall_bbox],
+                "volume_mm3": round(float(overall_volume), 3),
                 "part_count": len(parts),
             },
-            "parts": parts,
+            "parts": _finalize(parts, overall_bbox),
             "meta": {
-                "extractor": EXTRACTOR,
+                "extractor": extractor,
                 "tolerance_mm": round(tol, 4),
                 "elapsed_s": round(time.perf_counter() - started, 3),
                 "segmentation": method,
@@ -98,6 +114,40 @@ def inspect_step(step_bytes: bytes) -> dict:
                 os.remove(tmp_path)
             except OSError:
                 pass
+
+
+def _parts_from_brep_solids(solids) -> list[dict]:
+    """多体模型逐 solid 取 B-rep 精确性质（OCCT GProp，无镶嵌）：体积精确、
+    bbox 为 OCCT 快速包围盒（含 ~0.1mm 容差膨胀，远小于 A4 的 2% 容差口径）。"""
+    parts: list[dict] = []
+    for s in solids:
+        try:
+            bb = s.BoundingBox()
+            vol = abs(float(s.Volume()))
+        except Exception:
+            continue  # 单个 solid 性质失败如实跳过，不影响其余
+        parts.append(_make_part(
+            (bb.xlen, bb.ylen, bb.zlen),
+            ((bb.xmin + bb.xmax) / 2.0, (bb.ymin + bb.ymax) / 2.0, (bb.zmin + bb.zmax) / 2.0),
+            vol,
+        ))
+    return parts
+
+
+def _segment_by_mesh(shape, tol: float) -> tuple[list[dict], str, list[float], float]:
+    """网格路径（单体/无 solid）：镶嵌 → trimesh → 三级降级分段。"""
+    import trimesh
+
+    verts, tris = shape.tessellate(tol)
+    mesh = trimesh.Trimesh(
+        vertices=[(v.x, v.y, v.z) for v in verts], faces=list(tris), process=True
+    )
+    if len(mesh.faces) == 0:
+        return [], "fallback_single", [0.0, 0.0, 0.0], 0.0
+    parts, method = _segment(mesh, tol)
+    b0, b1 = mesh.bounds
+    overall_bbox = [float(v) for v in (b1 - b0)]
+    return parts, method, overall_bbox, abs(float(mesh.volume))
 
 
 # ------------------------------------------------------------------------------
@@ -149,7 +199,7 @@ def _segment(mesh, tol: float) -> tuple[list[dict], str]:
             continue  # 镶嵌碎片
         parts.append(_part_from_mesh(comp))
     if len(parts) > 1:
-        return _finalize(parts, mesh), "connected_components"
+        return _finalize(parts, [float(v) for v in (mesh.bounds[1] - mesh.bounds[0])]), "connected_components"
 
     # 2) 半径剖面分段（融合单 solid 的同轴变径回转体）
     b0 = mesh.bounds[0]
@@ -160,7 +210,7 @@ def _segment(mesh, tol: float) -> tuple[list[dict], str]:
         segs, cuts = _assign_and_merge(mesh, axis, cuts)
         if len(segs) > 1:
             parts = _parts_by_cuts(mesh, axis, segs, cuts)
-            return _finalize(parts, mesh), "radius_profile"
+            return _finalize(parts, [float(v) for v in (mesh.bounds[1] - mesh.bounds[0])]), "radius_profile"
 
     # 3) 兜底整体单段
     return _finalize([_part_from_mesh(mesh)]), "fallback_single"
@@ -352,12 +402,12 @@ def _make_part(bbox_mm, center_mm, volume_mm3) -> dict:
     }
 
 
-def _finalize(parts: list[dict], mesh=None) -> list[dict]:
+def _finalize(parts: list[dict], overall_bbox: list[float] | None = None) -> list[dict]:
     """按最长轴坐标升序定序并编号（index 1 = 轴向起点）。"""
     import numpy as np
 
-    if mesh is not None:
-        axis = int(np.argmax(mesh.bounds[1] - mesh.bounds[0]))
+    if overall_bbox:
+        axis = int(np.argmax(overall_bbox))
         parts = sorted(parts, key=lambda p: p["center_mm"][axis])
     return [
         {"index": i, "center_mm": p["center_mm"], "bbox_mm": p["bbox_mm"], "volume_mm3": p["volume_mm3"]}

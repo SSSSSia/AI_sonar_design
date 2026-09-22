@@ -52,10 +52,32 @@ export interface Ir2 {
 }
 
 // ---- IR3 ----
+/** 几何摘要（PHASE-007 T7.1；旧快照无此字段） */
+export interface Ir3GeometrySummary {
+  source: 'extracted' | 'extraction_failed'
+  bbox_mm?: number[]
+  volume_mm3?: number
+  part_count?: number
+  detail?: string
+}
+export interface Ir3Feature {
+  feature_id: string
+  segment: string
+  geometry: {
+    bbox_mm?: number[]
+    volume_mm3?: number
+    center_mm?: number[]
+    linked_dim?: 0 | 1 | 2
+    [key: string]: unknown
+  }
+  /** null=实测未联动（PHASE-007 放宽，A-16）；旧快照为非空字符串 */
+  linked_param_id: string | null
+}
 export interface Ir3 {
   cadquery_script: string
   step_file: { bucket: string; object_key: string }
-  features: { feature_id: string; segment: string; geometry: Record<string, unknown>; linked_param_id: string }[]
+  features: Ir3Feature[]
+  geometry_summary?: Ir3GeometrySummary
 }
 
 // ---- IR4 ----

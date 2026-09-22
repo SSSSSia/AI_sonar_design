@@ -204,6 +204,21 @@ def test_towed_array_full_chain(stack):
     assert shape.val().Volume() > 0
     tmp.unlink()
 
+    # 6.5 PHASE-007（T7.5 验收 3）：IR3 特征真实化 + A4 数值复核断言
+    summary = contents["IR3"].get("geometry_summary") or {}
+    assert summary.get("source") == "extracted", f"IR3 非实测提取: {summary}"
+    feats = contents["IR3"]["features"]
+    assert len(feats) >= 1 and summary.get("part_count") == len(feats), \
+        f"features 数应等于实测段数: part_count={summary.get('part_count')} features={len(feats)}"
+    assert any(f.get("linked_param_id") for f in feats), "至少一个长度类参数应自动联动"
+    r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/irs/IR4", headers=headers, timeout=10)
+    assert r.status_code == 200, f"IR4 快照缺失: {r.text}"
+    ir4 = r.json()["data"]["content"]
+    ir4 = ir4 if isinstance(ir4, dict) else json.loads(ir4)
+    codes = [i["constraint_id"] for i in ir4["issues"]]
+    assert "CHK-GEO-NUM" in codes, f"IR4 缺少数值复核条目: {codes}"
+    assert "CHK-GEO-NUM-SKIP" not in codes, "新会话不得命中数值复核跳过分支"
+
     # 7. 会话 stage=A5（管线走满五棒：A3 之后 A4 校验、gate2 批准、A5 沉淀）
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
     assert r.json()["data"]["currentStage"] == "A5"

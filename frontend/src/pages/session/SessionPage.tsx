@@ -168,6 +168,7 @@ export default function SessionPage() {
                 paused={session.pipelineStatus === 'paused'}
                 ir1={ir1Data}
                 ir2={ir2Data}
+                ir3={ir3Data}
                 ir4={ir4Data}
                 reviews={reviewsQuery.data ?? []}
                 onGoReport={() => setActiveTab('report')}

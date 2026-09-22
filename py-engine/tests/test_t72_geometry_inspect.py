@@ -53,16 +53,17 @@ def test_two_bodies_connected_components(tmp_path) -> None:
     result = inspect_step(_export_step(_two_separate_cylinders(), tmp_path))
     assert result["ok"] is True, result
     assert result["meta"]["segmentation"] == "connected_components"
+    assert result["meta"]["extractor"] == "cadquery-occt/brep"  # 多体走 B-rep 精确性质（零镶嵌）
     assert result["overall"]["part_count"] == 2
     # 整体 bbox：Ø40 × 长 300（含 100 间隔）
     bbox = result["overall"]["bbox_mm"]
-    assert bbox[0] == pytest.approx(40.0, rel=0.05)
-    assert bbox[1] == pytest.approx(40.0, rel=0.05)
-    assert bbox[2] == pytest.approx(300.0, rel=0.02)
-    # 每段体积 ≈ π·20²·100，轴向升序
+    assert bbox[0] == pytest.approx(40.0, rel=0.02)
+    assert bbox[1] == pytest.approx(40.0, rel=0.02)
+    assert bbox[2] == pytest.approx(300.0, rel=0.01)
+    # 每段体积 = OCCT B-rep 精确值 ≈ π·20²·100，轴向升序
     expect = math.pi * 20.0 ** 2 * 100.0
     for part in result["parts"]:
-        assert part["volume_mm3"] == pytest.approx(expect, rel=0.12)  # 镶嵌多边形低估
+        assert part["volume_mm3"] == pytest.approx(expect, rel=0.01)
     assert result["parts"][0]["center_mm"][2] < result["parts"][1]["center_mm"][2]
     _assert_volume_conservation(result)
 
