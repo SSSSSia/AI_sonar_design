@@ -138,6 +138,19 @@ class TestValidators:
         code, ok, errors, _ = validators.validate_chain("def broken(:\n    pass")
         assert not ok and any("语法" in e for e in errors)
 
+    def test_color_range_auto_fix(self):
+        """2026-09-22 e2e 实测：LLM 把 RGB 写成 0–255 导致 Standard_OutOfRange 且修复
+        循环无法自愈——确定性归一化，颜色错误不允许消耗修复轮次。"""
+        code = validators.auto_fix_patterns(
+            "c1 = Color(51, 102, 153)\nc2 = Color(0.2, 0.4, 0.6)\n"
+            "c3 = Color('steelblue')\nc4 = assy.add(p, color=Color(200, 200, 200))"
+        )
+        assert "Color(0.2000, 0.4000, 0.6000)" in code  # 51/255, 102/255, 153/255
+        assert "Color(0.2, 0.4, 0.6)" in code           # 已是 0–1 不动
+        assert "Color('steelblue')" in code              # 命名色不动
+        assert "Color(0.7843, 0.7843, 0.7843)" in code   # 关键字参数内的调用同样修复
+        assert "(51," not in code and "200, 200, 200" not in code
+
 
 class TestSandbox:
     def test_happy_path_step_produced(self):

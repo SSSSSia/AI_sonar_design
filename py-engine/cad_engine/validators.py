@@ -70,8 +70,30 @@ def validate_critical_patterns(code: str) -> list[str]:
     return warnings
 
 
+def _fix_color_range(code: str) -> str:
+    """「Standard_OutOfRange: Color out」的确定性修复（2026-09-22 e2e 实测：LLM 连续
+    3 轮把 RGB 写成 0–255，修复循环无法自愈）。cadquery/OCCT 要求分量在 0–1：
+    把 Color(...) 中任一数值分量 >1 的调用整体 ÷255；命名色与已是 0–1 的不动。
+    颜色纯视觉，不影响几何与 STEP 有效性。"""
+    def _scale(m: "re.Match[str]") -> str:
+        vals = [v.strip() for v in m.group(1).split(",")]
+        try:
+            nums = [float(v) for v in vals[:3]]
+        except ValueError:
+            return m.group(0)  # 命名色等非数值参数
+        if len(nums) == 3 and any(v > 1.0 for v in nums):
+            scaled = ", ".join(f"{v / 255.0:.4f}" for v in nums)
+            rest = ", " + ", ".join(vals[3:]) if len(vals) > 3 else ""
+            return f"Color({scaled}{rest})"
+        return m.group(0)
+
+    return re.sub(r"\bColor\(([^()]*)\)", _scale, code)
+
+
 def auto_fix_patterns(code: str) -> str:
-    """自动修复已知问题：弯曲轨迹 sin() → sin()**2（保证端点斜率为零）。"""
+    """自动修复已知问题：弯曲轨迹 sin() → sin()**2（保证端点斜率为零）；
+    RGB 0–255 → 0–1（Color out of range，颜色类错误不允许消耗修复轮次）。"""
+    code = _fix_color_range(code)
     marker = "def get_spline_pts"
     start = code.find(marker)
     if start < 0:
