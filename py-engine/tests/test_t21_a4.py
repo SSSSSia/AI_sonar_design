@@ -219,5 +219,7 @@ def test_valid_ir2_ir3_produce_valid_ir4_contract():
 
 
 def test_no_params_empty_report():
+    """T7.4 后：空 IR3 如实提示数值复核未执行（CHK-GEO-NUM-SKIP info，不阻断）。"""
     ir4 = A4Agent().run(_ir2([]), _ir3())
-    assert ir4 == {"overall": "pass", "issues": []}
+    assert ir4["overall"] == "pass"
+    assert [(i["constraint_id"], i["severity"]) for i in ir4["issues"]] == [("CHK-GEO-NUM-SKIP", "info")]

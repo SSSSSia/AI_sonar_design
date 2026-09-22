@@ -68,6 +68,8 @@ CAD_FIX_MAX_ROUNDS = int(_env("CAD_FIX_MAX_ROUNDS", "3"))
 CAD_INSPECT_TIMEOUT_S = int(_env("CAD_INSPECT_TIMEOUT_S", "60"))
 # 长度类参数自动联动的粗匹配容差（参数值 vs 分段 bbox 维度相对偏差，百分比）
 CAD_GEO_LINK_TOL_PCT = float(_env("CAD_GEO_LINK_TOL_PCT", "20"))
+# A4 数值复核容差（linked 参数 vs 实测 bbox 维度相对偏差，百分比；对齐 mockup 06「2.1% 超容差」口径）
+CAD_GEO_NUM_TOL_PCT = float(_env("CAD_GEO_NUM_TOL_PCT", "2"))
 
 # ---- Neo4j 图谱（T2.3 A5 知识回写；compose 覆盖端口见 HANDOFF：BOLT 默认 7687，本机 17687）----
 NEO4J_URI = _env("NEO4J_URI", f"bolt://localhost:{_env('NEO4J_BOLT_PORT', '7687')}")

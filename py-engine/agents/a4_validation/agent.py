@@ -10,6 +10,7 @@ Agent 管线签名一致而保留，未使用）。
   standard → solver.standards：军标核对（空库如实"待补"，A-16）
   estimated → 汇总 info：未经公式验证，请人工复核
   几何自洽  → features.linked_param_id ⊆ IR2 参数 id / feature_id 唯一 / step·script 引用完整
+  数值复核  → linked 参数 vs 实测 bbox 维度（T7.4，PHASE-007；容差可配默认 2%，无 LLM）
 
 三级风险：error=高（须回环）/ warning=中（来源冲突存疑）/ info=低（提示）。
 overall：存在任一 error 即 fail。输出经 contracts/ir/ir4.schema.json 契约校验（A-04）。
@@ -20,6 +21,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agents.a3_cad.geometry_link import UNIT_TO_MM
+from app_config import CAD_GEO_NUM_TOL_PCT
 from ir_contract import validate_ir
 from solver import intervals, recompute, standards
 from solver.formulas import REGISTRY, _first_number
@@ -193,7 +196,8 @@ class A4Agent:
 
     # ------------------------------------------------------------------
     def _check_geometry(self, ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
-        """几何自洽：特征-参数引用完整、feature_id 唯一、STEP/脚本引用非空。"""
+        """几何自洽：特征-参数引用完整、feature_id 唯一、STEP/脚本引用非空
+        ＋ 数值级复核（T7.4：linked 参数 vs 实测 bbox 维度）。"""
         issues: list[dict[str, Any]] = []
         param_ids = {p["id"] for p in ir2.get("parameters", [])}
         features: list[dict[str, Any]] = ir3.get("features", [])
@@ -207,7 +211,8 @@ class A4Agent:
                     f"特征 id 重复：{fid}", [], [fid], suggestion="back_to_A3"))
             seen.add(fid)
             linked = f.get("linked_param_id")
-            if linked not in param_ids:
+            if linked is not None and linked not in param_ids:
+                # null=实测未联动，合法（T7.1 契约放宽，A-16）；非 null 才查悬空引用
                 issues.append(_issue(
                     "CHK-GEO-LINK", "error",
                     f"特征 {fid} 引用了 IR2 中不存在的参数 {linked}（悬空引用）",
@@ -224,6 +229,95 @@ class A4Agent:
                 "CHK-GEO-SCRIPT", "error",
                 "IR3 缺少 CadQuery 脚本",
                 [], [], suggestion="back_to_A3"))
+
+        issues += self._check_geometry_numeric(ir2, ir3)
+        return issues
+
+    # ------------------------------------------------------------------
+    def _check_geometry_numeric(self, ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
+        """数值级几何复核（T7.4，PHASE-007）。确定性无 LLM；A-09 只报告不改参数。
+
+        - extracted：逐个「已联动」特征比对 bbox[linked_dim] vs 参数值（换算 mm），
+          相对偏差 ≤ CAD_GEO_NUM_TOL_PCT（默认 2%，对齐 mockup 06 口径）→ info；超容差 → error；
+        - 退化几何（part_count=0 或体积 ≤0）→ CHK-GEO-DEGENERATE error；
+        - 提取失败 / 无特征 / 旧版本快照（features 无实测数值）→ CHK-GEO-NUM-SKIP info，
+          如实说明未执行数值复核，不阻断（A-16）。
+        """
+        issues: list[dict[str, Any]] = []
+        summary = ir3.get("geometry_summary") or {}
+        source = summary.get("source")
+        features: list[dict[str, Any]] = ir3.get("features", [])
+        params_by_id = {p["id"]: p for p in ir2.get("parameters", [])}
+
+        if source != "extracted":
+            if source == "extraction_failed":
+                detail = str(summary.get("detail") or "")
+                issues.append(_issue(
+                    "CHK-GEO-NUM-SKIP", "info",
+                    f"几何数值复核未执行：STEP 实测提取未成功{'（' + detail + '）' if detail else ''}，"
+                    "本轮仅完成引用完整性校验"))
+            elif not features:
+                issues.append(_issue(
+                    "CHK-GEO-NUM-SKIP", "info",
+                    "IR3 无特征（降级产物），几何数值复核未执行，仅完成引用完整性校验"))
+            else:
+                issues.append(_issue(
+                    "CHK-GEO-NUM-SKIP", "info",
+                    "旧版本快照无数值几何（features 未携带实测 bbox），仅完成引用完整性校验"))
+            return issues
+
+        # 退化几何
+        part_count = summary.get("part_count")
+        volume = summary.get("volume_mm3")
+        if part_count == 0 or (isinstance(volume, (int, float)) and volume <= 0):
+            issues.append(_issue(
+                "CHK-GEO-DEGENERATE", "error",
+                f"几何提取结果退化（part_count={part_count}，volume_mm3={volume}），模型可能为空或非实体",
+                [], [], suggestion="back_to_A3"))
+
+        # 数值比对（只对「已联动」的特征；A-09：只报告）
+        tol = CAD_GEO_NUM_TOL_PCT
+        linked_any = False
+        for f in features:
+            fid = f.get("feature_id", "?")
+            linked = f.get("linked_param_id")
+            if not linked:
+                continue
+            linked_any = True
+            p = params_by_id.get(linked)
+            geometry = f.get("geometry") or {}
+            bbox = geometry.get("bbox_mm")
+            dim = geometry.get("linked_dim")
+            if p is None or not isinstance(bbox, list) or dim not in (0, 1, 2) or len(bbox) <= dim:
+                continue  # 悬空引用已由引用完整性检查覆盖；缺数值按旧快照口径由上方兜底提示
+            factor = UNIT_TO_MM.get(str(p.get("unit", "")).strip().lower())
+            value = _first_number(p.get("value"))
+            if factor is None or value is None or value <= 0:
+                issues.append(_issue(
+                    "CHK-GEO-NUM-SKIP", "info",
+                    f"参数 {linked}「{p.get('name')}」单位/取值非长度数值，未做数值复核",
+                    [linked], [fid]))
+                continue
+            expected_mm = value * factor
+            measured = float(bbox[dim])
+            dev_pct = abs(measured - expected_mm) / expected_mm * 100.0
+            if dev_pct <= tol:
+                issues.append(_issue(
+                    "CHK-GEO-NUM", "info",
+                    f"数值一致：参数 {linked}「{p.get('name')}」= {value}{p.get('unit')}，"
+                    f"关联特征 {fid} 实测 {measured:g} mm，偏差 {dev_pct:.2f}%（容差 {tol:g}%）",
+                    [linked], [fid]))
+            else:
+                issues.append(_issue(
+                    "CHK-GEO-NUM", "error",
+                    f"{linked}「{p.get('name')}」= {value}{p.get('unit')}，但关联特征 {fid} "
+                    f"实测 {measured:g} mm，偏差 {dev_pct:.1f}%（容差 {tol:g}%），"
+                    "建议在审阅关结合 IR4 裁决",
+                    [linked], [fid], suggestion="back_to_A3"))
+        if not linked_any:
+            issues.append(_issue(
+                "CHK-GEO-NUM-SKIP", "info",
+                "几何为实测提取，但无已联动的长度类参数可做数值复核（联动容差内无匹配）"))
         return issues
 
 
