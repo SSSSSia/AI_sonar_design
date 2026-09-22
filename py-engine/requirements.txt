@@ -21,6 +21,10 @@ sympy>=1.13
 minio>=7.2
 cadquery>=2.5
 
+# T7.0：trimesh 声明补漏——convert_worker.py（STEP→GLB）与 cad_engine/geometry_inspect.py（PHASE-007
+#       几何提取）的实际依赖，此前仅靠环境残留可用，新环境 pip install 后转换链路断裂
+trimesh>=4.0
+
 # T2.3：A5 知识回写 Neo4j 驱动（图谱直连，容器 17687 覆盖端口；driver 5.x/6.x 超时参数兼容已处理）
 neo4j>=5.0
 
