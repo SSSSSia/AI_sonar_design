@@ -83,7 +83,7 @@
 | 任务 | 内容 | 状态 |
 |---|---|---|
 | T7.0 | requirements 补 `trimesh` 声明（convert_worker 实际依赖，修复新环境转换链路断裂） | 完成（2026-09-22） |
-| T7.1 | IR3 契约加法演进：`geometry` 数值结构 + 顶层 `geometry_summary` + `linked_param_id` 可空；契约测试新旧两形态；提交标 `api:` | 待开发 |
+| T7.1 | IR3 契约加法演进：`geometry` 数值结构 + 顶层 `geometry_summary` + `linked_param_id` 可空；契约测试新旧两形态；提交标 `api:` | 完成（2026-09-22） |
 | T7.2 | `cad_engine/geometry_inspect.py`：STEP→整体/分段实测几何（连通体→半径剖面→兜底单段三级降级），子进程隔离，双入口 | 待开发 |
 | T7.3 | A3 接入：`_build_ir3` 用真实提取结果替代占位镜像；`_link_params` 长度类参数自动联动（20% 粗匹配）；提取失败降级管线继续 | 待开发 |
 | T7.4 | A4 数值级几何复核：`CHK-GEO-NUM`（默认容差 2%）、`CHK-GEO-DEGENERATE`、`CHK-GEO-NUM-SKIP`（旧快照/提取失败如实跳过）；确定性无 LLM | 待开发 |
