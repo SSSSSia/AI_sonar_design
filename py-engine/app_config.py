@@ -63,6 +63,12 @@ BUCKET_CAD_SCRIPTS = "cad-scripts"
 CAD_EXECUTE_TIMEOUT_S = int(_env("CAD_EXECUTE_TIMEOUT_S", "300"))
 CAD_FIX_MAX_ROUNDS = int(_env("CAD_FIX_MAX_ROUNDS", "3"))
 
+# ---- 几何特征真实化（T7.2/T7.3，PHASE-007）----
+# STEP 几何提取子进程超时；0 = 跳过提取（geometry_summary 如实标 disabled，管线继续）
+CAD_INSPECT_TIMEOUT_S = int(_env("CAD_INSPECT_TIMEOUT_S", "60"))
+# 长度类参数自动联动的粗匹配容差（参数值 vs 分段 bbox 维度相对偏差，百分比）
+CAD_GEO_LINK_TOL_PCT = float(_env("CAD_GEO_LINK_TOL_PCT", "20"))
+
 # ---- Neo4j 图谱（T2.3 A5 知识回写；compose 覆盖端口见 HANDOFF：BOLT 默认 7687，本机 17687）----
 NEO4J_URI = _env("NEO4J_URI", f"bolt://localhost:{_env('NEO4J_BOLT_PORT', '7687')}")
 _neo4j_auth = _env("NEO4J_AUTH")

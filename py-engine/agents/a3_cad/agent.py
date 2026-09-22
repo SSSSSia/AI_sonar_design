@@ -10,20 +10,32 @@
 - CADQUERY_SCRIPT_PROMPT / FIX_PROMPT（prompts.py ★）
 
 A-13：修复循环上限 CAD_FIX_MAX_ROUNDS（可配），超限如实失败，绝不出假产物。
+T7.3（PHASE-007）：沙箱成功后以 subprocess 调 cad_engine/geometry_inspect.py 提取实测
+几何（OCCT 镶嵌禁止进入本进程），features 由真实分段构造替代占位镜像；提取失败/禁用
+降级为 features=[] + geometry_summary 如实标注，管线继续（A-14/A-16）。
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
+from agents.a3_cad.geometry_link import link_params
 from agents.a3_cad.prompts import CADQUERY_SCRIPT_PROMPT, FIX_PROMPT
+from app_config import CAD_GEO_LINK_TOL_PCT, CAD_INSPECT_TIMEOUT_S
 from cad_engine import sandbox, validators
 from cad_engine.reference import CodeSearchService, strip_markdown
 from ir_contract import validate_ir
 from storage import object_store
 
 logger = logging.getLogger("sonarcad.a3")
+
+GEOMETRY_INSPECT_CLI = Path(__file__).resolve().parents[2] / "cad_engine" / "geometry_inspect.py"
 
 
 class A3Agent:
@@ -37,7 +49,6 @@ class A3Agent:
     def run(self, session_id: str, ir2: dict[str, Any]) -> dict[str, Any]:
         """IR2 → IR3。产物落 MinIO（step-models / cad-scripts 分桶，object_key 按会话组织）。"""
         design_doc = ir2["design_document"]
-        param_ids = {p["id"] for p in ir2.get("parameters", [])}
         if self._llm is None:
             raise RuntimeError("A3 依赖 LLM 生成 CadQuery 脚本，当前无可用供应商")
 
@@ -77,7 +88,36 @@ class A3Agent:
         script_ref = object_store.upload_text(
             script, object_store.BUCKET_CAD_SCRIPTS, f"{session_id}/generated_script.py"
         )
-        return self._build_ir3(script, step_ref, script_ref, param_ids, fix_round)
+        return self._build_ir3(script, step_ref, script_ref, ir2, step_file, fix_round)
+
+    # ------------------------------------------------------------------
+    def _inspect_step(self, step_local_path: str) -> dict[str, Any] | None:
+        """subprocess 调 geometry_inspect.py 提取实测几何（OCCT 镶嵌禁止进入 agent 进程）。
+
+        返回 None = 提取被禁用（CAD_INSPECT_TIMEOUT_S=0）；失败/超时返回 {"ok": False,
+        "error": ...}（A-16 如实），绝不抛异常、绝不阻断管线。
+        """
+        timeout = CAD_INSPECT_TIMEOUT_S
+        if timeout <= 0 or not step_local_path:
+            return None
+        out_path = f"{step_local_path}.inspect.json"
+        cmd = [sys.executable, str(GEOMETRY_INSPECT_CLI), str(step_local_path), out_path]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"geometry inspect timeout after {timeout}s"}
+        except OSError as exc:
+            return {"ok": False, "error": f"geometry inspect spawn failed: {exc}"}
+        try:
+            result = json.loads(Path(out_path).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": f"geometry inspect output unreadable: {exc}"}
+        finally:
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+        return result
 
     # ------------------------------------------------------------------
     def _build_ir3(
@@ -85,25 +125,67 @@ class A3Agent:
         script: str,
         step_ref: dict[str, str],
         script_ref: dict[str, str],
-        param_ids: set[str],
+        ir2: dict[str, Any],
+        step_local_path: str,
         fix_round: int,
     ) -> dict[str, Any]:
-        """IR3 组装。features 与 IR2 参数镜像（E1 双向联动基础；A-08 继承的载体）。"""
-        features = []
-        for i, pid in enumerate(sorted(param_ids), 1):
-            features.append({
-                "feature_id": f"F-{i:03d}",
-                "segment": "model",
-                "geometry": {"linked_param": pid, "note": "尺寸由 IR2 参数驱动（E1 联动细化随阶段 2）"},
-                "linked_param_id": pid,
-            })
+        """IR3 组装（T7.3 重写）：features 由 STEP 实测分段构造，长度类参数自动联动
+        （geometry_link.link_params），未联动如实 null——不再按参数 id 批量造占位镜像
+        （A-16）。提取失败/禁用降级 features=[] + geometry_summary 如实标注，管线继续。
+        """
+        params: list[dict[str, Any]] = ir2.get("parameters", [])
+        inspect = self._inspect_step(step_local_path)
+
+        features: list[dict[str, Any]] = []
+        summary: dict[str, Any]
+        if inspect is None:
+            summary = {
+                "source": "extraction_failed",
+                "detail": "跳过：几何提取已禁用（CAD_INSPECT_TIMEOUT_S=0）",
+            }
+        elif not inspect.get("ok"):
+            detail = str(inspect.get("error") or "unknown error")[:500]
+            logger.warning("A3 几何提取失败（降级继续）: %s", detail)
+            summary = {"source": "extraction_failed", "detail": detail}
+        else:
+            parts: list[dict[str, Any]] = inspect.get("parts", [])
+            links = link_params(params, parts, CAD_GEO_LINK_TOL_PCT)
+            for part in parts:
+                geometry: dict[str, Any] = {
+                    "bbox_mm": part["bbox_mm"],
+                    "volume_mm3": part["volume_mm3"],
+                    "center_mm": part["center_mm"],
+                }
+                linked = links.get(part["index"])
+                if linked:
+                    geometry["linked_dim"] = linked["dim"]
+                features.append({
+                    "feature_id": f"F-{part['index']:03d}",
+                    "segment": f"SEG-{part['index']:02d}",
+                    "geometry": geometry,
+                    "linked_param_id": linked["param_id"] if linked else None,
+                })
+            overall = inspect.get("overall", {})
+            meta = inspect.get("meta", {})
+            summary = {
+                "source": "extracted",
+                "bbox_mm": overall.get("bbox_mm"),
+                "volume_mm3": overall.get("volume_mm3"),
+                "part_count": overall.get("part_count"),
+                "detail": f"{meta.get('segmentation', '?')} · {meta.get('extractor', '?')}",
+            }
+
         ir3 = validate_ir("IR3", {
             "cadquery_script": script,
             "step_file": step_ref,
             "features": features,
+            "geometry_summary": summary,
         })
         # 执行元数据（修复轮数/脚本引用）只进日志，不进 IR3 契约（A-04：快照与 schema 严格一致）
-        logger.info("A3 完成：fix_rounds=%s script_ref=%s", fix_round, script_ref)
+        logger.info(
+            "A3 完成：fix_rounds=%s script_ref=%s features=%s geo=%s",
+            fix_round, script_ref, len(features), summary.get("source"),
+        )
         return ir3
 
     # ------------------------------------------------------------------
