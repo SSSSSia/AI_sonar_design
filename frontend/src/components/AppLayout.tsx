@@ -10,6 +10,7 @@ import {
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useAuthStore } from '../stores/authStore'
+import { checkNavGuard } from '../lib/navGuard'
 import { useNotifyStore } from '../stores/notifyStore'
 
 dayjs.extend(relativeTime)
@@ -199,7 +200,11 @@ export default function AppLayout() {
             style={{ borderInlineEnd: 'none', paddingTop: 8 }}
             selectedKeys={[selectedKey]}
             items={MENU_ITEMS}
-            onClick={({ key }) => navigate(key)}
+            onClick={({ key }) => {
+              // 草稿守卫（新会话页注册）：返回 false 表示确认框待处理，取消本次跳转
+              if (!checkNavGuard(key)) return
+              navigate(key)
+            }}
           />
         </Sider>
       )}
@@ -217,6 +222,7 @@ export default function AppLayout() {
           selectedKeys={[selectedKey]}
           items={MENU_ITEMS}
           onClick={({ key }) => {
+            if (!checkNavGuard(key)) return
             navigate(key)
             setMobileNav(false)
           }}
