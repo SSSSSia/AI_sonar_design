@@ -70,10 +70,18 @@ def _notify_ir_updated(session_id: str, ir_type: str, version: int) -> None:
 
 
 def _publish_log(session_id: str, level: str, message: str) -> None:
-    """T4.x 优化项：worker 关键步向 notify 发布 log 消息（工作台实时日志面板）。
+    """worker 关键步日志：落库留存（V11 session_logs，总览「全部日志」回看）+ notify 实时推送。
 
-    日志不落库（快照/trace 才是权威记录），发布失败仅记本地日志、不拖垮管线。
+    发布失败仅记本地日志、不拖垮管线；权威记录仍是 IR 快照与溯源链（A-12）。
     """
+    # 落库留存（V11 session_logs）：刷新/换机后总览「全部日志」仍可回看；
+    # 遥测性质——失败仅记本地日志，不拖垮管线（与实时推送同语义）
+    try:
+        from storage import log_store
+
+        log_store.append(session_id, level, message)
+    except Exception as exc:
+        logger.warning("session %s log 落库失败（不影响管线）: %s", session_id, exc)
     try:
         from datetime import datetime, timezone
 

@@ -183,3 +183,15 @@ export function postReview(
 ) {
   return post<ReviewEffects>(`/workflow/sessions/${sid}/reviews/${gate}`, body)
 }
+
+// ---- 会话运行日志（V11 session_logs 留存回放；实时 WS 流之外的持久层，A-12：权威记录仍是 IR 快照/溯源链） ----
+export interface SessionLogRow {
+  id: number
+  level: 'debug' | 'info' | 'ok' | 'warn' | 'error'
+  text: string
+  created_at: string
+}
+
+export function getSessionLogs(sid: string) {
+  return get<{ logs: SessionLogRow[] }>(`/logs/sessions/${sid}`)
+}

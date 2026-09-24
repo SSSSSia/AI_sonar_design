@@ -36,6 +36,11 @@ spring:
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/cad-agent/**
+        # 会话运行日志留存回放（总览「全部日志」；宿主 py-engine 8090）
+        - id: py-engine-logs
+          uri: http://${PY_ENGINE_HOST:localhost}:8090
+          predicates:
+            - Path=/api/v1/logs/**
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:

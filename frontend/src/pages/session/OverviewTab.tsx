@@ -1,32 +1,86 @@
-import { useEffect, useRef } from 'react'
-import { Alert, Card, Tag, Typography } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Alert, Button, Card, Drawer, Tag, Typography } from 'antd'
 import dayjs from 'dayjs'
-import type { Ir1, KbSelection } from '../../api/workflow'
-import { useLogStore } from '../../stores/logStore'
+import { useQuery } from '@tanstack/react-query'
+import type { Ir1, KbSelection, SessionLogRow } from '../../api/workflow'
+import { getSessionLogs } from '../../api/workflow'
+import { useLogStore, type SessionLogLine } from '../../stores/logStore'
 import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
 
 const LOG_LEVEL_COLOR: Record<string, string> = {
   debug: '#8b949e', info: '#57606a', ok: '#2b8a3e', warn: '#d97706', error: '#c92a2a',
 }
 
-/** 实时日志面板（WS log 消息）。日志是流不是账本：不落库、刷新即空（如实标注）。 */
+/** 历史留存 + 实时流合并（按时间+文本去重；历史在前，可单测）。 */
+export function mergeLogs(
+  history: SessionLogRow[] | undefined,
+  live: SessionLogLine[] | undefined,
+): { at: number; level: string; text: string }[] {
+  const seen = new Set<string>()
+  const out: { at: number; level: string; text: string }[] = []
+  const push = (at: number, level: string, text: string) => {
+    const key = `${at}|${text}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ at, level, text })
+  }
+  for (const r of history ?? []) push(dayjs(r.created_at).valueOf(), r.level, r.text)
+  for (const l of live ?? []) push(l.at, l.level, l.text)
+  return out
+}
+
+function logLine(at: number, level: string, text: string, key: string) {
+  return (
+    <div key={key}>
+      <span style={{ color: '#8b949e', marginRight: 8 }}>{dayjs(at).format('HH:mm:ss')}</span>
+      <span style={{ color: LOG_LEVEL_COLOR[level] ?? '#57606a' }}>{text}</span>
+    </div>
+  )
+}
+
+/** 实时日志面板（WS log 流）+「全部日志」抽屉（V11 落库留存回放，可导出）。 */
 function LiveLog({ sessionId }: { sessionId: string }) {
   const lines = useLogStore((s) => s.bySession[sessionId])
+  const [allOpen, setAllOpen] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const historyQuery = useQuery({
+    queryKey: ['session-logs', sessionId],
+    queryFn: () => getSessionLogs(sessionId),
+    enabled: allOpen, // 打开抽屉才拉历史留存
+  })
+  const all = mergeLogs(historyQuery.data?.logs, lines)
 
   useEffect(() => {
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight })
   }, [lines?.length])
 
+  function exportTxt() {
+    const body = all
+      .map((l) => `${dayjs(l.at).format('YYYY-MM-DD HH:mm:ss')} [${l.level}] ${l.text}`)
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain;charset=utf-8' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `session-logs-${sessionId.slice(0, 8)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <Card
       title="实时日志"
       size="small"
-      extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>worker 步骤推送 · 不落库</Typography.Text>}
+      extra={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>worker 步骤推送 · 留存可回看</Typography.Text>
+          <a onClick={() => setAllOpen(true)} style={{ fontSize: 12 }}>全部日志</a>
+        </span>
+      }
     >
       {(lines?.length ?? 0) === 0 ? (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          暂无实时日志。会话运行时各阶段步骤在此滚动显示；刷新后清空，权威记录见 IR 快照与溯源链。
+          暂无实时日志。会话运行时各阶段步骤在此滚动显示；完整运行过程见「全部日志」（历史留存），
+          权威记录见 IR 快照与溯源链。
         </Typography.Text>
       ) : (
         <div
@@ -34,14 +88,35 @@ function LiveLog({ sessionId }: { sessionId: string }) {
           className="mono"
           style={{ maxHeight: 220, overflow: 'auto', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px', fontSize: 11.5, lineHeight: 1.9 }}
         >
-          {lines!.slice(-80).map((l, i) => (
-            <div key={`${l.at}-${i}`}>
-              <span style={{ color: '#8b949e', marginRight: 8 }}>{dayjs(l.at).format('HH:mm:ss')}</span>
-              <span style={{ color: LOG_LEVEL_COLOR[l.level] ?? '#57606a' }}>{l.text}</span>
-            </div>
-          ))}
+          {lines!.slice(-80).map((l, i) => logLine(l.at, l.level, l.text, `${l.at}-${i}`))}
         </div>
       )}
+
+      <Drawer
+        title={`全部日志（${all.length} 条）`}
+        width={680}
+        open={allOpen}
+        onClose={() => setAllOpen(false)}
+        extra={<Button size="small" onClick={exportTxt} disabled={all.length === 0}>导出 TXT</Button>}
+      >
+        <Typography.Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginBottom: 10 }}>
+          运行遥测留存（V11）：权威记录仍是 IR 快照与溯源链；功能上线前的历史会话未留存日志，如实留空。
+        </Typography.Text>
+        {historyQuery.isLoading ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text>
+        ) : all.length === 0 ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            暂无日志记录。本会话若在日志留存功能上线前运行，则无历史可看；之后的运行自动留存。
+          </Typography.Text>
+        ) : (
+          <div
+            className="mono"
+            style={{ overflow: 'auto', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px', fontSize: 11.5, lineHeight: 1.9 }}
+          >
+            {all.map((l, i) => logLine(l.at, l.level, l.text, `${l.at}-${i}`))}
+          </div>
+        )}
+      </Drawer>
     </Card>
   )
 }
