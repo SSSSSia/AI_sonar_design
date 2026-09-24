@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app_config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, KNOWLEDGE_KB_DIR, WORKFLOW_BASE_URL
 from api.kb import router as kb_router
 from api.cad import router as cad_router
+from api.cad_agent import router as cad_agent_router
 from llm.adapter import active_provider, llm_adapter, reload_providers
 from worker.celery_app import celery_app
 from worker.tasks import always_fail_task, echo_task
@@ -25,10 +26,11 @@ from worker.tasks import always_fail_task, echo_task
 app = FastAPI(
     title="Sonar-CAD v2 算力层",
     version="0.3.0",
-    description="A1–A5 Agent / CAD 执行 / 约束求解 / 检索 / 知识治理（T1.2 骨架 → T3 治理）",
+    description="A1–A5 Agent / CAD 执行 / 约束求解 / 检索 / 知识治理（T1.2 骨架 → T3 治理 → T8 交互微调）",
 )
 app.include_router(kb_router, prefix="/api/v1")
 app.include_router(cad_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
+app.include_router(cad_agent_router, prefix="/api/v1")  # gateway /api/v1/cad-agent/**（T8.3 微调）
 
 
 def _mask(url: str) -> str:

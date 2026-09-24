@@ -31,6 +31,11 @@ spring:
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/cad/**
+        # T8.3 CAD 交互微调（PHASE-008，FreeCAD 插件/前端 → py-engine cad_agent）
+        - id: py-engine-cad-agent
+          uri: http://${PY_ENGINE_HOST:localhost}:8090
+          predicates:
+            - Path=/api/v1/cad-agent/**
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:

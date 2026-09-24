@@ -8,8 +8,8 @@
   "required": ["type", "session_id", "timestamp", "payload"],
   "properties": {
     "type": {
-      "enum": ["task_progress", "log", "review_request", "ir_updated"],
-      "description": "消息类型：任务进度 / 日志 / 审阅请求通知 / IR 版本更新"
+      "enum": ["task_progress", "log", "review_request", "ir_updated", "cad_tune_updated"],
+      "description": "消息类型：任务进度 / 日志 / 审阅请求通知 / IR 版本更新 / CAD 微调状态更新（T8.3，PHASE-008）"
     },
     "session_id": { "type": "string", "description": "设计会话 ID" },
     "task_id": { "type": "string", "description": "关联任务 ID（task_progress/log 必带）" },
@@ -62,6 +62,20 @@
           "properties": {
             "ir_type": { "enum": ["IR1", "IR2", "IR3", "IR4", "IR5"] },
             "ir_version": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tune_id", "state"],
+          "properties": {
+            "tune_id": { "type": "string", "description": "微调会话 ID（cad_tune_sessions.id）" },
+            "round_no": { "type": "integer", "description": "关联轮次（可选）" },
+            "ir_version": { "type": "string", "description": "version_ready 时的 IR3 新版本号" },
+            "state": {
+              "enum": ["awaiting_upload", "round_done", "version_ready", "finalized", "closed", "failed"],
+              "description": "轮次待上传 / 问答轮完成 / 微调版本就绪（IR3 版本已追加）/ 会话定稿 / 会话放弃 / 轮次失败"
+            }
           }
         }
       ]

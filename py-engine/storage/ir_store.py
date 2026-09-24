@@ -69,6 +69,22 @@ def get_latest_version(session_id: str, ir_type: str) -> int:
     return row[0] if row else 0
 
 
+def get_snapshot(session_id: str, ir_type: str, version: int) -> Optional[dict[str, Any]]:
+    """按版本号取快照内容（T8.3 微调上下文：插件拉取指定基线版本产物）；不存在返回 None。
+
+    注意与 get_latest_snapshot 不同：不过滤 invalidated_at——历史版本本就是不可变审计
+    对象（A-12），微调回退/对照正是要读它们。
+    """
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT content FROM ir_snapshots
+               WHERE session_id = %s AND ir_type = %s AND version = %s""",
+            (session_id, ir_type, version),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
 def save_snapshot(session_id: str, ir_type: str, content: dict[str, Any], created_by: str) -> int:
     """追加不可变快照，返回版本号（同 (session, type) 内 max+1）。"""
     with _connect() as conn, conn.cursor() as cur:
