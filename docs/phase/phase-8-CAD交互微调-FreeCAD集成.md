@@ -189,64 +189,64 @@ WS 消息契约加法演进（`contracts/ws/ws-message.schema.json`）：type en
 
 > 执行顺序：T8.1 → T8.2 → T8.3 → T8.4 → T8.5/T8.6（可并行）→ T8.7 收官。
 
-### T8.1 数据模型与存储 ⬜
+### T8.1 数据模型与存储 ✅ 完成（2026-09-24）
 
 - **目标**：微调域模型落库 + 产物桶 + 存储封装。
 - **要点**：V10 三表（§2.3）；`app_config` 增 `BUCKET_CAD_TUNES`/`CAD_TUNE_TOOL_TIMEOUT_S`/`CAD_TUNE_MAX_WORKERS`/`CAD_TUNE_MAX_CONTEXT_TOKENS`；`storage/tune_store.py`（create_tune/get/list_rounds/create_round/update_round/create_tool_call/poll_tool_calls(cursor,wait)/complete_tool_call/expire_running_rounds 启动自愈）；`/cad/sessions/{sid}/artifacts` 清理加 cad-tunes 桶。
 - **DoD**：
-  - [ ] V10 迁移实机过 + 幂等；三表 CRUD 单测（真库）
-  - [ ] 工具调用 pending→done/timeout 状态机单测（含长轮询等待与超时注入）
-  - [ ] 会话删除联动清理 cad-tunes 桶实测
+  - [x] V10 迁移实机过 + 幂等；三表 CRUD 单测 8 用例（真库，test_t81_tune_store.py）
+  - [x] 工具调用 pending→done/timeout 状态机单测（长轮询 cursor/迟到回传拒收/超时注入/启动自愈）
+  - [x] 会话删除联动清理加 cad-tunes 桶（端点桶清单扩展；MinIO 前缀清理逻辑随 e2e teardown 实测）
 
-### T8.2 cad_agent 后端核心 ⬜
+### T8.2 cad_agent 后端核心 ✅ 完成（2026-09-24）
 
 - **目标**：大脑迁移——AgentLoop 在服务端跑起来，工具执行外包给协议。
 - **要点**：`py-engine/cad_agent/`：`loop.py`（自 CadAgent `agent/loop.py` 迁移改造：配置注入、`tool_executor` 回调注入——服务端实现=写 tool_calls 行+轮询等待结果）、`quality.py`/`token_budget.py`/`code_fixes.py`/`references.py` 迁移（去 FreeCAD 依赖）；微调 system prompt（编辑脚本契约：`model`/`cq`/`result`、点选上下文解读、质量修复策略）；LLM 走平台适配器；kb_ids 检索摘要注入。
 - **DoD**：
-  - [ ] fake 工具执行器单测：一轮消息→N 次工具调用→轮次完成全状态机（含 FAIL 注入修复、重复错误换思路、迭代上限）
-  - [ ] LLM 不可用/超时如实降级（round=failed + error 透因，不伪造答复）
-  - [ ] token 裁剪与上下文构建（几何摘要+点选+kb 摘要）单测
+  - [x] fake 工具执行器单测 14 用例（test_t82_cad_agent.py）：happy path/问答轮/门禁阻断修复/逃逸 hatch/重复错误/未知工具协议层拦截
+  - [x] LLM 不可用/超时如实降级（round=failed + error 透因，不伪造答复）
+  - [x] token 裁剪与上下文构建（build_round_context：几何摘要+点选+kb 摘要）单测
 
-### T8.3 API + gateway + 事件 ⬜
+### T8.3 API + gateway + 事件 ✅ 完成（2026-09-24）
 
 - **目标**：§2.4 全部端点 + 网关路由 + WS 事件。
 - **要点**：`api/cad_agent.py`；gateway `application.yml` 加路由；`ws-message.schema.json` 加法演进；versions 端点内联 geometry_inspect 子进程调用（复用 `CAD_INSPECT_TIMEOUT_S`）→ `_build_ir3` 同构组装（step_file 指向 cad-tunes 新键，cadquery_script=编辑脚本，features/geometry_summary 实测）→ `save_snapshot`；线程池与启动自愈。
 - **DoD**：
-  - [ ] 端点级 API 实测（ASCII 名称走网关：创建/消息/长轮询/回传/上传/定稿/放弃 + 404/409/403 分支）
-  - [ ] 上传后 IR3 版本 +1 且 GLB convert 走新版本缓存键（实测）
-  - [ ] WS `cad_tune_updated` 到达前端（浏览器 WS 走查）
-  - [ ] 契约 schema 校验测试更新
+  - [x] 端点级 API 实测（8090 直连 + 网关 JWT：创建/context 预签名/409/放弃/回填 + 单测 9 用例覆盖全部分支）
+  - [x] 上传后 IR3 版本 +1（e2e 实测，真实 STEP 几何实测提取 features；GLB 走既有版本缓存键，转换本身未重复实测）
+  - [ ] WS `cad_tune_updated` 浏览器走查——随人工验收（消息发布路径与 schema 校验已单测覆盖）
+  - [x] 契约 schema 校验测试更新（jsonschema 正反用例）
 
-### T8.4 FreeCAD 插件（clients/freecad-plugin/SonarCADLink）⬜
+### T8.4 FreeCAD 插件（clients/freecad-plugin/SonarCADLink）✅ 完成（2026-09-24，真机走查待人工验收）
 
 - **目标**：CadAgent 迁移改造为平台客户端，三缺口根治。
 - **要点**：目录 `clients/freecad-plugin/`（Mod 名 SonarCADLink；README 写安装=复制进 FreeCAD Mod 目录）；`platform_client.py`（登录/续期/长轮询/上传，urllib 无第三方依赖，沿用 CadAgent 风格）；面板登录态与设计会话选择（列本人 A3 完成的会话）；拉取 STEP 导入（`Import`/`Part.read`）；`_LlmCallThread`→`_BackendThread`（发消息+轮询 round/tool-calls+执行+回传，主线程执行 FreeCAD API 经队列转发，沿用 CadAgent 线程编排模式）；会话恢复：启动时按平台版本列表拉回 FCStd/STEP（**保存机制补全**——每版本自动落 MinIO，本地崩溃可恢复）；undo=重新导入上一版本。移除 llm_client/vision_client/本地 session_store/snapshot 落盘/服务商设置。
 - **DoD**：
-  - [ ] 协议层单测（platform_client mock HTTP：登录/401 续期/长轮询/上传分片）
-  - [ ] 真机人工验收清单（文档附：装插件→登录→拉模型→三轮微调含一次点选→定稿→平台预览更新→重开插件恢复会话）
-  - [ ] 零凭据走查（仓库 grep 无 key/token 字面量；`.env` 不被读取）
+  - [x] 协议层单测 5 用例（stub HTTP server：登录门禁/错误透传/消息/长轮询/multipart 上传/下载）
+  - [x] 真机人工验收清单 13 步交付（clients/freecad-plugin/README.md）——**真机执行待人工验收**
+  - [x] 零凭据走查（仓库 grep 无 key/token 字面量；密码不落盘，仅平台 URL/用户名入 QSettings）
 
-### T8.5 前端：微调入口 + 版本时间线 ⬜
+### T8.5 前端：微调入口 + 版本时间线 ✅ 完成（2026-09-24）
 
 - **要点**：ModelTab：三维预览旁「在 FreeCAD 中微调」入口（无 active 会话→创建引导，含安装提示；有→显示会话状态/轮次）；版本时间线（轮次列表：prompt 摘要/脚本查看/STEP+FCStd 下载/IR3 版本号）；cad_tune_updated WS 订阅刷新预览。ReviewTab gate2：当前 IR3 版本展示 + active 微调会话警示条（「微调进行中，建议先定稿再裁决」）。
 - **DoD**：
-  - [ ] tsc + vitest 通过（时间线数据整形纯函数单测）
-  - [ ] 与插件+后端联调走查（创建→微调→定稿→gate2 看到最新版）
+  - [x] tsc 零错 + vitest 23/23（tuneSummary 纯函数 5 用例）
+  - [ ] 与插件+后端联调走查——随插件真机人工验收（后端协议闭环已由 e2e 覆盖）
 
-### T8.6 workflow 衔接 ⬜
+### T8.6 workflow 衔接 ✅ 完成（2026-09-24）
 
 - **要点**：会话详情回填微调状态（`CadTuneLookupEntity` 只读视图 + `fillTuneStatus`，同 `fillKbNames` 模式——status=active 的会话 id/轮次数）；gate2 驳回 back_to_A3 语义确认不变（驳回后 A3 重生成产生更新的 IR3 版本，微调会话按 baseline 失配提示重建）。
 - **DoD**：
-  - [ ] 单测（有/无 active 微调会话两分支）
-  - [ ] 实机：微调会话活跃时 session 详情带 tune 状态，gate2 前端警示生效
+  - [x] 单测（有/无 active 微调会话两分支；workflow 32 测试全绿）
+  - [x] 实机：网关建活跃微调会话 → 会话详情回填 tuneId/tuneStatus 实值（gate2 前端警示随联调走查）
 
-### T8.7 收官 ⬜
+### T8.7 收官 ✅ 完成（2026-09-24）
 
 - **要点**：e2e `test_cad_tune_e2e.py`——fake 插件客户端驱动 HTTP 协议全流程：前置（登录/A3 完成的会话）→ 创建微调会话 → 消息（脚本断言含编辑契约）→ 长轮询取工具调用 → 回传伪造执行结果 → 轮次收敛 → 上传真实 STEP（取 A3 产物改名）→ 断言 IR3 版本+1、round 回填、GLB 新版本键、WS 推送 → finalize → gate2 冻结断言（review 记录 ir_snapshot_id=最新版）；全量回归（py + workflow + biz + frontend）；HANDOFF/roadmap/devlog/PHASE-008 验收记录回填；插件真机验收清单交付。
 - **DoD**：
-  - [ ] e2e 全绿；四端全量回归绿
-  - [ ] 文档四处回填 + 分任务 Conventional Commits 推送
-  - [ ] 人工验收清单（插件真机）写入手册
+  - [x] e2e `test_cad_tune_e2e.py` 全绿（44s：mock LLM 自带随机端口+独立 provider 行，fake 插件客户端驱动协议全流程，gate2 冻结断言 ir_snapshot_id=微调版本快照）
+  - [x] 四端全量回归绿（py 239+e2e / workflow 32 / biz 7 / frontend 23）
+  - [x] 文档回填 + 分任务 Conventional Commits 推送；插件真机人工验收清单在 clients/freecad-plugin/README.md
 
 ## 4. 阶段管理
 
@@ -254,11 +254,11 @@ WS 消息契约加法演进（`contracts/ws/ws-message.schema.json`）：type en
 
 | 里程碑 | 包含任务 | 判据 |
 |---|---|---|
-| M8-1 域模型与存储 | T8.1 | V10 实机 + 状态机单测绿 |
-| M8-2 服务端大脑 | T8.2 | fake 执行器全状态机单测绿 |
-| M8-3 协议闭环（API 级） | T8.3 | 端点实测 + IR3 版本链联动 + WS 事件 |
-| M8-4 插件可用 | T8.4 | 真机清单可执行 + 零凭据走查 |
-| M8-5 全链路收官 | T8.5/T8.6/T8.7 | e2e 绿 + 四端回归绿 + 文档回填 |
+| M8-1 域模型与存储 | T8.1 | ✅ 达成（2026-09-24，V10 实机 + 8 用例） |
+| M8-2 服务端大脑 | T8.2 | ✅ 达成（2026-09-24，14 用例） |
+| M8-3 协议闭环（API 级） | T8.3 | ✅ 达成（2026-09-24，实机走查 + 9 用例 + e2e） |
+| M8-4 插件可用 | T8.4 | ✅ 代码交付（真机执行待人工验收） |
+| M8-5 全链路收官 | T8.5/T8.6/T8.7 | ✅ 达成（2026-09-24，e2e 44s 全绿 + 四端回归绿） |
 
 ### 4.2 依赖与顺序
 
@@ -286,7 +286,11 @@ T8.1→T8.2→T8.3 严格串行（协议逐层依赖）；T8.4 依赖 T8.3 定�
 
 | 日期 | 事项 | 结论 |
 |---|---|---|
-| — | 待阶段末回填 | ⏳ |
+| 2026-09-24 | T8.1~T8.3（域模型/服务端大脑/API+网关+事件：19 单测 + 实机走查） | ✅ 通过 |
+| 2026-09-24 | T8.4 插件代码交付（协议单测 5 用例 + 零凭据走查 + py_compile 全过） | ✅ 通过（真机执行待人工验收） |
+| 2026-09-24 | T8.5/T8.6（前端卡片与警示 tsc+vitest 23 绿；workflow 回填实机验证 32 绿） | ✅ 通过 |
+| 2026-09-24 | e2e `test_cad_tune_e2e.py`（44s：消息→工具回路→真实 STEP 上传→IR3 v2 实测提取→finalize→gate2 冻结断言） | ✅ 通过 |
+| — | **阶段 8 整体验收**：自动化全过；**待人工确认**（插件真机 13 步清单走查 + gate2 浏览器 WS 走查 + 与插件联调） | ⏳ 待人工验收 |
 
 ## 6. 决策记录
 
@@ -316,3 +320,4 @@ T8.1→T8.2→T8.3 严格串行（协议逐层依赖）；T8.4 依赖 T8.3 定�
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-09-24 | 完整版定稿：调研结论（现有链路/CadAgent 资产三栏/业界盘点）、架构与契约（V10 三表、10 端点、工具协议、WS 事件）、T8.1~T8.7 任务分解、D8-1~D8-11 决策、演进路线；依据 ADR-004 |
+| v1.1 | 2026-09-24 | 全任务收官回填：T8.1~T8.7 DoD 勾结、M8-1~M8-5 达成、e2e 全绿。执行期增补：① LLM 交互定案 ReAct 文本协议（共享 LlmAdapter 零改动、供应商无关；原版 tool calling 探测与 ReAct 回退收敛为 ReAct 单模式）；② quality.py/code_fixes.py 落插件侧（执行端关注点），服务端迁移 loop/prompts/references/token_budget/react_parser；③ 质量门禁放宽——纯问答轮合法结束（script=None 不触发上传），门禁只拦 FAIL 收尾；④ 微调版本 features 解除参数联动（人工编辑偏差交 gate2 裁决），脚本溯源=基线脚本+微调段拼接；⑤ AgentLoop 载体=API 线程池 + 启动自愈 expire_running_rounds |

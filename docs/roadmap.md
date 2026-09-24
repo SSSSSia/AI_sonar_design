@@ -14,7 +14,7 @@
 | 阶段 5 | 验收与发布 | 发布检查清单全过，打首个 tag | [PHASE-005](phase/phase-5-验收与发布.md) | **完成**（2026-09-20：清单 8 项全过，用户确认后 `git tag -a v0.1.0` + push；验收期增补 RETRY/会话删除/审查报告闭环/溯源可读化等见 devlog 2026-09-19/20） |
 | 阶段 6 | 知识库多库与会话选库 | 文档↔库多对多归属、检索按库过滤 + Agent 路由、会话选库与命中溯源、回写选库、原文预览 | [PHASE-006](phase/phase-6-知识库多库与会话选库.md) | 完成（2026-09-20 T6.1~T6.7 收官，e2e 通过，待人工验收） |
 | 阶段 7 | 几何特征真实化与数值校验 | IR3 features 从占位镜像改为 STEP 实测提取 + A4 数值级几何复核（消偿 mockup 06 欠账，拦 silent geometric error 的可参数覆盖部分） | [PHASE-007](phase/phase-7-几何特征真实化与数值校验.md) | **完成（待人工验收）**（2026-09-22 全任务收官；决策依据 [ADR-003](adr/ADR-003-几何自校验路线-特征真实化优先.md)） |
-| 阶段 8 | CAD 交互微调（FreeCAD 集成） | FreeCAD 薄插件 + py-engine 后端大脑：设计人员在 FreeCAD 内对话微调平台生成的三维模型，每轮版本留痕，gate2 审定稿 | [PHASE-008](phase/phase-8-CAD交互微调-FreeCAD集成.md) | **开发中**（2026-09-24 开工；决策依据 [ADR-004](adr/ADR-004-CAD交互微调集成路线.md)） |
+| 阶段 8 | CAD 交互微调（FreeCAD 集成） | FreeCAD 薄插件 + py-engine 后端大脑：设计人员在 FreeCAD 内对话微调平台生成的三维模型，每轮版本留痕，gate2 审定稿 | [PHASE-008](phase/phase-8-CAD交互微调-FreeCAD集成.md) | **完成（待人工验收）**（2026-09-24 全任务收官，e2e 通过；决策依据 [ADR-004](adr/ADR-004-CAD交互微调集成路线.md)） |
 
 > 阶段 3/4 可与阶段 2 部分并行；阶段 1 完成前不动 UI（先 API 级冒烟，避免界面返工）。
 
@@ -98,11 +98,13 @@
 
 | 任务 | 内容 | 状态 |
 |---|---|---|
-| T8.1 | 微调域模型：biz Flyway V10（cad_tune_sessions/_rounds/_tool_calls）+ MinIO cad-tunes 桶 + tune_store.py + 工具调用状态机单测 | 开发中 |
-| T8.2 | cad_agent 后端核心：CadAgent AgentLoop/quality/token_budget/code_fixes/references 迁移改造（注入式配置+工具执行外包协议）+ 编辑脚本契约 prompt + kb 上下文注入 | 待开发 |
-| T8.3 | API + gateway + 事件：/api/v1/cad-agent/** 十端点、长轮询工具调用、定稿上传→geometry_inspect→IR3 版本追加、WS cad_tune_updated（契约加法演进） | 待开发 |
-| T8.4 | FreeCAD 插件 clients/freecad-plugin/SonarCADLink：登录/拉模型/面板走后端/工具执行/定稿上传/会话恢复，零凭据 | 待开发 |
-| T8.5 | 前端：ModelTab 微调入口+版本时间线、ReviewTab gate2 活跃微调警示 | 待开发 |
-| T8.6 | workflow 衔接：会话详情微调状态回填（fillTuneStatus） | 待开发 |
-| T8.7 | 收官：e2e test_cad_tune_e2e.py（fake 插件客户端全流程+gate2 冻结断言）+ 四端全量回归 + HANDOFF/phase-8 验收记录回填 + 插件真机人工验收清单 | 待开发 |
+| T8.1 | 微调域模型：biz Flyway V10（cad_tune_sessions/_rounds/_tool_calls）+ MinIO cad-tunes 桶 + tune_store.py + 工具调用状态机单测 | 完成（e2acf20） |
+| T8.2 | cad_agent 后端核心：AgentLoop/TokenBudget/ReAct 解析迁移改造（注入式配置+工具执行外包协议）+ 编辑脚本契约 prompt + kb 上下文注入 | 完成（895c9ef） |
+| T8.3 | API + gateway + 事件：/api/v1/cad-agent/** 十端点、长轮询工具调用、定稿上传→geometry_inspect→IR3 版本追加、WS cad_tune_updated（契约加法演进） | 完成（17b2dcd） |
+| T8.4 | FreeCAD 插件 clients/freecad-plugin/SonarCADLink：登录/拉模型/面板走后端/工具执行/定稿上传/会话恢复，零凭据 | 完成（6ac9b4e，真机走查待人工验收） |
+| T8.5 | 前端：ModelTab 微调入口+版本时间线、ReviewTab gate2 活跃微调警示 | 完成（36d31cd） |
+| T8.6 | workflow 衔接：会话详情微调状态回填（fillTuneStatus） | 完成（b122f77） |
+| T8.7 | 收官：e2e test_cad_tune_e2e.py（fake 插件客户端全流程+gate2 冻结断言）+ 四端全量回归 + HANDOFF/phase-8 验收记录回填 + 插件真机人工验收清单 | 完成 |
+
+> T8.1~T8.7 全任务收官（2026-09-24），e2e `test_cad_tune_e2e.py` 通过（44s，含 gate2 冻结断言 ir_snapshot_id=微调版本快照），待人工验收（插件真机 13 步清单见 clients/freecad-plugin/README.md）。执行期增补见 PHASE-008 §8 v1.1：LLM 交互定案 ReAct 文本协议、quality/code_fixes 落插件侧、纯问答轮合法（script=None 不触发上传）、微调版本 features 解除参数联动。
 

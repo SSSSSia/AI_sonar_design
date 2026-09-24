@@ -185,12 +185,38 @@ def _content_of(body: dict) -> str:
     return system + "\n" + user
 
 
+# T8.7 微调 e2e（PHASE-008）：ReAct 编辑脚本首轮下发，见工具结果后文字收尾
+TUNE_EDIT_CODE = (
+    "ring = cq.Workplane('XY').circle(30).extrude(10)\n"
+    "result = safe_fuse(model, ring)\n"
+    "cq_show(result, 'Edit')"
+)
+TUNE_TOOL_CALL = (
+    '<tool name="execute_edit_code">\n'
+    f'{{"code": {json.dumps(TUNE_EDIT_CODE)}, "description": "add base ring (e2e)"}}\n'
+    "</tool>"
+)
+
+
 @app.post("/v1/chat/completions")
 async def chat(request: Request):
     body = await request.json()
     text = _content_of(body)
 
-    if "请修复代码" in text:  # A3 修复循环：直接返回工作脚本
+    import os
+
+    log_path = os.environ.get("MOCK_LLM_LOG")
+    # 微调循环为多轮对话：工具结果在第 4+ 条消息，须扫全量消息（_content_of 只取首条 user）
+    full = "\n".join((m.get("content") or "") for m in body.get("messages", []))
+    if log_path:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"hit: msgs={len(body.get('messages', []))} "
+                    f"tune={'CAD tuning agent' in full} "
+                    f"tool_result={'[Tool Result for execute_edit_code]' in full}\n")
+
+    if "CAD tuning agent" in full:  # T8 微调循环：无工具结果→下发编辑；已见结果→收尾
+        content = "{}" if "[Tool Result for execute_edit_code]" in full else TUNE_TOOL_CALL
+    elif "请修复代码" in text:  # A3 修复循环：直接返回工作脚本
         content = CAD_SCRIPT
     elif "精通 CadQuery" in text:  # A3 代码生成
         content = CAD_SCRIPT
@@ -233,10 +259,13 @@ async def chat(request: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "service": "mock-llm"}
+    return {"status": "ok", "service": "mock-llm", "tune_routing": True}
 
 
 if __name__ == "__main__":
+    import os
+
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8091, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("MOCK_LLM_PORT", "8091")),
+                log_level="warning")

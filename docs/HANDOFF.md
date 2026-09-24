@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-20 · ZCode，v0.1.0 已发布）
+## 当前状态（最后更新：2026-09-24 · ZCode，v0.1.0 已发布）
 
 | 项 | 状态 |
 |---|---|
@@ -32,7 +32,7 @@
 | KB 语料 | **4 文档 / 439 chunks / 2939 条确认抽取**（首样 + 声呐技术 + 水声学原理 + 潜艇拖曳总体设计，导入脚本 `knowledge/import_corpus.py`）；检索验证查询全部命中 graph 级 |
 | OCR 插件 | **已接**（D-14 落地）：PaddlePaddle/PaddleOCR-VL-1.5（SiliconFlow），`kb/ocr.py`；扫描页自动识别，单文档页数预算 KB_OCR_MAX_PAGES=20，真实 API 用例门控 KB_OCR_REALTEST=1 |
 | 管线现状 | START → A1→A2→**gate1**→A3→A4→**gate2**→A5→completed；驳回=局部回算+下游失效（ir_snapshots.invalidated_at）；**失败会话可 RETRY**（failed→running，按 current_stage 重派，worker 任务开始即标记阶段）；知识关（gate=knowledge）人工确认后回写 Neo4j；`GET /api/v1/trace/{trace_id}` 反查。IR0–IR5 全量快照 API 齐 |
-| Flyway | V1~V9 已应用（V9 多库：kb_bases + kb_base_documents 多对多归属 + design_sessions.kb_ids，存量文档自动归默认库；biz 启动即自动迁移，无需手工步骤） |
+| Flyway | V1~V10 已应用（V9 多库：kb_bases + kb_base_documents 多对多归属 + design_sessions.kb_ids；V10 微调：cad_tune_sessions/_rounds/_tool_calls；biz 启动即自动迁移，无需手工步骤） |
 | LLM 供应商 | 已接真实 siliconflow key；模型 **deepseek-ai/DeepSeek-V3.2**；流式适配器；阶段 2 e2e 两次全链真实跑通 |
 | py-engine | 任务 sonarcad.a1~a5 + kb_build/kb_extract + echo/always_fail（队列 sonarcad.a1~a5/kb）；KB 治理 API `/api/v1/kb/**`（gateway 直转 8090，信任头校验）；检索三级：graph(Neo4j 实体层)→vector(Milvus kb_chunks)→text；`POST /knowledge/writeback`；neo4j/pymilvus 已入 requirements |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET；gateway 另有 `/api/v1/trace/**` → workflow 路由） |
@@ -40,12 +40,12 @@
 
 ## 下一步入口（按序）
 
-0. **v0.1.0 已收官**——后续为 v0.2 迭代：①~~OCC 转换 subprocess 化（GIL 饥饿，优先级最高）~~**已完成（2026-09-20，commit 见 devlog 补充 47）**：转换移入独立子进程 convert_worker.py，状态经 MinIO 标记传递；②服务全容器化 + 干净克隆 compose up 验收；③前端 bundle 分割；④系统管理日志/备份/用户管理三个「待接」；⑤graphrag 可选依赖。**阶段 7（几何特征真实化与数值校验，PHASE-007）已完成待人工验收**（2026-09-22 全任务收官：[ADR-003](adr/ADR-003-几何自校验路线-特征真实化优先.md) + [PHASE-007](phase/phase-7-几何特征真实化与数值校验.md) §5 验收表 + 截图 `docs/phase/assets/phase7/`——IR3 features 由 STEP 实测提取（多体 B-rep 零镶嵌 10s / 单体半径剖面）+ A4 数值复核 CHK-GEO-NUM（容差 2%）+ 审阅页「IR3 建模产物」卡；**实机验证**：会话 `ad769c7e` 自然产出 2 条 CHK-GEO-NUM error（LLM 画错的间距/缆长，改造前静默通过）；执行期增补 Color 越界归一化 d8d8e15）。启动：`scripts/start-all.cmd`（PS）/ `bash scripts/start-all.sh`（Git Bash）。导航（2026-09-20 两轮结构优化，devlog 补充 50/51）：工作台 = 仪表盘（项目筛选/?project=）+ **项目管理 /projects**（声呐卡片网格：状态分布/最近活动/编辑/删除空项目）；「新建会话」为原地抽屉（NewSessionDrawer，仪表盘与项目卡片共用，项目预选 + 知识库多选，不选=Agent 自主圈定），需求输入独立页已移除（/sessions/new 重定向 /）。**知识库多库（PHASE-006，2026-09-20 全任务收官）**：知识库页重构为左侧库列表（文档池入口）+ 库内管线；文档↔库多对多归属（kb_base_documents 唯一事实源），删库=解除归属文档转未归库（不参与检索）；检索三层按 doc 集合过滤（Milvus/Neo4j 结构不动）；会话总览「知识检索」卡片展示选定库/Agent 依据/命中明细；审阅参数「查看知识原文」（GET /kb/refs）；A5 回写批准时手选目标库。e2e=tests/e2e/test_multikb_e2e.py。
+0. **v0.1.0 已收官**——后续为 v0.2 迭代：①~~OCC 转换 subprocess 化（GIL 饥饿，优先级最高）~~**已完成（2026-09-20，commit 见 devlog 补充 47）**：转换移入独立子进程 convert_worker.py，状态经 MinIO 标记传递；②服务全容器化 + 干净克隆 compose up 验收；③前端 bundle 分割；④系统管理日志/备份/用户管理三个「待接」；⑤graphrag 可选依赖。**阶段 7（几何特征真实化与数值校验，PHASE-007）已完成待人工验收**（2026-09-22 全任务收官：[ADR-003](adr/ADR-003-几何自校验路线-特征真实化优先.md) + [PHASE-007](phase/phase-7-几何特征真实化与数值校验.md) §5 验收表 + 截图 `docs/phase/assets/phase7/`——IR3 features 由 STEP 实测提取（多体 B-rep 零镶嵌 10s / 单体半径剖面）+ A4 数值复核 CHK-GEO-NUM（容差 2%）+ 审阅页「IR3 建模产物」卡；**实机验证**：会话 `ad769c7e` 自然产出 2 条 CHK-GEO-NUM error（LLM 画错的间距/缆长，改造前静默通过）；执行期增补 Color 越界归一化 d8d8e15）。启动：`scripts/start-all.cmd`（PS）/ `bash scripts/start-all.sh`（Git Bash）。导航（2026-09-20 两轮结构优化，devlog 补充 50/51）：工作台 = 仪表盘（项目筛选/?project=）+ **项目管理 /projects**（声呐卡片网格：状态分布/最近活动/编辑/删除空项目）；「新建会话」为原地抽屉（NewSessionDrawer，仪表盘与项目卡片共用，项目预选 + 知识库多选，不选=Agent 自主圈定），需求输入独立页已移除（/sessions/new 重定向 /）。**知识库多库（PHASE-006，2026-09-20 全任务收官）**：知识库页重构为左侧库列表（文档池入口）+ 库内管线；文档↔库多对多归属（kb_base_documents 唯一事实源），删库=解除归属文档转未归库（不参与检索）；检索三层按 doc 集合过滤（Milvus/Neo4j 结构不动）；会话总览「知识检索」卡片展示选定库/Agent 依据/命中明细；审阅参数「查看知识原文」（GET /kb/refs）；A5 回写批准时手选目标库。e2e=tests/e2e/test_multikb_e2e.py。**CAD 交互微调（PHASE-008，2026-09-24 全任务收官，[ADR-004](adr/ADR-004-CAD交互微调集成路线.md)）**：FreeCAD 插件 `clients/freecad-plugin/SonarCADLink`（零凭据，登录平台换 JWT；自研 CadAgent 迁移改造：cq 翻译层/质量门禁/面板复用，废弃本地 LLM 直连与会话落盘）+ py-engine `cad_agent` 模块（AgentLoop 服务端跑，ReAct 文本协议，工具执行经 `cad_tune_tool_calls` 表长轮询外包插件）——流程：A3 完成的设计会话 → 插件拉 STEP 导入 → 点选+自然语言微调 → 每轮收敛上传真实 STEP → geometry_inspect 实测 → IR3 追加新版本（GLB 按版本缓存自动失效）→ gate2 审最新版（ReviewRecord.ir_snapshot_id 天然冻结）；微调版本 features 解除参数联动（人工偏差交 gate2 裁决），脚本溯源=基线+微调段拼接。局限如实：STEP 导入无参数历史（参数化编辑列二期）、插件主线程执行无强制超时（语法预检+Stop+服务端 180s 工具超时兜底）。e2e=tests/e2e/test_cad_tune_e2e.py（自带 mock LLM 随机端口，44s）。**人工验收：插件真机 13 步清单见 clients/freecad-plugin/README.md**。
 1. **用户**：阶段 1 + 阶段 2 + 阶段 3 人工验收（各自 §验收记录）——建议抽查：真实 IR4 风险定级；Neo4j 浏览器（localhost:17474）看沉淀/抽取实体；删除一个 KB 文档验证清理完整性。
 2. **阶段 4（前端工作台）已完成，待人工验收**（§4.4 两组真实样例走查已由 ZCode 预跑通过，含知识写入与 3D 交付，记录见 PHASE-004/005 验收表；用户复核可抽其中任意环节）：`cd frontend && npm run dev`（5173，需全栈在跑），admin/admin123。建议走查：①仪表盘 WS 实时进度（开两个浏览器看同一会话）＋断网重连；②需求输入建会话→gate1 驳回（选 A2）→观察局部回算与下游失效→二次过闸→gate2 批准→知识关批准→三维页签看模型（首次转换数分钟属正常，按版本缓存）；③知识库五页签 CRUD（上传/抽取确认/三库启停/图谱邻域）；④系统管理页现状数字与 /api/v1/kb/status 一致性。已知优化项已全部清账（2026-09-18，commit 9228708）：图谱节点按 Neo4j label 着色、工作台总览含实时日志面板（worker log 流）；会话 id 已归一化无横线（旧外链带横线 id 仍可用，PG uuid 归一化）。视觉打磨（frontend-design skill）与 PHASE-005 自动项预执行均完成，见 PHASE-004/005 验收记录
    - graphrag 本机未安装（可选依赖）：检索图谱级已由自建 Neo4j 实体层承担；装 graphrag~=2.0 后 SDK 级自动优先（A-14）
    - **2026-09-19 用户首轮验收反馈已修**（devlog 补充 30）：失败会话「重新执行」按钮（RETRY 事件+worker 开始即标记阶段）；审阅页降级 IR1 溢出；裁决历史 JSON 批注→可读（ReviewAnnotation）；会话 id 短显+复制；gate1 空方案/降级横幅警示；A1 降级缺失项去噪。**系统性功能交互/页面交互/UI 设计审查已执行**（2026-09-19 ZCode，报告 `docs/reviews/2026-09-19-全站设计审查.md`：P0×3/P1×9/P2×16）→ **报告全部条目闭环**：Top10（补充 32/33）+ P2 打磨组 14 项（补充 34：菜单分组/gate 中文化/横幅去重/仪表盘知识卡/图谱图例中文/文档库拖拽区/三库编号单位/空态文案/交付物 IR 下载/登录内联错误/合理偏离记录）；P2-9 调参与 P2-6 v-status 两项按 A-16 裁剪不做（无数据不造假，已记录）。会话 API 现回 createdByName（join users）
-3. 开发提示：**全栈一键启动：PowerShell/cmd 用 `.\scripts\start-all.cmd`（显式 Git Bash，勿直接敲 bash——PS 会命中已损坏的 WSL）；Git Bash 用 `bash scripts/start-all.sh`**（幂等：在跑的跳过；.env 注入/日志落根目录 logs-*.log；数据底座容器在跑则复用）；数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 三条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）。
+3. 开发提示：**全栈一键启动：PowerShell/cmd 用 `.\scripts\start-all.cmd`（显式 Git Bash，勿直接敲 bash——PS 会命中已损坏的 WSL）；Git Bash 用 `bash scripts/start-all.sh`**（幂等：在跑的跳过；.env 注入/日志落根目录 logs-*.log；数据底座容器在跑则复用）；数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 四条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）/ `test_cad_tune_e2e.py`（~1 分钟，微调协议闭环，自带 mock LLM 随机端口+独立 provider 行不依赖现网供应商）。
 
 ## 待验证 / 待决事项
 
