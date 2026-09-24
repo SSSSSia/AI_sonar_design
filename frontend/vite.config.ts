@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // 5173 被占即报错退出，禁止顺延 5174/5175——全栈文档/插件/WS 代理都只认 5173，
+    // 静默换端口会造出多个并存的 vite 进程（2026-09-24 实发：5173/5174/5175 三个并存）。
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
