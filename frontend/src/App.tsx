@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import ProjectsPage from './pages/ProjectsPage'
 import SessionPage from './pages/session/SessionPage'
+import NewSessionPage from './pages/session/NewSessionPage'
 import KnowledgePage from './pages/kb/KnowledgePage'
 import AdminPage from './pages/AdminPage'
 import { useAuthStore } from './stores/authStore'
@@ -31,7 +32,7 @@ export default function App() {
       <Route element={token ? <AppLayout /> : <Navigate to="/login" replace />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/sessions/new" element={<Navigate to="/" replace />} />
+        <Route path="/sessions/new" element={<NewSessionPage />} />
         <Route path="/sessions/:id" element={<SessionPage />} />
         <Route path="/kb" element={<KnowledgePage />} />
         <Route path="/admin" element={isAdmin ? <AdminPage /> : <Forbidden />} />

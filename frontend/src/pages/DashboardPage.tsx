@@ -14,7 +14,6 @@ import { useSessionSockets } from '../hooks/useSessionSockets'
 import { useProgressStore, useWsStatusStore, type SessionProgress } from '../stores/progressStore'
 import { useAuthStore } from '../stores/authStore'
 import { stageLabel } from '../lib/stageLabel'
-import { NewSessionDrawer } from '../components/NewSessionDrawer'
 
 dayjs.extend(relativeTime)
 
@@ -62,7 +61,6 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([])
   const [batching, setBatching] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const [projectFilter, setProjectFilter] = useState(searchParams.get('project') ?? 'all')
 
@@ -274,7 +272,7 @@ export default function DashboardPage() {
           ]}
         />
         <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>刷新</Button>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate(projectFilter !== 'all' ? `/sessions/new?project=${projectFilter}` : '/sessions/new')}>
           新建会话
         </Button>
       </div>
@@ -386,12 +384,6 @@ export default function DashboardPage() {
             )}
           />
         )}
-      </Card>
-      <NewSessionDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        presetProjectId={projectFilter === 'all' ? undefined : projectFilter}
-      />
-    </div>
+      </Card>    </div>
   )
 }

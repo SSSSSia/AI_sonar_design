@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { Alert, App as AntdApp, Badge, Button, Card, Tabs, Tag, Typography } from 'antd'
+import { PageHeader } from '../../components/PageHeader'
 import dayjs from 'dayjs'
 import { getSession, fireEvent } from '../../api/sessions'
 import { ApiError } from '../../api/client'
@@ -87,14 +88,17 @@ export default function SessionPage() {
 
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto' }}>
-      <div className="row" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-        <div className="page-head">{session.title}</div>
-        <Badge status={displayStatus === 'running' ? 'processing' : displayStatus === 'paused' ? 'warning' : displayStatus === 'completed' ? 'success' : displayStatus === 'failed' ? 'error' : 'default'} text={tag.text} />
-        <span style={{ flex: 1 }} />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: session.id, tooltips: ['复制完整会话 ID', '已复制'] }}>
-          会话 <span className="mono">{session.id.slice(0, 8)}…</span>
-        </Typography.Text>
-      </div>
+      <PageHeader
+        title={session.title}
+        backTo="/"
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: session.id, tooltips: ['复制完整会话 ID', '已复制'] }}>
+            会话 <span className="mono">{session.id.slice(0, 8)}…</span>
+          </Typography.Text>
+        }
+      >
+        <Badge status={displayStatus === 'running' ? 'processing' : displayStatus === 'paused' ? 'warning' : displayStatus === 'completed' ? 'success' : displayStatus === 'failed' ? 'error' : 'default'} text={tag.text} style={{ marginLeft: 10 }} />
+      </PageHeader>
 
       <Card styles={{ body: { padding: '8px 16px 14px' } }}>
         <PipelineTimeline nodes={timeline} />

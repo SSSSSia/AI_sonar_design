@@ -41,6 +41,13 @@ public class SessionController {
         if (req.projectId() == null || req.projectId().isBlank()) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
+        // 标题非空 + ≤20 字（2026-09-24 用户要求；前端 Input maxLength 同校验，此处权威）
+        if (req.title() == null || req.title().isBlank()) {
+            throw new IllegalArgumentException("会话标题不能为空");
+        }
+        if (req.title().length() > 20) {
+            throw new IllegalArgumentException("会话标题不能超过 20 字");
+        }
         return ApiResponse.ok(sessionService.create(req.projectId(), req.title(), req.requirement(),
                 req.kbIds(), userId));
     }

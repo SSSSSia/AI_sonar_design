@@ -10,7 +10,6 @@ import { errText } from '../api/client'
 import type { Project } from '../api/types'
 import { QueryEmpty } from '../components/QueryEmpty'
 import { EditProjectModal, NewProjectModal } from '../components/ProjectModals'
-import { NewSessionDrawer } from '../components/NewSessionDrawer'
 import { SonarMark } from '../components/AppLayout'
 import { hasAnyRole, useAuthStore } from '../stores/authStore'
 
@@ -128,8 +127,6 @@ export default function ProjectsPage() {
   const canManage = hasAnyRole(roles, ['admin', 'designer'])
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerProject, setDrawerProject] = useState<string | undefined>(undefined)
 
   const q = useQuery({
     queryKey: ['projects'],
@@ -189,7 +186,7 @@ export default function ProjectsPage() {
               canManage={canManage}
               isAdmin={isAdmin}
               onView={() => navigate(`/?project=${r.id}`)}
-              onNewSession={() => { setDrawerProject(r.id); setDrawerOpen(true) }}
+              onNewSession={() => navigate(`/sessions/new?project=${r.id}`)}
               onEdit={() => setEditing(r)}
               onDelete={() => confirmDelete(r)}
             />
@@ -213,12 +210,6 @@ export default function ProjectsPage() {
       )}
 
       <NewProjectModal open={creating} onClose={() => setCreating(false)} onCreated={() => void queryClient.invalidateQueries({ queryKey: ['projects'] })} />
-      <EditProjectModal open={!!editing} project={editing} onClose={() => setEditing(null)} />
-      <NewSessionDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        presetProjectId={drawerProject}
-      />
-    </div>
+      <EditProjectModal open={!!editing} project={editing} onClose={() => setEditing(null)} />    </div>
   )
 }
