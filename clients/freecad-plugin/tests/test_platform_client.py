@@ -58,7 +58,19 @@ class _StubHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         type(self).received.append(("GET", self.path, dict(self.headers), b""))
-        if self.path.startswith("/api/v1/cad-agent/tune/tid/tool-calls"):
+        if self.path.startswith("/api/v1/workflow/sessions"):
+            assert self.headers.get("Authorization") == "Bearer t-123"
+            assert "page=1" in self.path and "size=100" in self.path
+            self._reply(200, {"code": 0, "message": "ok", "traceId": "x", "data": {
+                "total": 2, "records": [
+                    {"id": "a" * 32, "title": "拖曳阵设计", "projectName": "P1",
+                     "pipelineStatus": "paused", "currentStage": "gate2",
+                     "tuneId": None, "tuneStatus": None},
+                    {"id": "b" * 32, "title": "舷侧阵", "projectName": None,
+                     "pipelineStatus": "running", "currentStage": "A3",
+                     "tuneId": "t-9", "tuneStatus": "active"},
+                ]}})
+        elif self.path.startswith("/api/v1/cad-agent/tune/tid/tool-calls"):
             assert "cursor=0" in self.path and "wait=5" in self.path
             self._reply(200, {"calls": [{"call_id": 7, "name": "execute_edit_code",
                                          "args": {"code": "result = model"}}], "cursor": 7})
@@ -125,6 +137,18 @@ def test_upload_version_multipart(base_url, tmp_path):
     _, _, _, body = _StubHandler.received[-1]
     assert b'name="fcstd_file"' in body and b"FCSTD-BYTES" in body
     assert "result = model".encode() in body
+
+
+def test_list_sessions_envelope(base_url):
+    """会话选择器数据源：ApiResponse 包络正确解出 records（panel 侧再做可微调过滤）。"""
+    c = Client(base_url)
+    c.login("admin", "right")
+    rows = c.list_sessions()
+    assert len(rows) == 2
+    assert rows[0]["id"] == "a" * 32 and rows[0]["currentStage"] == "gate2"
+    assert rows[1]["tuneStatus"] == "active"
+    method, path, headers, _ = _StubHandler.received[-1]
+    assert (method, path) == ("GET", "/api/v1/workflow/sessions?page=1&size=100")
 
 
 def test_download_and_error_detail(base_url, tmp_path):

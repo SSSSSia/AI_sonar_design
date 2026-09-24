@@ -146,16 +146,26 @@ class AgentPanel(QtWidgets.QDockWidget):
         login_row.addStretch(1)
         layout.addLayout(login_row)
 
-        # ---- 会话区 ----
+        # ---- 会话区（登录后自动列出可微调会话，选中即开；手输 ID 仅备用） ----
         sess_row = QtWidgets.QHBoxLayout()
-        self.sess_edit = QtWidgets.QLineEdit()
-        self.sess_edit.setPlaceholderText("设计会话 ID（从平台会话页复制）")
+        self.sess_combo = QtWidgets.QComboBox()
+        self.sess_reload_btn = QtWidgets.QPushButton("刷新")
+        self.sess_reload_btn.clicked.connect(self._refresh_sessions)
+        self.manual_btn = QtWidgets.QPushButton("手输 ID")
+        self.manual_btn.setCheckable(True)
         self.open_btn = QtWidgets.QPushButton("打开/新建微调")
         self.open_btn.clicked.connect(self._on_open_tune)
         self.pull_btn = QtWidgets.QPushButton("拉取模型")
         self.pull_btn.clicked.connect(self._on_pull_model)
+        self.sess_edit = QtWidgets.QLineEdit()
+        self.sess_edit.setPlaceholderText("手动粘贴设计会话 ID（备用）")
+        self.sess_edit.setVisible(False)
+        self.sess_edit.setMaximumWidth(240)
+        self.manual_btn.toggled.connect(self.sess_edit.setVisible)
         self.tune_status = QtWidgets.QLabel("")
-        sess_row.addWidget(self.sess_edit, 1)
+        sess_row.addWidget(self.sess_combo, 1)
+        sess_row.addWidget(self.sess_reload_btn)
+        sess_row.addWidget(self.manual_btn)
         sess_row.addWidget(self.open_btn)
         sess_row.addWidget(self.pull_btn)
         sess_row.addWidget(self.tune_status)
@@ -192,8 +202,8 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._set_enabled(False)
 
     def _set_enabled(self, on: bool) -> None:
-        for w in (self.sess_edit, self.open_btn, self.pull_btn, self.send_btn,
-                  self.finalize_btn, self.close_tune_btn):
+        for w in (self.sess_combo, self.sess_reload_btn, self.sess_edit, self.open_btn,
+                  self.pull_btn, self.send_btn, self.finalize_btn, self.close_tune_btn):
             w.setEnabled(on)
 
     def _refresh_theme(self) -> None:
@@ -241,6 +251,7 @@ class AgentPanel(QtWidgets.QDockWidget):
             self._client.login(user, pwd)
             self.login_status.setText("已登录")
             self._set_enabled(True)
+            self._refresh_sessions()
         except PlatformError as exc:
             self.login_status.setText(f"登录失败：{exc.detail}")
         finally:
@@ -249,10 +260,35 @@ class AgentPanel(QtWidgets.QDockWidget):
     # ------------------------------------------------------------------
     # 微调会话
     # ------------------------------------------------------------------
+    @staticmethod
+    def _tunable(s: dict) -> bool:
+        """可微调 = 已到审阅关②（A3 出图完成、流程暂停），或已有进行中的微调会话。"""
+        return (s.get("tuneStatus") == "active"
+                or (s.get("pipelineStatus") == "paused" and s.get("currentStage") == "gate2"))
+
+    def _refresh_sessions(self) -> None:
+        try:
+            rows = [s for s in self._client.list_sessions() if self._tunable(s)]
+        except PlatformError as exc:
+            self.tune_status.setText(f"会话列表获取失败：{exc.detail}")
+            return
+        self.sess_combo.clear()
+        for s in rows:
+            label = s.get("title") or "未命名会话"
+            if s.get("projectName"):
+                label = f"{s['projectName']} / {label}"
+            state = "微调中" if s.get("tuneStatus") == "active" else "待审阅关② · 可微调"
+            self.sess_combo.addItem(f"{label}（{state} · {str(s.get('id') or '')[:8]}）", s.get("id"))
+        if not rows:
+            self.sess_combo.addItem("暂无可微调会话——先在平台把会话推进到审阅关②", None)
+        self.tune_status.setText(f"可微调会话 {len(rows)} 个")
+
     def _on_open_tune(self) -> None:
-        sid = self.sess_edit.text().strip()
+        sid = self.sess_combo.currentData() or self.sess_edit.text().strip()
         if not sid:
-            QtWidgets.QMessageBox.information(self, "SonarCAD Link", "请先填入设计会话 ID")
+            QtWidgets.QMessageBox.information(
+                self, "SonarCAD Link",
+                "没有选中的可微调会话。请先在平台把设计会话推进到审阅关②（A3 出图完成），或点「手输 ID」粘贴会话 ID。")
             return
         try:
             sessions = self._client.list_tunes(sid).get("sessions", [])

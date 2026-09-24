@@ -62,6 +62,15 @@ class Client:
         return {"Authorization": f"Bearer {token}"}
 
     # ------------------------------------------------------------------
+    # 设计会话（workflow 只读，经网关）
+    # ------------------------------------------------------------------
+    def list_sessions(self, page: int = 1, size: int = 100) -> list[dict]:
+        """平台设计会话列表（ApiResponse 包络取 data.records；size 上游封顶 100）。"""
+        data = self._request("GET", f"/api/v1/workflow/sessions?page={page}&size={size}",
+                             headers=self._headers())
+        return ((data.get("data") or {}).get("records")) or []
+
+    # ------------------------------------------------------------------
     # 微调会话（/api/v1/cad-agent/**）
     # ------------------------------------------------------------------
     def create_tune(self, design_session_id: str) -> dict:
