@@ -12,7 +12,8 @@
 | 阶段 4 | [phase-4-前端工作台全量.md](phase-4-前端工作台全量.md) | 📋 规划版（PHASE-004 v0.1） | React 全页面：仪表盘/审阅/参数表/三维预览/知识库/系统管理（UI 先 mockup） |
 | 阶段 5 | [phase-5-验收与发布.md](phase-5-验收与发布.md) | 📋 规划版（PHASE-005 v0.1） | 发布检查清单逐项留痕 → tag v0.1.0 |
 | 阶段 6 | [phase-6-知识库多库与会话选库.md](phase-6-知识库多库与会话选库.md) | ✅ 全任务完成，待人工验收（PHASE-006 v1.0） | 多库多对多归属/检索按库过滤+Agent 路由/会话选库+命中溯源/回写选库/原文预览，e2e 通过 |
-| 阶段 7 | [phase-7-几何特征真实化与数值校验.md](phase-7-几何特征真实化与数值校验.md) | 📋 完整版 v1.0，待开发（决策依据 ADR-003） | IR3 features 实测提取替代占位镜像 + A4 数值级几何复核（CHK-GEO-NUM），vision-LLM 留观 |
+| 阶段 7 | [phase-7-几何特征真实化与数值校验.md](phase-7-几何特征真实化与数值校验.md) | ✅ 全任务完成，待人工验收（PHASE-007 v1.0） | IR3 features 实测提取替代占位镜像 + A4 数值级几何复核（CHK-GEO-NUM），vision-LLM 留观 |
+| 阶段 8 | [phase-8-CAD交互微调-FreeCAD集成.md](phase-8-CAD交互微调-FreeCAD集成.md) | 🚧 开发中（PHASE-008 v1.0，决策依据 ADR-004） | FreeCAD 薄插件+后端大脑：A3 后人工微调、每轮 IR3 版本留痕、gate2 审定稿 |
 
 ## 开发路径（依赖关系）
 
