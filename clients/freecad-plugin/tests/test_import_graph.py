@@ -57,10 +57,13 @@ _STUBS = {
     "FreeCADGui": lambda: _module("FreeCADGui"),
     "Part": lambda: _module("Part"),
     "Import": lambda: _module("Import"),
-    "QtCore": lambda: _module("QtCore", Signal=_Signal, QThread=_QThread, QTimer=_QThread,
-                               Qt=_module("Qt")),
-    "QtGui": lambda: _module("QtGui"),
-    "QtWidgets": lambda: _module("QtWidgets", QDockWidget=_QDockWidget, QWidget=_QDockWidget),
+    # 插件经 PySide6 导入 Qt（FreeCAD 1.1 无裸名 QtCore/QtWidgets，真机实测）
+    "PySide6": lambda: _module("PySide6",
+                               QtCore=_module("QtCore", Signal=_Signal, QThread=_QThread,
+                                              QTimer=_QThread, Qt=_module("Qt")),
+                               QtGui=_module("QtGui"),
+                               QtWidgets=_module("QtWidgets", QDockWidget=_QDockWidget,
+                                                 QWidget=_QDockWidget)),
 }
 
 

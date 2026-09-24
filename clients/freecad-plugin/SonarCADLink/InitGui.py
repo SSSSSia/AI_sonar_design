@@ -43,14 +43,29 @@ class SonarCADLinkWorkbench(Workbench):  # noqa: F821
     def Initialize(self):
         # 注意不可 `import InitGui` 自引：那会把本文件作为普通模块重新 exec 一遍，
         # 导致命令/工作台重复注册（FreeCAD exec 加载不会在 sys.modules 留名）。
-
-        from PySide import QtCore  # noqa: F401
-
         self.appendToolbar("SonarCADLink", ["SonarCADLink_ShowPanel"])
         self.appendMenu("SonarCADLink", ["SonarCADLink_ShowPanel"])
 
     def Activated(self):
-        pass
+        # 切到本工作台即开面板（用户预期：选了就要见东西）；失败弹窗而非静默
+        self._open_panel()
+
+    def _open_panel(self):
+        try:
+            from sonarlink.ui import panel  # 局部 import：exec 加载环境下包在 sys.path 上
+
+            panel.show_panel()
+        except Exception:
+            import traceback
+
+            detail = traceback.format_exc()[-800:]
+            FreeCAD.Console.PrintError("[SonarCADLink] 面板加载失败：\n" + detail + "\n")
+            try:
+                from PySide6 import QtWidgets
+
+                QtWidgets.QMessageBox.critical(None, "SonarCADLink 面板加载失败", detail)
+            except Exception:
+                pass
 
     def Deactivated(self):
         pass
@@ -63,13 +78,27 @@ class _ShowPanelCmd:
     def GetResources(self):
         return {
             "MenuText": "打开微调面板",
-            "ToolTip": "打开 SonarCADLink 平台微调面板（登录 → 打开设计会话 → 对话微调）",
+            "ToolTip": "打开 SonarCADLink 平台微调面板（登录 → 选择会话 → 对话微调）",
         }
 
     def Activated(self):
-        from sonarlink.ui import panel  # 局部 import：exec 加载环境下包在 sys.path 上
+        # exec 作用域陷阱：方法体内不可引用本文件顶层名（如 SonarCADLinkWorkbench），
+        # 因此这里自包含一份打开逻辑（与工作台 Activated 同型），失败弹窗而非静默
+        try:
+            from sonarlink.ui import panel
 
-        panel.show_panel()
+            panel.show_panel()
+        except Exception:
+            import traceback
+
+            detail = traceback.format_exc()[-800:]
+            FreeCAD.Console.PrintError("[SonarCADLink] 面板加载失败：\n" + detail + "\n")  # noqa: F821
+            try:
+                from PySide6 import QtWidgets
+
+                QtWidgets.QMessageBox.critical(None, "SonarCADLink 面板加载失败", detail)
+            except Exception:
+                pass
 
     def IsActive(self):
         return True

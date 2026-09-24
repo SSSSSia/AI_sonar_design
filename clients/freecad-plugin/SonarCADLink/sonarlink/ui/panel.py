@@ -16,9 +16,7 @@ import traceback
 
 import FreeCAD
 import FreeCADGui
-import QtCore
-import QtGui
-import QtWidgets
+from PySide6 import QtCore, QtWidgets  # 裸名 import QtCore 在 FreeCAD 1.1 不可用（真机实测）
 
 from sonarlink.cad import snapshot_lite
 from sonarlink.cad import executor
