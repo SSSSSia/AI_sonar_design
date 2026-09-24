@@ -30,11 +30,12 @@ public class SessionService {
     private final UserLookupMapper userLookupMapper;
     private final ProjectLookupMapper projectLookupMapper;
     private final KbBaseLookupMapper kbBaseLookupMapper;
+    private final CadTuneLookupMapper cadTuneLookupMapper;
 
     public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper,
                           TaskPublisher taskPublisher, NotifyClient notifyClient,
                           UserLookupMapper userLookupMapper, ProjectLookupMapper projectLookupMapper,
-                          KbBaseLookupMapper kbBaseLookupMapper) {
+                          KbBaseLookupMapper kbBaseLookupMapper, CadTuneLookupMapper cadTuneLookupMapper) {
         this.mapper = mapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
@@ -42,6 +43,7 @@ public class SessionService {
         this.userLookupMapper = userLookupMapper;
         this.projectLookupMapper = projectLookupMapper;
         this.kbBaseLookupMapper = kbBaseLookupMapper;
+        this.cadTuneLookupMapper = cadTuneLookupMapper;
     }
 
     /**
@@ -129,6 +131,7 @@ public class SessionService {
         fillCreatorNames(java.util.List.of(s));
         fillProjectNames(java.util.List.of(s));
         fillKbNames(java.util.List.of(s));
+        fillTuneStatus(java.util.List.of(s));
         return s;
     }
 
@@ -140,6 +143,7 @@ public class SessionService {
         fillCreatorNames(p.getRecords());
         fillProjectNames(p.getRecords());
         fillKbNames(p.getRecords());
+        fillTuneStatus(p.getRecords());
         return p;
     }
 
@@ -167,6 +171,32 @@ public class SessionService {
                 if (name != null) names.add(name);
             }
             if (!names.isEmpty()) s.setKbNames(names);
+        }
+    }
+
+    /** 活跃微调会话回填（PHASE-008 T8.6）：cad_tune_sessions 同库只读，会话详情/列表带 tune 状态。
+     *  仅回填 active（审阅警示只关心进行中）；design_session_id 列读回带横线，与归一化 id 对齐后匹配。 */
+    private void fillTuneStatus(java.util.List<DesignSessionEntity> sessions) {
+        java.util.Set<String> ids = sessions.stream()
+                .map(DesignSessionEntity::getId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) return;
+        java.util.List<CadTuneLookupEntity> rows = cadTuneLookupMapper.selectList(
+                new LambdaQueryWrapper<CadTuneLookupEntity>()
+                        .in(CadTuneLookupEntity::getDesignSessionId, ids)
+                        .eq(CadTuneLookupEntity::getStatus, "active"));
+        if (rows.isEmpty()) return;
+        java.util.Map<String, CadTuneLookupEntity> bySid = new java.util.HashMap<>();
+        for (CadTuneLookupEntity r : rows) {
+            bySid.put(r.getDesignSessionId().replace("-", ""), r);
+        }
+        for (DesignSessionEntity s : sessions) {
+            CadTuneLookupEntity t = bySid.get(s.getId());
+            if (t != null) {
+                s.setTuneId(t.getId());
+                s.setTuneStatus(t.getStatus());
+            }
         }
     }
 

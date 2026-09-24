@@ -34,6 +34,14 @@ public class DesignSessionEntity {
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     private java.util.List<String> kbNames;
 
+    /** 非表列：进行中的微调会话 id（cad_tune_sessions 同库只读回填，PHASE-008 T8.6；null=无）。 */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private String tuneId;
+
+    /** 非表列：进行中的微调会话状态（active；finalized/abandoned 不回填——审阅警示只关心进行中）。 */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private String tuneStatus;
+
     public String getCreatedByName() { return createdByName; }
     public void setCreatedByName(String createdByName) { this.createdByName = createdByName; }
     public String getProjectName() { return projectName; }
@@ -42,6 +50,10 @@ public class DesignSessionEntity {
     public void setKbIds(String kbIds) { this.kbIds = kbIds; }
     public java.util.List<String> getKbNames() { return kbNames; }
     public void setKbNames(java.util.List<String> kbNames) { this.kbNames = kbNames; }
+    public String getTuneId() { return tuneId; }
+    public void setTuneId(String tuneId) { this.tuneId = tuneId; }
+    public String getTuneStatus() { return tuneStatus; }
+    public void setTuneStatus(String tuneStatus) { this.tuneStatus = tuneStatus; }
 
     public String getId() { return id; }
 

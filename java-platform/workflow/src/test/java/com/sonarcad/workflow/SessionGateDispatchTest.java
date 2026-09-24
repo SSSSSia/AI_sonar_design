@@ -42,7 +42,8 @@ class SessionGateDispatchTest {
         // 真实 NotifyClient：发布为异步 fire-and-forget，测试中连不上只记日志、不影响断言
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
                 new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
-                projectLookupMapper, kbBaseLookupMapper);
+                projectLookupMapper, kbBaseLookupMapper,
+                mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class));
     }
 
     @Test
@@ -128,6 +129,59 @@ class SessionGateDispatchTest {
                 () -> service.create("p-1", "标题", "需求",
                         java.util.List.of("00000000-0000-0000-0000-000000000000"), "u1"));
         assertEquals(400, ex.getStatusCode().value());
+    }
+
+    @Test
+    void listFillsActiveTuneStatus() {
+        // PHASE-008 T8.6：活跃微调会话回填（审阅警示与会话列表口径）
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                com.sonarcad.workflow.session.CadTuneLookupEntity.class);
+        com.sonarcad.workflow.session.CadTuneLookupMapper cadTuneLookupMapper =
+                mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class);
+        service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
+                new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
+                projectLookupMapper, kbBaseLookupMapper, cadTuneLookupMapper);
+        DesignSessionEntity s = session("s1nodash", "paused", "gate2");
+        Page<DesignSessionEntity> page = new Page<>(1, 10);
+        page.setRecords(java.util.List.of(s));
+        when(sessionMapper.selectPage(any(), any())).thenReturn(page);
+        when(projectLookupMapper.selectList(any())).thenReturn(java.util.List.of());
+        com.sonarcad.workflow.session.CadTuneLookupEntity t =
+                new com.sonarcad.workflow.session.CadTuneLookupEntity();
+        t.setId("tune-1");
+        // 列读回带横线（uuid 原生形态）——回填需与归一化无横线 id 对齐
+        t.setDesignSessionId("s1-no-dash");
+        t.setStatus("active");
+        when(cadTuneLookupMapper.selectList(any())).thenReturn(java.util.List.of(t));
+
+        Page<DesignSessionEntity> out = service.list(null, 1, 10);
+        assertEquals("tune-1", out.getRecords().get(0).getTuneId());
+        assertEquals("active", out.getRecords().get(0).getTuneStatus());
+    }
+
+    @Test
+    void listWithoutActiveTuneLeavesFieldsNull() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                com.sonarcad.workflow.session.CadTuneLookupEntity.class);
+        com.sonarcad.workflow.session.CadTuneLookupMapper cadTuneLookupMapper =
+                mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class);
+        service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
+                new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
+                projectLookupMapper, kbBaseLookupMapper, cadTuneLookupMapper);
+        DesignSessionEntity s = session("s1", "paused", "gate2");
+        Page<DesignSessionEntity> page = new Page<>(1, 10);
+        page.setRecords(java.util.List.of(s));
+        when(sessionMapper.selectPage(any(), any())).thenReturn(page);
+        when(projectLookupMapper.selectList(any())).thenReturn(java.util.List.of());
+        when(cadTuneLookupMapper.selectList(any())).thenReturn(java.util.List.of());
+
+        Page<DesignSessionEntity> out = service.list(null, 1, 10);
+        assertNull(out.getRecords().get(0).getTuneId());
+        assertNull(out.getRecords().get(0).getTuneStatus());
     }
 
     private DesignSessionEntity session(String id, String status, String stage) {
