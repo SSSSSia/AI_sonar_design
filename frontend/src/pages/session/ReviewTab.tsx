@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Alert, App as AntdApp, Button, Card, Input, Modal, Radio, Space, Table, Tag, Typography,
 } from 'antd'
@@ -7,6 +8,8 @@ import {
   postReview, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
 } from '../../api/workflow'
 import { ApiError } from '../../api/client'
+import { listTunes } from '../../api/cadAgent'
+import { summarizeTunes } from './tuneSummary'
 import { ParamTable, parseKbRef } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
 import { KbRefDrawer } from '../../components/KbRefDrawer'
@@ -52,6 +55,13 @@ export function ReviewTab({
   const { message } = AntdApp.useApp()
   const roles = useAuthStore((s) => s.roles)
   const canDecide = hasAnyRole(roles, ['admin', 'reviewer'])
+  // T8.5：gate2 裁决前提示活跃微调会话——确保审阅的即交付的版本（D8-3 衔接语义）
+  const tunesQuery = useQuery({
+    queryKey: ['cad-tune', sessionId],
+    queryFn: () => listTunes(sessionId),
+    enabled: gate === 'gate2',
+  })
+  const tuneSum = summarizeTunes(gate === 'gate2' ? tunesQuery.data?.sessions : undefined)
 
   const [traceParam, setTraceParam] = useState<Ir2Param | null>(null)
   const [kbRefParam, setKbRefParam] = useState<Ir2Param | null>(null)
@@ -205,6 +215,15 @@ export function ReviewTab({
       )}
 
       {ir3 && <Ir3Card ir3={ir3} params={params(ir2 ?? { design_document: '', parameters: [] })} />}
+
+      {gate && tuneSum.active && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`存在进行中的 FreeCAD 微调会话（已 ${tuneSum.active.rounds?.length ?? 0} 轮）`}
+          description="设计人员可能仍在修改模型——每轮微调会产生新的 IR3 版本。建议先让其「定稿」再裁决，确保审阅的即交付的版本。"
+        />
+      )}
 
       {gate && (
         <Card

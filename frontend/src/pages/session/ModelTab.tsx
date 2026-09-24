@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Button, Card, Space, Table, Typography } from 'antd'
+import { useQuery } from '@tanstack/react-query'
+import { Alert, Button, Card, Collapse, Space, Table, Tag, Timeline, Typography } from 'antd'
 import { Canvas } from '@react-three/fiber'
 import { Bounds, OrbitControls, useGLTF } from '@react-three/drei'
 import { MOUSE } from 'three'
 import { http } from '../../api/client'
 import { getIr, type Ir3 } from '../../api/workflow'
+import { listTunes } from '../../api/cadAgent'
+import { roundStatusLabel, summarizeTunes } from './tuneSummary'
 
 type GltfState = 'idle' | 'converting' | 'ready' | 'failed' | 'no-ir3'
 
@@ -92,6 +95,75 @@ function GltfModel({ url, wireframe }: { url: string; wireframe: boolean }) {
     })
   }, [scene, wireframe])
   return <primitive object={scene} />
+}
+
+/** FreeCAD 交互微调卡片（T8.5）：活跃会话状态 + 轮次/版本时间线 + 插件使用提示。 */
+function TuneCard({ sessionId, ir3Version }: { sessionId: string; ir3Version?: number }) {
+  const tunesQuery = useQuery({
+    queryKey: ['cad-tune', sessionId],
+    queryFn: () => listTunes(sessionId),
+    enabled: !!sessionId,
+  })
+  const sum = summarizeTunes(tunesQuery.data?.sessions)
+  const statusTag = sum.active ? (
+    <Tag color="processing">微调进行中{sum.activeRoundCount > 0 ? ` · ${sum.activeRoundCount} 轮未收敛` : ''}</Tag>
+  ) : sum.latest?.status === 'finalized' ? (
+    <Tag color="success">已定稿（待审阅关②）</Tag>
+  ) : sum.latest?.status === 'abandoned' ? (
+    <Tag>已放弃</Tag>
+  ) : (
+    <Tag>未开始</Tag>
+  )
+
+  return (
+    <Card
+      title="FreeCAD 交互微调"
+      size="small"
+      extra={statusTag}
+      styles={{ body: { paddingTop: 8 } }}
+    >
+      {sum.rows.length === 0 ? (
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+          在 FreeCAD 中安装 SonarCADLink 插件后，可对当前模型（IR3 v{ir3Version ?? '?'}）进行
+          点选 + 自然语言微调；每轮微调产生新版本并全部留痕。
+        </Typography.Paragraph>
+      ) : (
+        <Timeline
+          style={{ marginBottom: 0 }}
+          items={sum.rows.map((r) => ({
+            color: r.status === 'failed' ? 'red' : r.irVersion ? 'green' : r.status === 'running' ? 'blue' : 'gray',
+            children: (
+              <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                <div>
+                  <b>r{r.roundNo}</b> · {roundStatusLabel(r.status)}
+                  {r.irVersion ? <Tag color="green" style={{ marginLeft: 6 }}>IR3 v{r.irVersion}</Tag> : null}
+                  {r.isQuestion ? <Tag style={{ marginLeft: 6 }}>问答</Tag> : null}
+                  {r.toolCount > 0 ? <span style={{ color: '#8b949e' }}>（{r.toolCount} 次编辑）</span> : null}
+                </div>
+                <div style={{ color: '#57606a' }}>{r.prompt}</div>
+                {r.failedError ? <div style={{ color: '#cf222e' }}>{r.failedError}</div> : null}
+              </div>
+            ),
+          }))}
+        />
+      )}
+      <Collapse
+        ghost
+        size="small"
+        items={[{
+          key: 'how',
+          label: <span style={{ fontSize: 12 }}>如何在 FreeCAD 中微调？</span>,
+          children: (
+            <Typography.Paragraph style={{ fontSize: 12, marginBottom: 0 }} type="secondary">
+              把仓库 <code>clients/freecad-plugin/SonarCADLink</code> 复制进 FreeCAD 的 Mod
+              目录，重启后切到 SonarCADLink 工作台：登录平台 → 粘贴本会话 ID →
+              「打开/新建微调」→「拉取模型」→ 对话微调 → 定稿（详见插件 README 的人工验收清单）。
+            </Typography.Paragraph>
+          ),
+        }]}
+      />
+    </Card>
+  )
 }
 
 /** 三维预览 + 交付物下载（T4.3）。 */
@@ -184,6 +256,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
       </Card>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <TuneCard sessionId={sessionId} ir3Version={ir3Version} />
         <Card title="交付物下载" size="small" extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>下载链接 15 分钟内有效</Typography.Text>} styles={{ body: { padding: 0 } }}>
           <Table
             rowKey="k" size="small" pagination={false}

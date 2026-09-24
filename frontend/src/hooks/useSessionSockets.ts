@@ -39,6 +39,10 @@ export function useSessionSockets(sids: string[]) {
           } else if (m.type === 'ir_updated') {
             void queryClient.invalidateQueries({ queryKey: ['ir', m.session_id] })
             void queryClient.invalidateQueries({ queryKey: ['session', m.session_id] })
+          } else if (m.type === 'cad_tune_updated') {
+            // 微调状态/版本更新（T8.5）：时间线与活跃状态即时刷新；version_ready 时
+            // ir_updated 已同路触发预览刷新，这里补时间线数据面
+            void queryClient.invalidateQueries({ queryKey: ['cad-tune', m.session_id] })
           } else if (m.type === 'log') {
             useLogStore.getState().push(m.session_id, {
               at: Date.parse(m.timestamp) || Date.now(),

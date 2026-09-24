@@ -27,6 +27,21 @@ export interface IrUpdatedPayload {
   ir_version: string
 }
 
+export type CadTuneState =
+  | 'awaiting_upload'
+  | 'round_done'
+  | 'version_ready'
+  | 'finalized'
+  | 'closed'
+  | 'failed'
+
+export interface CadTuneUpdatedPayload {
+  tune_id: string
+  state: CadTuneState
+  round_no?: number
+  ir_version?: string
+}
+
 interface Envelope<T> {
   session_id: string
   task_id?: string
@@ -40,3 +55,4 @@ export type WsMessage =
   | ({ type: 'log' } & Envelope<LogPayload>)
   | ({ type: 'review_request' } & Envelope<ReviewRequestPayload>)
   | ({ type: 'ir_updated' } & Envelope<IrUpdatedPayload>)
+  | ({ type: 'cad_tune_updated' } & Envelope<CadTuneUpdatedPayload>)
