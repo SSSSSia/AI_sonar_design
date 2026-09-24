@@ -54,3 +54,6 @@ Thumbs.db
 .zcode/
 /logs-*.log
 java-platform/workflow/workflow-run.log
+gateway.log
+py-engine.log
+workflow-run.log
