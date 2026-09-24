@@ -186,21 +186,44 @@ function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sess
   )
 }
 
-/** 总览页签：实时日志 + IR 快照版本条 + 知识检索 + IR1 目标摘要 + 缺失项如实展示。 */
+/** 原始需求卡片（IR0 raw_text，创建时固化不可变 · A-04；未填写如实留空）。 */
+function RawRequirementCard({ rawText }: { rawText?: string | null }) {
+  return (
+    <Card title="原始需求" extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>IR0 · 创建时固化 · A-04</Typography.Text>} size="small">
+      {rawText ? (
+        <Typography.Paragraph
+          ellipsis={{ rows: 4, expandable: true, symbol: '展开' }}
+          style={{ fontSize: 12.5, margin: 0, whiteSpace: 'pre-wrap' }}
+        >
+          {rawText}
+        </Typography.Paragraph>
+      ) : (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          创建会话时未填写需求原文（留空创建的会话无 IR0 快照）。
+        </Typography.Text>
+      )}
+    </Card>
+  )
+}
+
+/** 总览页签：原始需求 + 实时日志 + IR 快照版本条 + 知识检索 + IR1 目标摘要 + 缺失项如实展示。 */
 export function OverviewTab({
   sessionId,
   ir1,
+  ir0RawText,
   versions,
   sessionKbNames,
 }: {
   sessionId: string
   ir1: Ir1 | null
+  ir0RawText?: string | null
   versions: { IR1?: number; IR2?: number; IR3?: number; IR4?: number; IR5?: number }
   sessionKbNames?: string[] | null
 }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(260px,1fr)', gap: 16 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <RawRequirementCard rawText={ir0RawText} />
         <Card title="执行记录" styles={{ body: { paddingTop: 8 } }}>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
             阶段转移与裁决历史见「审阅与参数」页签的裁决记录。

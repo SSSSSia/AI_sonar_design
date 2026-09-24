@@ -52,6 +52,7 @@ export default function SessionPage() {
   const ir3 = useQuery({ queryKey: ['ir', id, 'IR3'], queryFn: () => getIr(id!, 'IR3'), enabled: !!id, retry: false })
   const ir4 = useQuery({ queryKey: ['ir', id, 'IR4'], queryFn: () => getIr(id!, 'IR4'), enabled: !!id, retry: false })
   const ir5 = useQuery({ queryKey: ['ir', id, 'IR5'], queryFn: () => getIr(id!, 'IR5'), enabled: !!id, retry: false })
+  const ir0 = useQuery({ queryKey: ['ir', id, 'IR0'], queryFn: () => getIr(id!, 'IR0'), enabled: !!id, retry: false })
 
   const timeline = useMemo(
     () => buildTimeline(displayStage, displayStatus ?? 'pending'),
@@ -82,6 +83,7 @@ export default function SessionPage() {
   const ir3Data = parseIr<Ir3>(ir3.data)
   const ir4Data = parseIr<Ir4>(ir4.data)
   const ir5Data = parseIr<Ir5>(ir5.data)
+  const ir0RawText = parseIr<{ raw_text?: string }>(ir0.data)?.raw_text ?? null
 
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto' }}>
@@ -153,6 +155,7 @@ export default function SessionPage() {
               <OverviewTab
                 sessionId={session.id}
                 ir1={ir1Data}
+                ir0RawText={ir0RawText}
                 sessionKbNames={session.kbNames}
                 versions={{ IR1: ir1.data?.version, IR2: ir2.data?.version, IR3: ir3.data?.version, IR4: ir4.data?.version, IR5: ir5.data?.version }}
               />
