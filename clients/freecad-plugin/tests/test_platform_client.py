@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from platform_client import Client, PlatformError
+from sonarlink.client.platform_client import Client, PlatformError
 
 
 class _StubHandler(BaseHTTPRequestHandler):

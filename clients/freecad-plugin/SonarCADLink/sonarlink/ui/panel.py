@@ -20,10 +20,10 @@ import QtCore
 import QtGui
 import QtWidgets
 
-import chat_renderer
-import executor
-import theme
-from platform_client import Client, PlatformError
+from sonarlink.cad import snapshot_lite
+from sonarlink.cad import executor
+from sonarlink.client.platform_client import Client, PlatformError
+from sonarlink.ui import chat_renderer, theme
 
 
 class BackendWorker(QtCore.QThread):
@@ -437,7 +437,7 @@ class AgentPanel(QtWidgets.QDockWidget):
     # 快照恢复 / 定稿 / 结束
     # ------------------------------------------------------------------
     def _on_restore(self) -> None:
-        ok, msg = __import__("snapshot_lite").restore()
+        ok, msg = snapshot_lite.restore()
         if ok:
             executor.reset_session_state()
         self._append_note(msg)

@@ -22,7 +22,8 @@ class SonarCADLinkWorkbench(Workbench):  # noqa: F821
     ToolTip = "智能声呐设计系统：平台生成模型的交互微调"
 
     def Initialize(self):
-        import InitGui  # noqa: F401 - 确保 sys.path 就绪
+        # 注意不可 `import InitGui` 自引：那会把本文件作为普通模块重新 exec 一遍，
+        # 导致命令/工作台重复注册（FreeCAD exec 加载不会在 sys.modules 留名）。
 
         from PySide import QtCore  # noqa: F401
 
@@ -47,7 +48,7 @@ class _ShowPanelCmd:
         }
 
     def Activated(self):
-        import panel  # 局部 import：exec 加载环境下模块在 sys.path 上
+        from sonarlink.ui import panel  # 局部 import：exec 加载环境下包在 sys.path 上
 
         panel.show_panel()
 

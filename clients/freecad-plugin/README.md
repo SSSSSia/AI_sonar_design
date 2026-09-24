@@ -58,16 +58,31 @@
 
 ## 目录结构
 
-| 文件 | 职责 | 来源 |
-|---|---|---|
-| `Init.py` / `InitGui.py` | Mod 入口与工作台注册 | 新写 |
-| `platform_client.py` | 平台 HTTP 客户端（登录/会话列表/长轮询/上传） | 新写 |
-| `executor.py` | execute_edit_code 执行器（语法预检/沙箱/质量门禁/结构化回传） | 改编自 CadAgent tools.py |
-| `snapshot_lite.py` | 单槽位执行前快照（安全网；版本链在平台） | 新写 |
-| `panel.py` | 后端大脑模式聊天面板（长轮询 worker + 轮询渲染） | 改编自 CadAgent ui/* |
-| `cq.py` / `cad_helpers.py` | CQ 风格 API → FreeCAD Part 翻译层 | CadAgent 原样迁移 |
-| `quality.py` / `code_fixes.py` / `geometry_analyzer.py` / `doc_analyzer.py` | 质量门禁 / 错误提示 / 几何分析 | CadAgent 原样迁移 |
-| `chat_renderer.py` / `theme.py` / `text_utils.py` | Markdown 渲染 / 主题 / 文本清洗 | CadAgent 原样迁移 |
+包化组织（`sonarlink/` 子包）：FreeCAD 会把 Mod 目录放进 `sys.path`，平铺顶层模块名
+（`theme`/`executor` 等通用名）易与其他 Mod 撞名，全部单文件平铺也不可读。
 
-协议单测在仓库 `clients/freecad-plugin/tests/`（无 FreeCAD 环境可跑：仅覆盖
-platform_client 与消息整形；FreeCAD 相关代码走上面的人工验收清单）。
+```
+SonarCADLink/
+├─ Init.py / InitGui.py          FreeCAD Mod 入口（exec 加载；工作台与面板命令注册）
+└─ sonarlink/
+   ├─ client/
+   │  └─ platform_client.py      平台 HTTP 客户端（登录/会话列表/长轮询/上传）
+   ├─ cad/                       FreeCAD 内执行端
+   │  ├─ executor.py             execute_edit_code 执行器（语法预检/沙箱/质量回传）
+   │  ├─ snapshot_lite.py        单槽位执行前快照（安全网；版本链在平台）
+   │  ├─ cq.py / cad_helpers.py  CQ 风格 API → FreeCAD Part 翻译层
+   │  ├─ quality.py / code_fixes.py  质量门禁 / 常见错误自动修复
+   │  └─ geometry_analyzer.py / doc_analyzer.py  几何/文档分析
+   ├─ ui/
+   │  ├─ panel.py                聊天面板（长轮询 worker + 轮次轮询渲染）
+   │  └─ chat_renderer.py / theme.py  Markdown 渲染 / 主题适配
+   └─ text_utils.py              文本清洗（executor 与渲染共用）
+```
+
+来源：`client/`、`snapshot_lite.py` 新写；`executor.py` 改编自 CadAgent `tools.py`；
+`panel.py` 改编自 CadAgent `ui/*`；`cad/` 其余与渲染件自 CadAgent `agent/core/ui`
+原样迁移（import 改为 `sonarlink.*` 绝对路径）。
+
+协议与 import 图单测在仓库 `clients/freecad-plugin/tests/`（无 FreeCAD 环境可跑：
+`test_platform_client.py` 覆盖平台协议链路；`test_import_graph.py` 以 FreeCAD/Qt
+桩模块逐个导入 sonarlink 全部模块，抓 import 路径错漏；FreeCAD 真机行为走上面的人工验收清单）。

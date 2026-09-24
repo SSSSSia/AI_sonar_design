@@ -10,7 +10,7 @@ import math
 
 import FreeCAD
 
-from geometry_analyzer import (
+from sonarlink.cad.geometry_analyzer import (
     ShapeInfo, SolidInfo, FaceInfo,
     describe_shape,
 )
@@ -114,7 +114,7 @@ def analyze_document(doc=None, concise: bool = False) -> str:
         lines.append(f"- '{obj.Label}' (type: {obj.TypeId})")
         info = _extract_shape_info(obj.Shape)
         if concise:
-            from geometry_analyzer import describe_shape_concise
+            from sonarlink.cad.geometry_analyzer import describe_shape_concise
             lines.append(describe_shape_concise(info))
         else:
             lines.append(describe_shape(info))

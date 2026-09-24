@@ -22,7 +22,7 @@ import traceback
 import FreeCAD
 import Part
 
-from cad_helpers import (
+from sonarlink.cad.cad_helpers import (
     cq_show,
     ensure_doc,
     extract_solid,
@@ -33,11 +33,11 @@ from cad_helpers import (
     safe_cut,
     safe_fuse,
 )
-from code_fixes import error_hint, pre_validate_code
-from cq import Workplane as _CQWorkplane, _cq_module
-from doc_analyzer import analyze_document
-from quality import analyze_document_quality
-from text_utils import strip_markdown
+from sonarlink.cad.code_fixes import error_hint, pre_validate_code
+from sonarlink.cad.cq import Workplane as _CQWorkplane, _cq_module
+from sonarlink.cad.doc_analyzer import analyze_document
+from sonarlink.cad.quality import analyze_document_quality
+from sonarlink.text_utils import strip_markdown
 
 SAFE_BUILTINS = {
     "__import__": __import__,

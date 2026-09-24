@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from geometry_analyzer import (
+from sonarlink.cad.geometry_analyzer import (
     ShapeInfo,
     detect_topology_issues,
 )
@@ -258,7 +258,7 @@ def analyze_document_quality(doc, assembly_mode: bool = False) -> QualityReport:
             summary="No active document.",
         )
 
-    from core.doc_analyzer import _extract_shape_info
+    from sonarlink.cad.doc_analyzer import _extract_shape_info
 
     # Collect (label, ShapeInfo) for all valid shape objects
     pairs: list[tuple[str, ShapeInfo]] = []

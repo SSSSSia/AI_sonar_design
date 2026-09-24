@@ -21,7 +21,7 @@ import types as _types
 import FreeCAD
 import Part
 
-from cad_helpers import (
+from sonarlink.cad.cad_helpers import (
     extract_solid, safe_fuse, safe_cut, make_hollow_cylinder,
 )
 
