@@ -71,6 +71,17 @@ CAD_GEO_LINK_TOL_PCT = float(_env("CAD_GEO_LINK_TOL_PCT", "20"))
 # A4 数值复核容差（linked 参数 vs 实测 bbox 维度相对偏差，百分比；对齐 mockup 06「2.1% 超容差」口径）
 CAD_GEO_NUM_TOL_PCT = float(_env("CAD_GEO_NUM_TOL_PCT", "2"))
 
+# ---- CAD 交互微调（T8.1，PHASE-008，ADR-004）----
+BUCKET_CAD_TUNES = "cad-tunes"                            # 微调每轮产物（STEP/FCStd/脚本/截图）
+# 工具调用等待插件回传的超时：超时标 timeout 并注入修复提示（主线程执行无法强制超时的服务端兜底）
+CAD_TUNE_TOOL_TIMEOUT_S = int(_env("CAD_TUNE_TOOL_TIMEOUT_S", "180"))
+# AgentLoop 后台线程池（D8-6：工具等待是 DB 轮询非 CPU 密集，不任务化；量大迁 celery）
+CAD_TUNE_MAX_WORKERS = int(_env("CAD_TUNE_MAX_WORKERS", "2"))
+# 单轮上下文 token 预算（迁移自 CadAgent token_budget 默认值）
+CAD_TUNE_MAX_CONTEXT_TOKENS = int(_env("CAD_TUNE_MAX_CONTEXT_TOKENS", "24000"))
+# 单轮 AgentLoop 最大工具调用次数（A-13 有界终止）
+CAD_TUNE_MAX_ITERATIONS = int(_env("CAD_TUNE_MAX_ITERATIONS", "8"))
+
 # ---- Neo4j 图谱（T2.3 A5 知识回写；compose 覆盖端口见 HANDOFF：BOLT 默认 7687，本机 17687）----
 NEO4J_URI = _env("NEO4J_URI", f"bolt://localhost:{_env('NEO4J_BOLT_PORT', '7687')}")
 _neo4j_auth = _env("NEO4J_AUTH")

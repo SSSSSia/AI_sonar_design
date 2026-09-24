@@ -14,6 +14,7 @@ from minio import Minio
 
 from app_config import (
     BUCKET_CAD_SCRIPTS,
+    BUCKET_CAD_TUNES,
     BUCKET_KB_DOCS,
     BUCKET_STEP_MODELS,
     MINIO_ACCESS_KEY,
@@ -44,7 +45,7 @@ def _ensure_buckets() -> None:
     if _buckets_ready:
         return
     c = _get_client()
-    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, BUCKET_KB_DOCS):
+    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, BUCKET_KB_DOCS, BUCKET_CAD_TUNES):
         if not c.bucket_exists(bucket):
             c.make_bucket(bucket)
             logger.info("MinIO 桶已创建: %s", bucket)

@@ -127,16 +127,16 @@ def download(sid: str, kind: str = Query(..., pattern="^(step|script)$"), user: 
 def delete_session_artifacts(sid: str, user: str = Depends(require_user)) -> dict:
     """会话删除联动清理（workflow SessionCleanup 内网直连）：MinIO 三桶按 {sid}/ 前缀清理。
 
-    - 覆盖 step-models / cad-scripts / cad-previews（键布局均为 {sid}/xxx）。
+    - 覆盖 step-models / cad-scripts / cad-previews / cad-tunes（微调产物，T8.1；键布局均为 {sid}/xxx）。
     - Neo4j 已过审沉淀的知识**不在清理范围**（共享资产）；其 source_session 标记
       会随会话删除悬空，属如实保留（A-16：不静默伪造来源，也不连坐删知识）。
     - 清理尽力而为：逐桶独立容错，返回逐桶计数，单桶失败不拖垮整体。
     """
-    from app_config import BUCKET_CAD_SCRIPTS
+    from app_config import BUCKET_CAD_SCRIPTS, BUCKET_CAD_TUNES
 
     cli = _minio()
     per_bucket: dict[str, int] = {}
-    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, PREVIEW_BUCKET):
+    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, PREVIEW_BUCKET, BUCKET_CAD_TUNES):
         try:
             if not cli.bucket_exists(bucket):
                 per_bucket[bucket] = 0
