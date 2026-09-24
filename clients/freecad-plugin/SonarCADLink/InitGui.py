@@ -3,12 +3,31 @@
 #       切到「SonarCADLink」工作台 → 点「面板」。详见仓库 clients/freecad-plugin/README.md。
 #
 # 注意：InitGui.py 被 FreeCAD 以 exec() 方式加载——顶层名在方法体内不可见，
-# 目录须在顶层捕获并挂到 FreeCAD 上，方法体内一律局部 import（CadAgent 同款经验）。
+# 方法体内一律局部 import（CadAgent 同款经验）；且多数版本不注入 __file__
+# （真机报错 "name '__file__' is not defined"），目录定位须有 __file__ 之外的回退。
 
 import os
 import sys
 
-_here = os.path.dirname(os.path.abspath(__file__))
+try:
+    _here = os.path.dirname(os.path.abspath(__file__))  # noqa: F821 - 新版 FreeCAD 会注入
+except NameError:
+    _here = ""
+if not _here or not os.path.isfile(os.path.join(_here, "InitGui.py")):
+    # CadAgent 同款定位：用户目录 Mod 优先，回退 FreeCAD 安装目录 Mod
+    import FreeCAD  # noqa: F821 - exec 环境由 FreeCAD 注入，冗余 import 仅为静态检查
+
+    _here = ""
+    for _base in (FreeCAD.getUserAppDataDir(), FreeCAD.getHomePath()):  # noqa: F821
+        _cand = os.path.join(_base, "Mod", "SonarCADLink")
+        if os.path.isfile(os.path.join(_cand, "InitGui.py")):
+            _here = _cand
+            break
+if not _here:
+    raise RuntimeError(
+        "SonarCADLink：无法定位插件目录（Mod/SonarCADLink）。"
+        "请确认整个 SonarCADLink 目录已完整复制进 FreeCAD 的 Mod 目录后重启 FreeCAD。"
+    )
 if _here not in sys.path:
     sys.path.insert(0, _here)
 FreeCAD._sonarlink_dir = _here  # noqa: F821 - FreeCAD 由加载环境注入
