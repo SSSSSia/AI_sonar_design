@@ -257,7 +257,11 @@ class GraphRAGService:
         )
         refs = [
             {"doc_id": r.get("source_doc") or "kb-graph",
-             "location": f"{r.get('label', '?')}:{r.get('name', '?')}"}
+             "location": f"{r.get('label', '?')}:{r.get('name', '?')}",
+             "kind": "graph",
+             # 实体自身带归属库（A5 沉淀节点 kb_id 属性）——2026-09-24 修正：
+             # 此前丢弃该字段，_refs_with_kb 按 doc 归属查不到 → 前端全落「未标注来源库」
+             **({"kb_id": str(r["kb_id"])} if r.get("kb_id") else {})}
             for r in rows
         ]
         return content, _refs_with_kb(refs)
@@ -501,7 +505,8 @@ def _refs_with_kb(refs: list[dict[str, str]]) -> list[dict[str, str]]:
             bases = kb_store.doc_base_ids(doc_id)
             if bases:
                 tags[doc_id] = str(bases[0])  # psycopg uuid 列返回 UUID 对象，契约要 str
-        return [dict(r, kb_id=tags.get(r.get("doc_id", ""))) for r in refs]
+        # 已有 kb_id（图谱实体自带）不覆盖；只补缺失的（按 doc 归属）
+        return [dict(r, kb_id=r.get("kb_id") or tags.get(r.get("doc_id", ""), "")) for r in refs]
     except Exception as exc:
         logger.warning("refs 补 kb_id 失败（原样返回）: %s", exc)
         return refs

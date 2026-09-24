@@ -11,6 +11,14 @@ export interface IrEnvelope {
 }
 
 // ---- IR1 ----
+/** 检索引用（contracts/ir/ir1.schema.json knowledge_ref）。kind：doc=文档片段，graph=知识图谱实体（旧快照无 kind）。 */
+export interface KnowledgeRef {
+  doc_id: string
+  location: string
+  snippet?: string
+  kb_id?: string
+  kind?: 'doc' | 'graph'
+}
 export interface KbSelectionBase {
   kb_id: string
   kb_name: string
@@ -28,7 +36,8 @@ export interface Ir1 {
   objectives: { dimension: string; value: unknown; explicit: boolean }[]
   missing_items: string[]
   sub_queries: string[]
-  retrieved_context: { doc_id: string; location: string; snippet: string; kb_id?: string }[]
+  retrieved_context: KnowledgeRef[]
+
   /** 知识库选择留痕（PHASE-006 D6-3/D6-7；旧快照无此字段） */
   kb_selection?: KbSelection
 }

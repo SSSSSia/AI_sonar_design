@@ -5,7 +5,12 @@
   "description": "结构化设计目标 + 检索子查询 + 检索回的知识条目引用。A1 边界：不推导几何参数、不赋值（宪法 §3.1）。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["objectives", "missing_items", "sub_queries", "retrieved_context"],
+  "required": [
+    "objectives",
+    "missing_items",
+    "sub_queries",
+    "retrieved_context"
+  ],
   "properties": {
     "objectives": {
       "type": "array",
@@ -13,53 +18,94 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["dimension", "value", "explicit"],
+        "required": [
+          "dimension",
+          "value",
+          "explicit"
+        ],
         "properties": {
-          "dimension": { "type": "string", "description": "目标维度，如 声阵规模/工作深度/频段" },
+          "dimension": {
+            "type": "string",
+            "description": "目标维度，如 声阵规模/工作深度/频段"
+          },
           "value": {},
-          "explicit": { "type": "boolean", "description": "是否需求中显式给出" }
+          "explicit": {
+            "type": "boolean",
+            "description": "是否需求中显式给出"
+          }
         }
       }
     },
     "missing_items": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "缺失项清单（如实标记，不编造，A-16）"
     },
     "sub_queries": {
       "type": "array",
       "minItems": 4,
       "maxItems": 8,
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "向知识库的检索子查询（P2 §4.1：规划 4~8 条）"
     },
     "retrieved_context": {
       "type": "array",
-      "items": { "$ref": "#/$defs/knowledge_ref" },
+      "items": {
+        "$ref": "#/$defs/knowledge_ref"
+      },
       "description": "检索回的知识条目引用"
     },
     "kb_selection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "bases"],
+      "required": [
+        "mode",
+        "bases"
+      ],
       "description": "PHASE-006 知识库选择留痕（D6-3）：mode=manual 用户选定 / auto Agent 库路由；逐库依据（hits=探测命中数）",
       "properties": {
-        "mode": { "type": "string", "enum": ["manual", "auto"] },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "auto"
+          ]
+        },
         "bases": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kb_id", "kb_name", "hits", "selected"],
+            "required": [
+              "kb_id",
+              "kb_name",
+              "hits",
+              "selected"
+            ],
             "properties": {
-              "kb_id": { "type": "string" },
-              "kb_name": { "type": "string" },
-              "hits": { "type": "integer" },
-              "selected": { "type": "boolean" }
+              "kb_id": {
+                "type": "string"
+              },
+              "kb_name": {
+                "type": "string"
+              },
+              "hits": {
+                "type": "integer"
+              },
+              "selected": {
+                "type": "boolean"
+              }
             }
           }
         },
-        "fallback_all": { "type": "boolean", "description": "auto 模式全部零命中时回退全部库（如实标注）" }
+        "fallback_all": {
+          "type": "boolean",
+          "description": "auto 模式全部零命中时回退全部库（如实标注）"
+        }
       }
     }
   },
@@ -68,12 +114,36 @@
       "type": "object",
       "description": "知识条目引用（E2 溯源的最小单元）",
       "additionalProperties": false,
-      "required": ["doc_id", "location", "snippet"],
+      "required": [
+        "doc_id",
+        "location",
+        "snippet"
+      ],
       "properties": {
-        "doc_id": { "type": "string", "description": "来源文档 ID" },
-        "location": { "type": "string", "description": "页码/章节位置（宪法 §6 ②，供溯源与引用映射）" },
-        "snippet": { "type": "string", "description": "引用片段" },
-        "kb_id": { "type": "string", "description": "PHASE-006：命中知识库 ID（可选，旧快照无此字段）" }
+        "doc_id": {
+          "type": "string",
+          "description": "来源文档 ID"
+        },
+        "location": {
+          "type": "string",
+          "description": "页码/章节位置（宪法 §6 ②，供溯源与引用映射）"
+        },
+        "snippet": {
+          "type": "string",
+          "description": "引用片段"
+        },
+        "kb_id": {
+          "type": "string",
+          "description": "PHASE-006：命中知识库 ID（可选，旧快照无此字段；图谱实体为归属库或检索范围库）"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "doc",
+            "graph"
+          ],
+          "description": "命中类型（可选，旧快照无此字段）：doc=文档片段检索，graph=知识图谱实体（Neo4j 实体层）"
+        }
       }
     }
   }

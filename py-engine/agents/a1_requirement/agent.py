@@ -161,6 +161,7 @@ class A1Agent:
                     "location": r["location"],
                     "snippet": r["snippet"][:2000],
                     **({"kb_id": r["kb_id"]} if r.get("kb_id") else {}),
+                    **({"kind": r["kind"]} if r.get("kind") else {}),
                 }
             except Exception as exc:
                 logger.warning("A1 子查询失败 q=%s: %s", q[:40], exc)
@@ -197,4 +198,6 @@ class A1Agent:
         }
         if ref.get("kb_id"):
             out["kb_id"] = ref["kb_id"]
+        if ref.get("kind"):
+            out["kind"] = ref["kind"]
         return out

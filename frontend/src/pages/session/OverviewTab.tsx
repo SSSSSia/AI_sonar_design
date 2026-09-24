@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Drawer, Tag, Typography } from 'antd'
 import dayjs from 'dayjs'
 import { useQuery } from '@tanstack/react-query'
-import type { Ir1, KbSelection, SessionLogRow } from '../../api/workflow'
+import type { Ir1, KbSelection, KnowledgeRef, SessionLogRow } from '../../api/workflow'
 import { getSessionLogs } from '../../api/workflow'
 import { useLogStore, type SessionLogLine } from '../../stores/logStore'
 import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
@@ -156,7 +156,7 @@ export interface KbHitGroup {
   kbName: string
   selected: boolean
   hits: number
-  hitRefs: { doc_id: string; location: string }[]
+  hitRefs: KnowledgeRef[]
   hitDocs: number
 }
 export function kbHitSummary(ir1: Ir1 | null, sessionKbNames?: string[] | null): {
@@ -175,15 +175,15 @@ export function kbHitSummary(ir1: Ir1 | null, sessionKbNames?: string[] | null):
       : []
     const grouped = refs.length > 0 && !sessionKbNames?.length
       ? [{ kbKey: 'all', kbName: '全部知识库', selected: true, hits: refs.length,
-           hitRefs: refs.map((r) => ({ doc_id: r.doc_id, location: r.location })), hitDocs: new Set(refs.map((r) => r.doc_id)).size }]
+           hitRefs: refs, hitDocs: new Set(refs.map((r) => r.doc_id)).size }]
       : names
     return { mode: 'unknown', fallbackAll: false, groups: grouped }
   }
-  const byKb = new Map<string, { doc_id: string; location: string }[]>()
+  const byKb = new Map<string, KnowledgeRef[]>()
   for (const r of refs) {
     const key = r.kb_id ?? 'unknown'
     const arr = byKb.get(key) ?? []
-    arr.push({ doc_id: r.doc_id, location: r.location })
+    arr.push(r)
     byKb.set(key, arr)
   }
   const groups = sel.bases
@@ -198,12 +198,19 @@ export function kbHitSummary(ir1: Ir1 | null, sessionKbNames?: string[] | null):
   // 引用没打上 kb_id（旧链路）：挂到"未标注"组
   const unknownRefs = byKb.get('unknown')
   if (unknownRefs?.length) {
-    groups.push({ kbKey: 'unknown', kbName: '未标注来源库', selected: true, hits: -1, hitRefs: unknownRefs, hitDocs: new Set(unknownRefs.map((r) => r.doc_id)).size })
+    groups.push({ kbKey: 'unknown', kbName: '来源库未标注（早期实体无归属信息）', selected: true, hits: -1, hitRefs: unknownRefs, hitDocs: new Set(unknownRefs.map((r) => r.doc_id)).size })
   }
   return { mode: sel.mode, fallbackAll: !!sel.fallback_all, groups }
 }
 
-/** 知识检索卡片（PHASE-006）：检索模式 + 选定库依据 + 实际命中（库 → 文档明细可展开）。 */
+/** 图谱实体命中解析："Label:名称" → [Label] 名称；解析失败原样返回。 */
+function parseGraphEntity(location: string): string {
+  const i = location.indexOf(':')
+  if (i <= 0) return location
+  return `[${location.slice(0, i)}] ${location.slice(i + 1)}`
+}
+
+/** 知识检索卡片（PHASE-006）：检索模式 + 选定库依据 + 实际命中（库 → 图谱实体/文档片段分列）。 */
 function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sessionKbNames?: string[] | null }) {
   const summary = kbHitSummary(ir1, sessionKbNames)
   if (!ir1 || summary.groups.length === 0) {
@@ -227,35 +234,55 @@ function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sess
           {summary.mode === 'auto' ? 'Agent 根据需求自动圈定' : summary.mode === 'manual' ? '创建会话时人工选定' : '选定知识库'}
           {' · '}命中 {ir1.retrieved_context.length} 条
         </div>
-        {summary.groups.map((g) => (
-          <div key={g.kbKey}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <Typography.Text strong style={{ fontSize: 12.5 }}>{g.kbName}</Typography.Text>
-              <span style={{ fontSize: 11, color: '#8b949e' }}>
-                {g.hitRefs.length > 0
-                  ? `命中 ${g.hitRefs.length} 条 · 涉及 ${g.hitDocs} 份文档`
-                  : summary.mode === 'auto' && g.hits > 0
-                    ? `探测相关（${g.hits} 条候选）但本次未命中`
-                    : '本次无命中'}
-              </span>
+        {summary.groups.map((g) => {
+          // 图谱实体与文档片段分开渲染（2026-09-24 用户反馈：来源不清晰）。
+          // 旧快照无 kind 字段，用 doc_id==='kb-graph' 占位符识别（我们自己的约定值）
+          const graphRefs = g.hitRefs.filter((r) => r.kind === 'graph' || r.doc_id === 'kb-graph')
+          const docRefs = g.hitRefs.filter((r) => r.kind !== 'graph' && r.doc_id !== 'kb-graph')
+          const entities = [...new Set(graphRefs.map((r) => parseGraphEntity(r.location)))]
+          return (
+            <div key={g.kbKey}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <Typography.Text strong style={{ fontSize: 12.5 }}>{g.kbName}</Typography.Text>
+                <span style={{ fontSize: 11, color: '#8b949e' }}>
+                  {g.hitRefs.length > 0
+                    ? [
+                        `引用 ${g.hitRefs.length} 条`,
+                        entities.length ? `图谱实体 ${entities.length}` : null,
+                        docRefs.length ? `涉及 ${g.hitDocs} 份文档` : null,
+                      ].filter(Boolean).join(' · ')
+                    : summary.mode === 'auto' && g.hits > 0
+                      ? `探测相关（${g.hits} 条候选）但本次未命中`
+                      : '本次无命中'}
+                </span>
+              </div>
+              {g.hitRefs.length > 0 && (
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#57606a' }}>
+                  {entities.length > 0 && (
+                    <li style={{ lineHeight: 1.7 }}>
+                      <span style={{ color: '#8b949e' }}>知识图谱 · </span>
+                      {entities.slice(0, 4).join('、')}
+                      {entities.length > 4 ? ` 等 ${entities.length} 个实体` : ''}
+                    </li>
+                  )}
+                  {Object.entries(
+                    docRefs.reduce<Record<string, string[]>>((acc, r) => {
+                      ;(acc[r.doc_id] = acc[r.doc_id] ?? []).push(r.location)
+                      return acc
+                    }, {}),
+                  ).map(([docId, locs]) => (
+                    <li key={docId} style={{ lineHeight: 1.7 }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#8b949e' }}>
+                        {/^[\da-f]{16}$/.test(docId) ? `文档 ${docId.slice(0, 10)}` : docId.slice(0, 10)}
+                      </span>{' '}
+                      {locs.slice(0, 3).join(' / ')}{locs.length > 3 ? ` 等 ${locs.length} 处` : ''}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            {g.hitRefs.length > 0 && (
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#57606a' }}>
-                {Object.entries(
-                  g.hitRefs.reduce<Record<string, string[]>>((acc, r) => {
-                    ;(acc[r.doc_id] = acc[r.doc_id] ?? []).push(r.location)
-                    return acc
-                  }, {}),
-                ).map(([docId, locs]) => (
-                  <li key={docId} style={{ lineHeight: 1.7 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#8b949e' }}>{docId.slice(0, 10)}</span>{' '}
-                    {locs.slice(0, 3).join(' / ')}{locs.length > 3 ? ` 等 ${locs.length} 处` : ''}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
     </Card>
   )
