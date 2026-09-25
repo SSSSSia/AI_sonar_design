@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Avatar, Badge, Button, Drawer, Dropdown, Grid, Layout, List, Menu, Popover, Space, Tag, Typography,
+  Avatar, Badge, Button, Drawer, Dropdown, Empty, Grid, Layout, List, Menu, Popover, Space, Tag, Typography,
 } from 'antd'
 import {
-  BellOutlined, DashboardOutlined, DatabaseOutlined, FolderOutlined, LogoutOutlined,
+  BellOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, FolderOutlined, LogoutOutlined,
   MenuOutlined, SettingOutlined, UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -102,64 +102,114 @@ function NotificationBell() {
   const items = useNotifyStore((s) => s.items)
   const markRead = useNotifyStore((s) => s.markRead)
   const markAllRead = useNotifyStore((s) => s.markAllRead)
+  const remove = useNotifyStore((s) => s.remove)
+  const clearRead = useNotifyStore((s) => s.clearRead)
+  const clearAll = useNotifyStore((s) => s.clearAll)
+  const [allOpen, setAllOpen] = useState(false)
   const unread = items.filter((i) => !i.read).length
 
-  const content = (
-    <div style={{ width: 320 }}>
+  // 列表项（通知中心与「全部通知」抽屉共用）：点击直达会话，悬停显示删除
+  const renderItem = (item: (typeof items)[number], inDrawer: boolean) => (
+    <List.Item
+      style={{
+        background: item.read ? undefined : '#f7f9fd', padding: '8px 10px', borderRadius: 6,
+        cursor: item.sessionId ? 'pointer' : undefined,
+      }}
+      actions={[
+        <Button
+          key="del" type="text" size="small" aria-label="删除该通知"
+          icon={<DeleteOutlined style={{ color: '#c92a2a' }} />}
+          onClick={(e) => { e.stopPropagation(); remove(item.id) }}
+        />,
+      ]}
+      onClick={() => {
+        if (!item.sessionId) return
+        markRead(item.id)
+        if (inDrawer) setAllOpen(false)
+        navigate(`/sessions/${item.sessionId}`)
+      }}
+    >
+      <List.Item.Meta
+        title={
+          <span style={{ fontSize: inDrawer ? 13.5 : 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {!item.read && <span aria-hidden style={{ width: 6, height: 6, borderRadius: 3, background: '#2563eb', flex: 'none' }} />}
+            {item.title}
+          </span>
+        }
+        description={
+          <span style={{ fontSize: 12 }}>
+            {item.meta ? `${item.meta} · ` : ''}{dayjs(item.time).fromNow()}
+            {item.sessionId ? ' · 点击直达' : ''}
+          </span>
+        }
+      />
+    </List.Item>
+  )
+
+  // 管理动作条（popover 头部与抽屉 extra 共用）
+  const manageBar = (inDrawer: boolean) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {unread > 0 && <Button type="link" size="small" onClick={markAllRead}>全部已读</Button>}
+      {items.some((i) => i.read) && (
+        <Button type="link" size="small" onClick={clearRead}>清除已读</Button>
+      )}
+      {items.length > 0 && (
+        <Button type="link" size="small" danger onClick={() => {
+          clearAll()
+          if (inDrawer) setAllOpen(false)
+        }}>清空</Button>
+      )}
+    </span>
+  )
+
+  const popoverContent = (
+    <div style={{ width: 330 }}>
       <div className="row" style={{ padding: '4px 4px 8px' }}>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>通知</Typography.Text>
         <span style={{ flex: 1 }} />
-        {unread > 0 && (
-          <Button type="link" size="small" onClick={markAllRead}>全部已读</Button>
-        )}
+        {manageBar(false)}
       </div>
       {items.length === 0 ? (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', textAlign: 'center', padding: 16 }}>
           暂无通知
         </Typography.Text>
       ) : (
-        <List
-          size="small"
-          dataSource={items.slice(0, 8)}
-          renderItem={(item) => (
-            <List.Item
-              style={{
-                background: item.read ? undefined : '#f7f9fd', padding: '8px 10px', borderRadius: 6,
-                cursor: item.sessionId ? 'pointer' : undefined,
-              }}
-              onClick={() => {
-                if (!item.sessionId) return
-                markRead(item.id)
-                navigate(`/sessions/${item.sessionId}`)
-              }}
-            >
-              <List.Item.Meta
-                title={
-                  <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {!item.read && <span aria-hidden style={{ width: 6, height: 6, borderRadius: 3, background: '#2563eb', flex: 'none' }} />}
-                    {item.title}
-                  </span>
-                }
-                description={
-                  <span style={{ fontSize: 12 }}>
-                    {item.meta ? `${item.meta} · ` : ''}{dayjs(item.time).fromNow()}
-                    {item.sessionId ? ' · 点击直达' : ''}
-                  </span>
-                }
-              />
-            </List.Item>
+        <>
+          <List size="small" dataSource={items.slice(0, 8)} renderItem={(item) => renderItem(item, false)} />
+          {items.length > 8 && (
+            <Button type="link" size="small" block onClick={() => setAllOpen(true)}>
+              查看全部 {items.length} 条
+            </Button>
           )}
-        />
+        </>
       )}
     </div>
   )
 
   return (
-    <Popover content={content} trigger="click" placement="bottomRight">
-      <Badge count={unread} size="small">
-        <Button type="text" icon={<BellOutlined />} aria-label="通知中心" />
-      </Badge>
-    </Popover>
+    <>
+      <Popover content={popoverContent} trigger="click" placement="bottomRight">
+        <Badge count={unread} size="small">
+          <Button type="text" icon={<BellOutlined />} aria-label="通知中心" />
+        </Badge>
+      </Popover>
+      <Drawer
+        title={`全部通知（${items.length} 条${unread > 0 ? ` · 未读 ${unread}` : ''}）`}
+        width={420}
+        open={allOpen}
+        onClose={() => setAllOpen(false)}
+        extra={manageBar(true)}
+      >
+        {items.length === 0 ? (
+          <Empty description="暂无通知" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <List size="small" dataSource={items} renderItem={(item) => renderItem(item, true)} />
+        )}
+        <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 12 }}>
+          通知存本机浏览器（后端无通知表，如实说明）：清除后不可恢复；历史裁决记录不受影响，可在各会话「审阅与参数」页签查看。
+        </Typography.Text>
+      </Drawer>
+    </>
   )
 }
 
