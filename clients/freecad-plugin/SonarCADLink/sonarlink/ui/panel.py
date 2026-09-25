@@ -104,7 +104,12 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._round_timer.setInterval(2000)
         self._round_timer.timeout.connect(self._poll_round)
         self._colors = {}
+        self._known_tunable: set | None = None  # 上次可见的可微调会话 id 集（None=未初始化）
         self._build_ui()
+        # 登录后轮询可微调会话：管线到审阅关②时开着的面板主动提示（联动可见性）
+        self._sess_timer = QtCore.QTimer(self)
+        self._sess_timer.setInterval(60_000)
+        self._sess_timer.timeout.connect(lambda: self._refresh_sessions(notify_new=True))
         self._worker.toolCallReceived.connect(self._on_tool_call)
         self._worker.connectionStateChanged.connect(self._on_conn_note)
         self._worker.start()
@@ -250,6 +255,7 @@ class AgentPanel(QtWidgets.QDockWidget):
             self.login_status.setText("已登录")
             self._set_enabled(True)
             self._refresh_sessions()
+            self._sess_timer.start()
         except PlatformError as exc:
             self.login_status.setText(f"登录失败：{exc.detail}")
         finally:
@@ -264,7 +270,7 @@ class AgentPanel(QtWidgets.QDockWidget):
         return (s.get("tuneStatus") == "active"
                 or (s.get("pipelineStatus") == "paused" and s.get("currentStage") == "gate2"))
 
-    def _refresh_sessions(self) -> None:
+    def _refresh_sessions(self, notify_new: bool = False) -> None:
         try:
             rows = [s for s in self._client.list_sessions() if self._tunable(s)]
         except PlatformError as exc:
@@ -280,6 +286,15 @@ class AgentPanel(QtWidgets.QDockWidget):
         if not rows:
             self.sess_combo.addItem("暂无可微调会话——先在平台把会话推进到审阅关②", None)
         self.tune_status.setText(f"可微调会话 {len(rows)} 个")
+        # 增量提示：轮询发现新增可微调会话时在聊天区通知（登录首载静默填充）
+        ids = {s.get("id") for s in rows}
+        if notify_new and self._known_tunable is not None:
+            for s in rows:
+                if s.get("id") and s["id"] not in self._known_tunable:
+                    self._append_note(
+                        f"📢 会话《{s.get('title') or '未命名会话'}》已到达审阅关②，"
+                        "可在上方下拉中选择开始微调")
+        self._known_tunable = ids
 
     def _on_open_tune(self) -> None:
         sid = self.sess_combo.currentData() or self.sess_edit.text().strip()
@@ -466,6 +481,7 @@ class AgentPanel(QtWidgets.QDockWidget):
     # ------------------------------------------------------------------
     def closeEvent(self, event) -> None:  # noqa: N802
         self._worker.stop()
+        self._sess_timer.stop()
         self._round_timer.stop()
         super().closeEvent(event)
 
