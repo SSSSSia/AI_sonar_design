@@ -37,6 +37,7 @@
 | py-engine | 任务 sonarcad.a1~a5 + kb_build/kb_extract + echo/always_fail（队列 sonarcad.a1~a5/kb）；KB 治理 API `/api/v1/kb/**`（gateway 直转 8090，信任头校验）；检索三级：graph(Neo4j 实体层)→vector(Milvus kb_chunks)→text；`POST /knowledge/writeback`；neo4j/pymilvus 已入 requirements |
 | 服务端口 | gateway 8080 / auth 8081 / workflow 8082 / biz 8083（启动需 source .env 提供 POSTGRES_PASSWORD 与 JWT_SECRET；gateway 另有 `/api/v1/trace/**` → workflow 路由） |
 | 登录凭据 | admin / admin123（Flyway V2 播种，开发默认，上线必改）；另有验收用 **rbac_designer / admin123**（designer 角色，RBAC 抽查用，可删） |
+| ⚠️ py-engine 重启纪律 | py-engine 代码改动须**同时重启 uvicorn API 与 celery worker**（worker 是独立进程跑 A1~A5，只重启 API 不生效——2026-09-26 检索修复时踩过：回归会话第一轮 A1 仍走旧代码） |
 
 ## 下一步入口（按序）
 

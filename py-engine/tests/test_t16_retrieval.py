@@ -104,6 +104,55 @@ class TestBatch:
         assert rs[0].degraded_from == ["local", "basic"]
 
 
+class TestGraphVectorMerge:
+    """★ 回归（2026-09-26）：图谱命中后仍要查文档级。
+
+    曾因 graph 命中即短路，知识沉淀写入实体后 A1 只拿到实体名（0 字原文），
+    A2 设计文档缩水近半、A3 模型退化成简陋细管。
+    """
+
+    def test_graph_hit_does_not_starve_vector(self, tmp_path, monkeypatch):
+        svc = make_service(tmp_path, sdk=None)
+        svc.enable_kb_levels = True
+        monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: (
+            "实体：阵元间距 —决定→ 阵长",
+            [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
+        ))
+        monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: (
+            "知识库向量检索结果（Milvus chunks）：\n\n[doc1#p3]\n拖曳线列阵由湿端与干端组成。",
+            [{"doc_id": "doc1", "location": "p3"}],
+        ))
+        r = svc.query("阵列组成")
+        assert r.level == "vector+graph"
+        assert "湿端与干端" in r.content  # 文档正文为主
+        kinds = [(x.get("doc_id"), x.get("kind")) for x in r.refs]
+        assert kinds[0] == ("doc1", None)  # 文档引用在前
+        assert ("kb-graph", "graph") in kinds  # 实体引用补充在后
+
+    def test_graph_hit_alone_still_works(self, tmp_path, monkeypatch):
+        """vector 未命中时回落到图谱结果（不倒退）。"""
+        svc = make_service(tmp_path, sdk=None)
+        svc.enable_kb_levels = True
+        monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: (
+            "实体：阵元间距",
+            [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
+        ))
+        monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: None)
+        r = svc.query("阵元间距")
+        assert r.level == "graph"
+        assert r.refs[0]["kind"] == "graph"
+
+    def test_both_miss_falls_to_text(self, tmp_path, monkeypatch):
+        """graph 与 vector 都未命中 → 落文本兜底（原级联语义保留）。"""
+        svc = make_service(tmp_path, sdk=None)
+        svc.enable_kb_levels = True
+        monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: None)
+        monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: None)
+        r = svc.query("拖曳线列阵声呐 阵列传感器")
+        assert r.level == "text"
+        assert set(r.degraded_from) >= {"graph", "vector"}
+
+
 class TestChineseTextSearch:
     def test_chinese_bigram_match(self, tmp_path):
         svc = make_service(tmp_path, FakeSdk(fail={"local", "basic"}))

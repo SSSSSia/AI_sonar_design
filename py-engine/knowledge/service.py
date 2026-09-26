@@ -181,20 +181,29 @@ class GraphRAGService:
         if self.enable_kb_levels:
             self._ensure_corpus()  # 动态语料懒加载（跨进程一致性）
             # 第三级 graph：自建 Neo4j 实体层（T3.2；SDK 未装时的真实图谱级）
-            hit = self._try_neo4j(query, doc_scope=doc_scope, kb_ids=kb_ids if scoped else None)
-            if hit is not None:
-                content, refs = hit
-                if self.sdk is None and "graphrag_sdk_unavailable" not in degraded:
-                    degraded.append("graphrag_sdk_unavailable")
-                return RetrievalResult(content, "graph", degraded, refs)
-            degraded.append("graph")
+            graph_hit = self._try_neo4j(query, doc_scope=doc_scope, kb_ids=kb_ids if scoped else None)
+            if graph_hit is None:
+                degraded.append("graph")
+            elif self.sdk is None and "graphrag_sdk_unavailable" not in degraded:
+                degraded.append("graphrag_sdk_unavailable")
 
-            # 第四级 vector：Milvus chunk 向量检索（T3.2）
-            hit = self._try_milvus(query, doc_scope=doc_scope)
-            if hit is not None:
-                content, refs = hit
+            # 第四级 vector：Milvus chunk 向量检索（T3.2）。
+            # ★ graph 命中不再短路（2026-09-26）：知识沉淀写入实体后，图谱命中即返回会让
+            #   A2 只拿到实体名、拿不到文档原文段落，design_document 缩水近半、A3 模型随之
+            #   退化。graph 命中后继续查 vector：文档正文为主，图谱实体引用补充在后。
+            vector_hit = self._try_milvus(query, doc_scope=doc_scope)
+            if vector_hit is None:
+                degraded.append("vector")
+
+            if vector_hit is not None:
+                content, refs = vector_hit
+                if graph_hit is not None:
+                    return RetrievalResult(content, "vector+graph", degraded,
+                                           _merge_refs(refs, graph_hit[1]))
                 return RetrievalResult(content, "vector", degraded, refs)
-            degraded.append("vector")
+            if graph_hit is not None:
+                content, refs = graph_hit
+                return RetrievalResult(content, "graph", degraded, refs)
 
         # 兜底 text：关键词（语料按 doc 集合过滤；全空 = 范围内零语料，如实返回不可用）
         if scoped:
@@ -487,6 +496,19 @@ def get_knowledge_service() -> GraphRAGService:
             enable_kb_levels=app_config.KB_RETRIEVAL_LEVELS.lower() in ("1", "true", "yes"),
         )
     return _service
+
+
+def _merge_refs(doc_refs: list[dict[str, str]], graph_refs: list[dict[str, str]]) -> list[dict[str, str]]:
+    """文档引用在前、图谱实体引用补充在后（按 doc_id+location 去重）。"""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, str]] = []
+    for r in [*doc_refs, *graph_refs]:
+        key = (str(r.get("doc_id", "")), str(r.get("location", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
 
 
 def _refs_with_kb(refs: list[dict[str, str]]) -> list[dict[str, str]]:
