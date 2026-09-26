@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Avatar, Badge, Button, Drawer, Dropdown, Empty, Grid, Layout, List, Menu, Popover, Space, Tag, Typography,
+  Avatar, Badge, Button, Drawer, Dropdown, Empty, Grid, Layout, List, Menu, Popover, Space, Tag, Tooltip, Typography,
 } from 'antd'
 import {
   BellOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, FolderOutlined, LogoutOutlined,
-  MenuOutlined, SettingOutlined, UserOutlined,
+  MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined, SettingOutlined, UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -227,35 +227,60 @@ export default function AppLayout() {
   // 响应式（PHASE-004 §2.5）：<768 侧栏收进抽屉；<1200 自动折叠为图标栏
   const hideSider = screens.md === false
   const autoCollapse = screens.xl === false
+  const effectiveCollapsed = autoCollapse || collapsed
 
   const MENU_ITEMS = menuGroupsFor(roles)
   const flatKeys = MENU_ITEMS.flatMap((g) => ('children' in g ? g.children : [])).map((m) => m.key)
   const selectedKey =
     flatKeys.find((k) => k !== '/' && location.pathname.startsWith(k)) ?? '/'
 
+  // 收缩态把分组平铺为纯图标（分组标题在窄栏里会以文字夹在图标间，观感差），
+  // 组间插分隔线保留层级；antd 收缩态对平铺项自动出悬浮提示。
+  const siderMenuItems = effectiveCollapsed
+    ? MENU_ITEMS.flatMap((g, gi) => {
+        const kids = ('children' in g ? g.children.map((m) => ({ ...m })) : [])
+        return gi === MENU_ITEMS.length - 1 ? kids : [...kids, { type: 'divider' as const, key: `${g.key}-div` }]
+      })
+    : MENU_ITEMS
+
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       {!hideSider && (
         <Sider
           theme="light"
           width={216}
-          collapsible
-          collapsed={autoCollapse || collapsed}
-          onCollapse={setCollapsed}
+          collapsed={effectiveCollapsed}
+          trigger={null}
+          className="app-sider"
           style={{ borderRight: '1px solid var(--border)' }}
         >
-          <Brand collapsed={autoCollapse || collapsed} />
+          <Brand collapsed={effectiveCollapsed} />
           <Menu
             mode="inline"
-            style={{ borderInlineEnd: 'none', paddingTop: 8 }}
+            style={{ borderInlineEnd: 'none', paddingTop: 8, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}
             selectedKeys={[selectedKey]}
-            items={MENU_ITEMS}
+            items={siderMenuItems}
             onClick={({ key }) => {
               // 草稿守卫（新会话页注册）：返回 false 表示确认框待处理，取消本次跳转
               if (!checkNavGuard(key)) return
               navigate(key)
             }}
           />
+          {/* 自绘收起/展开按钮替代 antd 默认触发条；窄屏强制收缩时该按钮无效，隐藏 */}
+          {!autoCollapse && (
+            <div style={{ borderTop: '1px solid var(--hairline)', padding: '6px 8px 8px' }}>
+              <Tooltip title={effectiveCollapsed ? '展开侧栏' : undefined}>
+                <Button
+                  type="text" block
+                  aria-label={effectiveCollapsed ? '展开侧栏' : '收起侧栏'}
+                  icon={effectiveCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                  onClick={() => setCollapsed(!effectiveCollapsed)}
+                >
+                  {!effectiveCollapsed && '收起侧栏'}
+                </Button>
+              </Tooltip>
+            </div>
+          )}
         </Sider>
       )}
       <Drawer
@@ -278,7 +303,7 @@ export default function AppLayout() {
           }}
         />
       </Drawer>
-      <Layout>
+      <Layout style={{ overflowY: 'auto' }}>
         <Header
           style={{
             background: '#fff', borderBottom: '1px solid var(--border)',

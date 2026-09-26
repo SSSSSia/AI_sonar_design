@@ -56,6 +56,15 @@ body {
 }
 *::-webkit-scrollbar-thumb:hover { background-color: #b9bec6; }
 
+/* ---------- 应用外壳：侧栏固定视口（2026-09-26 侧栏滚动/收缩态修复） ----------
+   外层 Layout 锁定 100vh，侧栏与内容区各自独立滚动，整页滚动不再带走侧栏；
+   侧栏内部为纵向 flex：品牌 / 菜单（菜单长时自身滚动）/ 收起按钮常驻底部。 */
+.app-sider .ant-layout-sider-children {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 /* ---------- AntD 细节校准（组件 token 覆盖不到处） ---------- */
 .ant-table-wrapper .ant-table-thead > tr > th { font-weight: 500; }
 .ant-tag { margin-inline-end: 0; }
