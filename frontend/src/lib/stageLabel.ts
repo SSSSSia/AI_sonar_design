@@ -27,6 +27,7 @@ export const WRITEBACK_LABEL: Record<string, string> = {
   pending: '待回写',
   confirmed: '已确认',
   written: '已回写',
+  skipped: '已跳过（可补做）',
 }
 
 /** IR4 合规检查码 → 中文说明（审查反馈：CHK-* 裸码不可读；与 py-engine a4 agent 检查项一一对应）。 */

@@ -12,8 +12,8 @@
       "items": { "$ref": "#/$defs/candidate" }
     },
     "writeback_status": {
-      "enum": ["pending", "confirmed", "written"],
-      "description": "回写状态：pending=等待知识审阅关确认 / confirmed=人工已确认 / written=已写入图谱"
+      "enum": ["pending", "confirmed", "written", "skipped"],
+      "description": "回写状态：pending=等待知识审阅关确认 / confirmed=人工已确认 / written=已写入图谱 / skipped=人工跳过（候选保留，可重新批准补做）"
     }
   },
   "$defs": {

@@ -141,21 +141,39 @@ public class ReviewService {
         if (ir5 == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "缺少 IR5 快照");
         }
-        if (!"pending".equals(readJsonField(ir5.getContent(), "writeback_status"))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "IR5 非 pending 状态，无可回写候选");
-        }
+        String wbStatus = readJsonField(ir5.getContent(), "writeback_status");
         if ("rejected".equals(decision)) {
+            // 跳过=显式终态：IR5 pending→skipped（幂等校验在此，重复点击 409，不再堆裁决记录）
+            if (!"pending".equals(wbStatus)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "IR5 回写状态为 " + wbStatus + "，无需重复跳过");
+            }
+            Map<String, Object> auto = new LinkedHashMap<>();
+            auto.put("reviewed_ir", "IR5 v" + ir5.getVersion());
+            try {
+                writebackClient.skip(sessionId);
+                auto.put("writeback", "skipped（人工跳过，不回写）");
+                effects.put("writeback", "skipped");
+            } catch (Exception exc) {
+                log.error("知识回写跳过失败 session={}——IR5 保持 pending 可重试", sessionId, exc);
+                auto.put("writeback", "failed: " + exc.getMessage());
+                effects.put("writeback", "failed");
+            }
             ReviewRecordEntity record = insertRecord(sessionId, "knowledge", ir5.getId(), decision,
-                    annotations, reviewerId, Map.of("writeback", "skipped（裁决驳回，不回写）"));
+                    annotations, reviewerId, auto);
             effects.put("record_id", record.getId());
             return;
         }
-        // approved：同步调用 py-engine 回写；失败如实记录（决策已落库，IR5 保持 pending 可重试）
+        // approved：pending 或已跳过（补做）均可；同步调用 py-engine 回写；失败如实记录可重试
+        if (!"pending".equals(wbStatus) && !"skipped".equals(wbStatus)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "IR5 回写状态为 " + wbStatus + "，无可回写候选");
+        }
         Map<String, Object> auto = new LinkedHashMap<>();
         auto.put("reviewed_ir", "IR5 v" + ir5.getVersion());
         try {
-            Object result = writebackClient.writeback(sessionId, kbId);
-            auto.put("writeback", result);
+            Map<String, Object> result = writebackClient.writeback(sessionId, kbId);
+            auto.put("writeback", writebackSummary(result));
             effects.put("writeback", result);
         } catch (Exception exc) {
             log.error("知识回写失败 session={}——决策已记录，IR5 保持 pending", sessionId, exc);
@@ -165,6 +183,21 @@ public class ReviewService {
         ReviewRecordEntity record = insertRecord(sessionId, "knowledge", ir5.getId(), decision,
                 annotations, reviewerId, auto);
         effects.put("record_id", record.getId());
+    }
+
+    /** 回写结果 Map → 摘要字符串入库（整对象入库曾致前端批注显示 [object Object]）。 */
+    private String writebackSummary(Map<String, Object> result) {
+        StringBuilder sb = new StringBuilder("已写入图谱");
+        List<String> parts = new java.util.ArrayList<>();
+        if (result.get("written") instanceof Map<?, ?> w) {
+            Object n = w.get("written");
+            Object d = w.get("deprecated");
+            if (n != null) parts.add("新增 " + n);
+            if (d != null) parts.add("废弃 " + d);
+        }
+        if (result.get("ir_version") != null) parts.add("IR5 v" + result.get("ir_version"));
+        if (!parts.isEmpty()) sb.append("（").append(String.join(" · ", parts)).append("）");
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------

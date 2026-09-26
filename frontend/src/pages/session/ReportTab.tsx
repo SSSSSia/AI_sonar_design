@@ -50,11 +50,13 @@ export function ReportTab({
   const basesQuery = useQuery({
     queryKey: ['kb-bases'],
     queryFn: listBases,
-    enabled: ir5?.writeback_status === 'pending',
+    enabled: ir5?.writeback_status === 'pending' || ir5?.writeback_status === 'skipped',
   })
   const bases: KbBase[] = basesQuery.data?.bases ?? []
 
-  const knowledgePending = ir5?.writeback_status === 'pending'
+  const wbStatus = ir5?.writeback_status
+  const knowledgePending = wbStatus === 'pending'
+  const knowledgeSkipped = wbStatus === 'skipped'
   const newCandidates = ir5?.candidates.filter((c) => c.dedup_status === 'new') ?? []
   const dupCount = ir5 ? ir5.candidates.length - newCandidates.length : 0
   const allDuplicates = !!ir5 && ir5.candidates.length > 0 && newCandidates.length === 0
@@ -118,7 +120,7 @@ export function ReportTab({
       {ir5 && (
         <Card
           title={<>IR5 知识沉淀候选 {ir5Version ? <Typography.Text code style={{ fontSize: 12 }}>v{ir5Version}</Typography.Text> : null}</>}
-          extra={<Tag color={ir5.writeback_status === 'written' ? 'success' : 'warning'}>{WRITEBACK_LABEL[ir5.writeback_status] ?? ir5.writeback_status}</Tag>}
+          extra={<Tag color={wbStatus === 'written' ? 'success' : wbStatus === 'skipped' ? 'default' : 'warning'}>{WRITEBACK_LABEL[wbStatus ?? ''] ?? wbStatus}</Tag>}
           styles={{ body: { padding: 0 } }}
         >
           <CandidateTable candidates={ir5.candidates} ir3={ir3} />
@@ -127,9 +129,11 @@ export function ReportTab({
               type="info"
               showIcon
               message={
-                pipelineStatus === 'completed' && knowledgePending
-                  ? '管线已完成，知识沉淀确认可随时补做（完成前未确认的候选不会自动入图）'
-                  : '知识审阅关（A-10）：未经人工确认不会写入图谱；重复项不静默覆盖。'
+                knowledgeSkipped
+                  ? '本次沉淀已跳过：候选未写入图谱（候选如实保留）。如需补做，可直接「批准写入」，批准后照常入图。'
+                  : pipelineStatus === 'completed' && knowledgePending
+                    ? '管线已完成，知识沉淀确认可随时补做（完成前未确认的候选不会自动入图）'
+                    : '知识审阅关（A-10）：未经人工确认不会写入图谱；重复项不静默覆盖。'
               }
               description="沉淀作用：过审方案提炼为知识（参数关系 / 设计案例 / 约束经验）写入图谱后，后续会话的 A1 检索与 A2 参数参考即可复用——系统随使用积累越用越准。"
               style={{ marginBottom: 10 }}
@@ -141,7 +145,7 @@ export function ReportTab({
                 description="A5 会把本会话知识与库内（图谱+语料）自动比对：全部重复说明方案参数均源自现有库、未产生新知识，属正常结果。可「全部跳过」直接关闭本次沉淀（推荐），「确认归档」也不会重复写入任何内容。"
               />
             )}
-            {knowledgePending && (
+            {(knowledgePending || knowledgeSkipped) && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
                 <div>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>裁决</Typography.Text>
@@ -173,7 +177,9 @@ export function ReportTab({
                     <Button size="small" type="primary" disabled={!canDecide} loading={submitting} onClick={confirmWrite}>
                       {allDuplicates ? '确认归档' : '批准写入'}
                     </Button>
-                    <Button size="small" disabled={!canDecide} loading={submitting} onClick={() => decideKnowledge('rejected')}>全部跳过</Button>
+                    {knowledgePending && (
+                      <Button size="small" disabled={!canDecide} loading={submitting} onClick={() => decideKnowledge('rejected')}>全部跳过</Button>
+                    )}
                   </SpaceForButtons>
                 </div>
               </div>

@@ -157,6 +157,8 @@ class ReviewServiceDecisionTest {
         ArgumentCaptor<ReviewRecordEntity> record = ArgumentCaptor.forClass(ReviewRecordEntity.class);
         verify(reviewRecordMapper).insert(record.capture());
         assertEquals("knowledge", record.getValue().getGate());
+        // 回写结果以摘要字符串入库（整对象入库曾致前端 [object Object]）
+        assertTrue(record.getValue().getAnnotations().contains("已写入图谱"));
     }
 
     @Test
@@ -182,8 +184,36 @@ class ReviewServiceDecisionTest {
 
         service.decide("s1", "knowledge", "rejected", null, null, null, "r");
 
+        // 跳过=显式终态：调 py-engine 将 IR5 pending→skipped（面板随之收敛，可补做）
+        verify(writebackClient).skip("s1");
+        ArgumentCaptor<ReviewRecordEntity> record = ArgumentCaptor.forClass(ReviewRecordEntity.class);
+        verify(reviewRecordMapper).insert(record.capture());
+        assertTrue(record.getValue().getAnnotations().contains("skipped"));
+    }
+
+    @Test
+    void knowledgeRejectIdempotentWhenNotPending() {
+        // 重复点击防堆积：非 pending 再跳过 409
+        when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
+        when(irSnapshotMapper.selectOne(any())).thenReturn(
+                snapshot("IR5", 2, "{\"writeback_status\": \"skipped\"}"));
+        assertThrows(ResponseStatusException.class,
+                () -> service.decide("s1", "knowledge", "rejected", null, null, null, "r"));
         verifyNoInteractions(writebackClient);
-        verify(reviewRecordMapper).insert(any(ReviewRecordEntity.class));
+        verify(reviewRecordMapper, never()).insert(any(ReviewRecordEntity.class));
+    }
+
+    @Test
+    void knowledgeApproveAllowedFromSkippedForRedo() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
+        when(irSnapshotMapper.selectOne(any())).thenReturn(
+                snapshot("IR5", 2, "{\"writeback_status\": \"skipped\"}"));
+        when(writebackClient.writeback("s1", null)).thenReturn(Map.of("ir_version", 3));
+
+        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r");
+
+        verify(writebackClient).writeback("s1", null);
+        assertEquals(effects.get("writeback"), Map.of("ir_version", 3));
     }
 
     @Test

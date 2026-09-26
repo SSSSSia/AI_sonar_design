@@ -112,7 +112,7 @@ export interface Ir5Candidate {
 }
 export interface Ir5 {
   candidates: Ir5Candidate[]
-  writeback_status: 'pending' | 'confirmed' | 'written'
+  writeback_status: 'pending' | 'confirmed' | 'written' | 'skipped'
 }
 
 // ---- 溯源链 ----

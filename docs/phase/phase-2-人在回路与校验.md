@@ -77,7 +77,8 @@
 - **裁决权限**：JWT 只携带角色，故 `gate:decide` 在角色层落实——裁决端点 `hasAnyRole('admin','reviewer')`，与 V2 种子的角色-权限矩阵一致；designer/viewer 403。
 - **快照失效语义（A-12 细化）**：`ir_snapshots` 内容保持不可变（无 UPDATE content）；`invalidated_at` 是生命周期元数据，由驳回批量标记（重跑目标 T → T 的产物类型及其下游全部标记）。`GET /irs/{type}` 恒返回最新版本（含失效标记），`ir_store.get_latest_snapshot`（worker 侧读）只取未失效版本。
 - **A4 确定性原则**：A4 不调用 LLM——合规校验必须可审计、可复现；LLM 只出现在 A5 候选整理（A-07 白名单）。
-- **知识回写诚实原则（A-10/A-16）**：IR5 `writeback_status` 只能 pending→written（经人工确认）；Neo4j 不可达时回写如实失败、IR5 保持 pending 可重试，绝不伪造成功。
+- **知识回写诚实原则（A-10/A-16）**：IR5 `writeback_status` 只能 pending→written（经人工确认）或 pending→skipped（人工跳过，候选如实保留、可重新批准补做）；Neo4j 不可达时回写如实失败、IR5 保持 pending 可重试，绝不伪造成功。知识关跳过有幂等校验（非 pending 重复跳过 409），防止重复裁决记录堆积（2026-09-26 用户反馈修复）。
+- **知识关裁决留痕**：回写结果以摘要字符串入裁决记录（如「已写入图谱（新增 5 · 废弃 0 · IR5 v2）」），不存原始对象（前端曾因此显示 [object Object]，2026-09-26 修复）。
 
 ## 3. 任务分解（T2.1–T2.4）
 

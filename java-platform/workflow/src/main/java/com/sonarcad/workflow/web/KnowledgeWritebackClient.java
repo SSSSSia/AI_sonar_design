@@ -37,29 +37,38 @@ public class KnowledgeWritebackClient {
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> writeback(String sessionId, String kbId) {
-        String body;
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("session_id", sessionId);
+        if (kbId != null && !kbId.isBlank()) {
+            payload.put("kb_id", kbId);  // PHASE-006 D6-8：人工选定的目标库
+        }
+        return postJson("/knowledge/writeback", payload, "writeback");
+    }
+
+    /** 知识关「全部跳过」：py-engine 将 IR5 writeback_status pending→skipped（幂等，已 skipped 返回现态）。 */
+    public Map<String, Object> skip(String sessionId) {
+        return postJson("/knowledge/writeback/skip", Map.of("session_id", sessionId), "skip");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> postJson(String path, java.util.Map<String, Object> payload, String what) {
         try {
-            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
-            payload.put("session_id", sessionId);
-            if (kbId != null && !kbId.isBlank()) {
-                payload.put("kb_id", kbId);  // PHASE-006 D6-8：人工选定的目标库
-            }
-            body = JSON.writeValueAsString(payload);
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/knowledge/writeback"))
+            String body = JSON.writeValueAsString(payload);
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(25))
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() >= 300) {
-                throw new IllegalStateException("writeback HTTP " + resp.statusCode() + ": " + resp.body());
+                throw new IllegalStateException(what + " HTTP " + resp.statusCode() + ": " + resp.body());
             }
             return JSON.readValue(resp.body(), Map.class);
         } catch (java.io.IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            throw new IllegalStateException("writeback 调用失败: " + e.getMessage(), e);
+            throw new IllegalStateException(what + " 调用失败: " + e.getMessage(), e);
         }
     }
 }

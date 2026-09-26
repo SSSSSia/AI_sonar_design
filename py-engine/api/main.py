@@ -172,8 +172,8 @@ def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
     ir5 = ir_store.get_latest_snapshot(req.session_id, "IR5")
     if ir5 is None:
         raise HTTPException(status_code=404, detail=f"session {req.session_id} 无 IR5 快照")
-    if ir5.get("writeback_status") != "pending":
-        raise HTTPException(status_code=409, detail="IR5 非 pending 状态，无可回写候选")
+    if ir5.get("writeback_status") not in ("pending", "skipped"):
+        raise HTTPException(status_code=409, detail="IR5 非 pending/skipped 状态，无可回写候选")
 
     # D6-8 目标库解析：手选优先（校验存在）→ 会话首选库 → 默认库；响应回带实际归属（链路留痕）
     kb_id: str | None = None
@@ -224,6 +224,37 @@ def knowledge_writeback(req: WritebackRequest) -> dict[str, Any]:
             else [i for i, c in enumerate(candidates) if c.get("dedup_status") == "new"]
         ),
     }
+
+
+class SkipWritebackRequest(BaseModel):
+    """知识关「全部跳过」请求（A-10 补充语义：跳过=不写入图谱的显式终态，之后仍可批准补做）。"""
+
+    session_id: str
+
+
+@app.post("/knowledge/writeback/skip")
+def knowledge_writeback_skip(req: SkipWritebackRequest) -> dict[str, Any]:
+    """知识关跳过：IR5 writeback_status pending→skipped（候选如实保留，不入图）。
+
+    幂等：已 skipped 直接返回现态（前端面板靠状态消失，重复点击不再堆裁决记录）；
+    已 written 409（回写后无需跳过）。
+    """
+    from storage import ir_store
+
+    ir5 = ir_store.get_latest_snapshot(req.session_id, "IR5")
+    if ir5 is None:
+        raise HTTPException(status_code=404, detail=f"session {req.session_id} 无 IR5 快照")
+    status = ir5.get("writeback_status")
+    if status == "skipped":
+        return {"session_id": req.session_id, "writeback_status": "skipped"}
+    if status != "pending":
+        raise HTTPException(status_code=409, detail=f"IR5 回写状态为 {status}，无需跳过")
+    skipped_ir5 = {"candidates": ir5.get("candidates", []), "writeback_status": "skipped"}
+    try:
+        version = ir_store.save_snapshot(req.session_id, "IR5", skipped_ir5, created_by="A5/skip")
+    except IrContractError as exc:
+        raise HTTPException(status_code=500, detail=f"IR5 skipped 未过契约: {exc}") from exc
+    return {"session_id": req.session_id, "writeback_status": "skipped", "ir_version": version}
 
 
 class ChatRequest(BaseModel):

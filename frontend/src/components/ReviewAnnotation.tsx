@@ -1,12 +1,21 @@
 import { annotationsText, reviewMeta, irTypeLabel, gateLabel } from '../lib/stageLabel'
 import type { ReviewRecord } from '../api/workflow'
 
-/** 知识关回写结果元信息 → 人话（后端历史值：written / skipped（…）/ 逐项计数 map）。 */
+/** 知识关回写结果元信息 → 人话（后端历史值：'written' / 'skipped（…）' / 'failed: …' / 摘要串 / 旧版逐项计数对象）。 */
 function writebackText(v: unknown): string {
-  const s = typeof v === 'string' ? v : ''
+  if (typeof v === 'object' && v !== null) {
+    const w = v as { written?: { written?: number; deprecated?: number }; ir_version?: number }
+    const parts: string[] = []
+    if (w.written?.written != null) parts.push(`新增 ${w.written.written}`)
+    if (w.written?.deprecated != null) parts.push(`废弃 ${w.written.deprecated}`)
+    if (w.ir_version != null) parts.push(`IR5 v${w.ir_version}`)
+    return `已写入图谱${parts.length ? `（${parts.join(' · ')}）` : ''}`
+  }
+  const s = String(v)
   if (s === 'written') return '已写入图谱'
   if (s.startsWith('skipped')) return `未写入图谱（${s.includes('驳回') ? '本次驳回' : '跳过'}）`
-  return `回写 ${String(v)}`
+  if (s.startsWith('failed')) return '回写失败（候选保留，可重试）'
+  return s
 }
 
 /** 裁决历史「批注」单元格：批注正文 + 机器字段归一为可读副行（trace_id 不外显，仍可经溯源链反查）。 */

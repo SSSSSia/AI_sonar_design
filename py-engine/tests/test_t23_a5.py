@@ -372,6 +372,49 @@ def test_writeback_guard_clauses(client, monkeypatch):
     assert "Neo4j 不可达" in resp.json()["detail"]
 
 
+def test_writeback_skip_terminal_state(client, monkeypatch):
+    """知识关跳过：pending→skipped 显式终态（幂等、候选保留）；skipped 后可批准补做。"""
+    from storage import neo4j_store as ns
+
+    # 404：无 IR5
+    _patch_ir5(monkeypatch, None)
+    assert client.post("/knowledge/writeback/skip", json={"session_id": "s1"}).status_code == 404
+    # 409：已 written 无需跳过
+    _patch_ir5(monkeypatch, {"candidates": [], "writeback_status": "written"})
+    assert client.post("/knowledge/writeback/skip", json={"session_id": "s1"}).status_code == 409
+
+    # pending → skipped：候选如实保留（A-16 不丢数据）
+    ir5 = {"candidates": [
+        {"type": "relation", "payload": {"name": "r"}, "dedup_status": "new"},
+    ], "writeback_status": "pending"}
+    saved: list = []
+    _patch_ir5(monkeypatch, ir5, saved)
+    resp = client.post("/knowledge/writeback/skip", json={"session_id": "s1"})
+    assert resp.status_code == 200 and resp.json()["writeback_status"] == "skipped"
+    assert saved[0]["writeback_status"] == "skipped"
+    assert saved[0]["candidates"] == ir5["candidates"]
+
+    # 幂等：已 skipped 再跳过返回现态（重复点击不新增快照）
+    _patch_ir5(monkeypatch, {"candidates": [], "writeback_status": "skipped"})
+    resp2 = client.post("/knowledge/writeback/skip", json={"session_id": "s1"})
+    assert resp2.status_code == 200 and resp2.json()["writeback_status"] == "skipped"
+
+    # skipped 后批准补做：writeback 接受 skipped（不再 409）
+    class _OkGraph:
+        def available(self):
+            return True
+
+        def write_candidates(self, selected, sid, kb_id=None):
+            return {"written": len(selected), "deprecated": 0}
+
+    _patch_ir5(monkeypatch, {"candidates": [
+        {"type": "relation", "payload": {"name": "r"}, "dedup_status": "new"},
+    ], "writeback_status": "skipped"})
+    monkeypatch.setattr(ns, "Neo4jStore", lambda: _OkGraph())
+    resp3 = client.post("/knowledge/writeback", json={"session_id": "s1"})
+    assert resp3.status_code == 200, resp3.text
+
+
 def test_neo4j_store_real_container_available():
     """实连本机容器（compose 就绪时）：探活成功；不可达时如实 False。"""
     from storage.neo4j_store import Neo4jStore
