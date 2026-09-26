@@ -214,6 +214,37 @@ def test_finalize_and_message_blocked(client, no_llm):
 
 
 # ----------------------------------------------------------------------
+# 手动上传（设计师视口直接调整 → manual 轮次承接 → IR3 新版本）
+# ----------------------------------------------------------------------
+def test_manual_upload_appends_ir3(client, no_llm):
+    tune_id = _active_tune(client)
+    try:
+        before = ir_store.get_latest_version(DESIGN_SID, "IR3")
+        # 无任何对话轮次也可上传：服务端自动建 manual 轮次承接
+        r = client.post(f"/api/v1/cad-agent/tune/{tune_id}/versions/manual", headers=HDRS,
+                        files={"step_file": ("m.step", b"ISO-10303-21; garbage not a real step"),
+                               "fcstd_file": ("m.FCStd", b"fake-fcstd-bytes")})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ir_version"] == before + 1
+        assert body["geometry_summary"]["source"] == "extraction_failed"
+
+        rounds = tune_store.list_rounds(tune_id)
+        assert len(rounds) == 1 and rounds[0]["created_by"] == "manual"
+        assert rounds[0]["status"] == "done" and rounds[0]["result_ir3_version"] == before + 1
+        new_ir3 = ir_store.get_snapshot(DESIGN_SID, "IR3", before + 1)
+        assert "手动上传" in new_ir3["cadquery_script"]
+        assert "t83 baseline" in new_ir3["cadquery_script"]  # 基线脚本保留（溯源链）
+    finally:
+        client.post(f"/api/v1/cad-agent/tune/{tune_id}/close", headers=HDRS)
+
+    # 微调结束后不可手动上传（409）
+    r2 = client.post(f"/api/v1/cad-agent/tune/{tune_id}/versions/manual", headers=HDRS,
+                     files={"step_file": ("m.step", b"x")})
+    assert r2.status_code == 409
+
+
+# ----------------------------------------------------------------------
 # 上下文端点 + WS 契约
 # ----------------------------------------------------------------------
 def test_context_returns_presigned_url(client, no_llm):

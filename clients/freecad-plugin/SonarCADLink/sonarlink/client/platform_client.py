@@ -138,6 +138,21 @@ class Client:
         return self._request("POST", f"/api/v1/cad-agent/tune/{tune_id}/versions",
                              headers=headers, raw_body=body)
 
+    def upload_manual(self, tune_id: str, step_path: str,
+                      fcstd_path: str | None = None) -> dict:
+        """手动上传：设计师在视口直接调整后回流为 IR3 新版本（服务端建 manual 轮次承接）。"""
+        boundary = "----SonarCADLinkBoundary7d1a2c"
+        parts: list[bytes] = []
+        parts.append(_form_file(b"step_file", step_path, boundary))
+        if fcstd_path:
+            parts.append(_form_file(b"fcstd_file", fcstd_path, boundary))
+        parts.append(f"--{boundary}--\r\n".encode())
+        body = b"".join(parts)
+        headers = self._headers()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        return self._request("POST", f"/api/v1/cad-agent/tune/{tune_id}/versions/manual",
+                             headers=headers, raw_body=body)
+
     def finalize(self, tune_id: str, note: str | None = None) -> dict:
         return self._request("POST", f"/api/v1/cad-agent/tune/{tune_id}/finalize",
                              headers=self._headers(), body={"note": note})

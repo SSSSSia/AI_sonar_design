@@ -53,6 +53,14 @@ class _StubHandler(BaseHTTPRequestHandler):
             assert b'name="step_file"' in raw and b'filename="m.step"' in raw
             assert b"STEP-BYTES" in raw
             self._reply(200, {"ir_version": 2, "geometry_summary": {"source": "extracted"}})
+        elif self.path.endswith("/versions/manual"):
+            # 手动上传 multipart：无 round_no/script 字段（服务端建 manual 轮次承接）
+            assert "multipart/form-data; boundary=" in (self.headers.get("Content-Type") or "")
+            raw = body
+            assert b'name="step_file"' in raw and b'filename="manual.step"' in raw
+            assert b"STEP-BYTES" in raw
+            assert b'name="round_no"' not in raw and b'name="script"' not in raw
+            self._reply(200, {"ir_version": 3, "geometry_summary": {"source": "extracted"}})
         else:
             self._reply(404, {"detail": "not found"})
 
@@ -137,6 +145,22 @@ def test_upload_version_multipart(base_url, tmp_path):
     _, _, _, body = _StubHandler.received[-1]
     assert b'name="fcstd_file"' in body and b"FCSTD-BYTES" in body
     assert "result = model".encode() in body
+
+
+def test_upload_manual_multipart(base_url, tmp_path):
+    """手动上传通道：视口人工调整直接回流为 IR3 新版本（服务端 manual 轮次承接）。"""
+    c = Client(base_url)
+    c.login("admin", "right")
+    step = tmp_path / "manual.step"
+    step.write_bytes(b"STEP-BYTES")
+    fcstd = tmp_path / "manual.FCStd"
+    fcstd.write_bytes(b"FCSTD-BYTES")
+    resp = c.upload_manual("tid", str(step), str(fcstd))
+    assert resp["ir_version"] == 3
+    _, path, headers, body = _StubHandler.received[-1]
+    assert path.endswith("/versions/manual")
+    assert headers["Authorization"] == "Bearer t-123"
+    assert b'name="fcstd_file"' in body and b"FCSTD-BYTES" in body
 
 
 def test_list_sessions_envelope(base_url):

@@ -214,6 +214,27 @@ class FinalizeBody(BaseModel):
     note: str | None = None
 
 
+@router.post("/tune/{tune_id}/versions/manual")
+def upload_manual_version(tune_id: str,
+                          step_file: UploadFile = File(...),
+                          fcstd_file: Optional[UploadFile] = File(default=None),
+                          user: str = Depends(require_writer)) -> dict[str, Any]:
+    """设计师在 FreeCAD 视口手动调整后直接上传：新建 manual 轮次承接（复用版本链与留痕）。"""
+    tune = _tune_or_404(tune_id)
+    if tune["status"] != "active":
+        raise HTTPException(status_code=409, detail=f"微调会话已结束（{tune['status']}），不可上传")
+    step_bytes = step_file.file.read()
+    if not step_bytes:
+        raise HTTPException(status_code=400, detail="step_file 为空")
+    fcstd_bytes = fcstd_file.file.read() if fcstd_file else None
+    round_no = service.begin_manual_round(tune)
+    try:
+        return service.finalize_version(tune, round_no, step_bytes, fcstd_bytes,
+                                        service.MANUAL_UPLOAD_SCRIPT)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/tune/{tune_id}/finalize")
 def finalize_tune(tune_id: str, body: FinalizeBody | None = None,
                   user: str = Depends(require_writer)) -> dict[str, Any]:

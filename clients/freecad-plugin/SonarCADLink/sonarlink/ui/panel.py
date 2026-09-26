@@ -3,7 +3,8 @@
 与 CadAgent ui/panel.py 的差异（如实记录）：
 - 无本地 LLM 线程/会话存储：对话状态全部在平台（panel 只渲染 + 轮询）；
 - BackendWorker(QThread) 常驻长轮询工具调用 → 信号回主线程执行 → 回传结果；
-- 轮次收敛后自动导出 STEP/FCStd 上传定稿（保存机制=平台版本链，本地不再负责持久化）。
+- 轮次收敛后自动导出 STEP/FCStd 上传定稿（保存机制=平台版本链，本地不再负责持久化）；
+- 选中会话即联动（自动开微调+载入模型）；设计师视口手动调整可经「上传当前模型」回流（manual 轮次承接）。
 
 线程纪律：FreeCAD API 只在主线程碰（Qt 槽内）；HTTP 在 worker 线程；
 轮次状态用 QTimer 轮询（2s），不引入 WS 依赖。
@@ -105,6 +106,9 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._round_timer.timeout.connect(self._poll_round)
         self._colors = {}
         self._known_tunable: set | None = None  # 上次可见的可微调会话 id 集（None=未初始化）
+        self._baseline_version: int | None = None  # 微调基线 IR3 版本（打开微调时记录）
+        self._latest_version: int | None = None    # 最新 IR3 版本（拉取/上传后更新）
+        self._status_state = ""                    # 状态行主文案（会话刷新重绘时恢复用）
         self._build_ui()
         # 登录后轮询可微调会话：管线到审阅关②时开着的面板主动提示（联动可见性）
         self._sess_timer = QtCore.QTimer(self)
@@ -149,9 +153,11 @@ class AgentPanel(QtWidgets.QDockWidget):
         login_row.addStretch(1)
         layout.addLayout(login_row)
 
-        # ---- 会话区（登录后自动列出可微调会话，选中即开；手输 ID 仅备用） ----
+        # ---- 会话区（登录后自动列出可微调会话；选中即自动开微调+载入模型，手输 ID 仅备用） ----
         sess_row = QtWidgets.QHBoxLayout()
         self.sess_combo = QtWidgets.QComboBox()
+        # activated 只在用户操作时发出（程序化刷新 setCurrentIndex 不触发），避免列表填充误联动
+        self.sess_combo.activated.connect(self._on_session_selected)
         self.sess_reload_btn = QtWidgets.QPushButton("刷新")
         self.sess_reload_btn.clicked.connect(self._refresh_sessions)
         self.manual_btn = QtWidgets.QPushButton("手输 ID")
@@ -189,6 +195,8 @@ class AgentPanel(QtWidgets.QDockWidget):
         self.send_btn.clicked.connect(self._on_send)
         self.stop_btn = QtWidgets.QPushButton("停止")
         self.stop_btn.clicked.connect(self._on_stop)
+        self.upload_btn = QtWidgets.QPushButton("上传当前模型")
+        self.upload_btn.clicked.connect(self._on_upload_manual)
         self.restore_btn = QtWidgets.QPushButton("恢复最近快照")
         self.restore_btn.clicked.connect(self._on_restore)
         self.finalize_btn = QtWidgets.QPushButton("定稿")
@@ -197,6 +205,7 @@ class AgentPanel(QtWidgets.QDockWidget):
         self.close_tune_btn.clicked.connect(self._on_close_tune)
         btn_row.addWidget(self.send_btn)
         btn_row.addWidget(self.stop_btn)
+        btn_row.addWidget(self.upload_btn)
         btn_row.addWidget(self.restore_btn)
         btn_row.addWidget(self.finalize_btn)
         btn_row.addWidget(self.close_tune_btn)
@@ -206,7 +215,7 @@ class AgentPanel(QtWidgets.QDockWidget):
 
     def _set_enabled(self, on: bool) -> None:
         for w in (self.sess_combo, self.sess_reload_btn, self.sess_edit, self.open_btn,
-                  self.pull_btn, self.send_btn, self.finalize_btn, self.close_tune_btn):
+                  self.pull_btn, self.send_btn, self.upload_btn, self.finalize_btn, self.close_tune_btn):
             w.setEnabled(on)
 
     def _refresh_theme(self) -> None:
@@ -285,7 +294,11 @@ class AgentPanel(QtWidgets.QDockWidget):
             self.sess_combo.addItem(f"{label}（{state} · {str(s.get('id') or '')[:8]}）", s.get("id"))
         if not rows:
             self.sess_combo.addItem("暂无可微调会话——先在平台把会话推进到审阅关②", None)
-        self.tune_status.setText(f"可微调会话 {len(rows)} 个")
+        # 周期刷新会重绘状态行：微调进行中时恢复微调状态（避免被「可微调会话 N 个」覆盖）
+        if self._tune_id:
+            self._update_tune_status(self._status_state or "微调进行中")
+        else:
+            self.tune_status.setText(f"可微调会话 {len(rows)} 个")
         # 增量提示：轮询发现新增可微调会话时在聊天区通知（登录首载静默填充）
         ids = {s.get("id") for s in rows}
         if notify_new and self._known_tunable is not None:
@@ -296,6 +309,24 @@ class AgentPanel(QtWidgets.QDockWidget):
                         "可在上方下拉中选择开始微调")
         self._known_tunable = ids
 
+    def _update_tune_status(self, state: str) -> None:
+        """状态行 = 主文案 + 基线/最新版本信息（微调上下文常驻可见）。"""
+        self._status_state = state
+        parts = [state]
+        if self._baseline_version:
+            parts.append(f"基线 IR3 v{self._baseline_version}")
+        if self._latest_version and self._latest_version != self._baseline_version:
+            parts.append(f"最新 v{self._latest_version}")
+        self.tune_status.setText(" · ".join(parts))
+
+    def _on_session_selected(self, _index: int) -> None:
+        """选中即联动：自动打开/接入微调会话并载入模型（用户期望的一步直达）。"""
+        sid = self.sess_combo.currentData()
+        if not sid:
+            return
+        if self._open_tune(sid):
+            self._pull_model()
+
     def _on_open_tune(self) -> None:
         sid = self.sess_combo.currentData() or self.sess_edit.text().strip()
         if not sid:
@@ -303,38 +334,69 @@ class AgentPanel(QtWidgets.QDockWidget):
                 self, "SonarCAD Link",
                 "没有选中的可微调会话。请先在平台把设计会话推进到审阅关②（A3 出图完成），或点「手输 ID」粘贴会话 ID。")
             return
+        self._open_tune(sid)
+
+    def _open_tune(self, sid: str) -> bool:
+        """打开（无则新建）设计会话的微调会话并接入工具轮询。幂等：已有 active 直接接入。"""
         try:
             sessions = self._client.list_tunes(sid).get("sessions", [])
             active = next((s for s in sessions if s.get("status") == "active"), None)
             if active:
                 self._tune_id = active["id"]
+                baseline = active.get("baseline_ir_version")
+                if baseline:
+                    self._baseline_version = int(baseline)
                 self._append_note(f"已接入进行中的微调会话 {self._tune_id}（{len(active.get('rounds', []))} 轮）")
             else:
                 tune = self._client.create_tune(sid)
                 self._tune_id = tune["id"]
+                baseline = tune.get("baseline_ir_version")
+                if baseline:
+                    self._baseline_version = int(baseline)
+                self._latest_version = None
                 self._append_note(f"已创建微调会话（基线 IR3 v{tune.get('baseline_ir_version')}）")
         except PlatformError as exc:
             QtWidgets.QMessageBox.warning(self, "打开微调失败", exc.detail)
-            return
+            return False
         self._worker.set_tune(self._tune_id)
-        self.tune_status.setText("微调进行中")
+        self._update_tune_status("微调进行中")
+        return True
 
     def _on_pull_model(self) -> None:
         if not self._tune_id:
             return
+        self._pull_model()
+
+    def _pull_model(self) -> bool:
+        """拉取最新 IR3 模型（STEP）导入 3D 视口。已有 SonarModel 文档时先确认替换。"""
+        if not self._tune_id:
+            return False
+        if "SonarModel" in FreeCAD.listDocuments():
+            ok = QtWidgets.QMessageBox.question(
+                self, "载入模型",
+                "当前 3D 视口已有载入的模型，将被所选会话的最新版本替换。继续？") == QtWidgets.QMessageBox.Yes
+            if not ok:
+                return False
         try:
             ctx = self._client.get_context(self._tune_id)
         except PlatformError as exc:
             QtWidgets.QMessageBox.warning(self, "拉取失败", exc.detail)
-            return
+            return False
         import os
 
         dest = os.path.join(tempfile.gettempdir(), ctx.get("filename") or "model.step")
-        self._client.download_to(ctx["step_url"], dest)
-        doc_name = executor.import_step(dest)
+        try:
+            self._client.download_to(ctx["step_url"], dest)
+            doc_name = executor.import_step(dest)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, "载入模型失败", f"{type(exc).__name__}: {exc}")
+            return False
         executor.reset_session_state()
+        self._latest_version = int(ctx.get("version")) if ctx.get("version") else None
         self._append_note(f"已导入平台 IR3 v{ctx.get('version')} 模型（文档 {doc_name}）。"
                           "局限：STEP 导入不含参数化历史，编辑以形体布尔为主。")
+        self._update_tune_status("模型已载入")
+        return True
 
     # ------------------------------------------------------------------
     # 对话
@@ -357,12 +419,12 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._round_no = rnd["round_no"]
         self._rendered_tools = 0
         self._round_timer.start()
-        self.tune_status.setText(f"r{self._round_no} 思考中…")
+        self._update_tune_status(f"r{self._round_no} 思考中…")
 
     def _on_stop(self) -> None:
         executor.request_stop()
         self._round_timer.stop()
-        self.tune_status.setText("已请求停止（当前工具完成后生效）")
+        self._update_tune_status("已请求停止（当前工具完成后生效）")
 
     def _poll_round(self) -> None:
         if self._round_no is None or not self._tune_id:
@@ -388,27 +450,29 @@ class AgentPanel(QtWidgets.QDockWidget):
         if status == "awaiting_upload":
             self._upload_round(rnd["round_no"])
         elif status == "done":
-            self.tune_status.setText("问答完成（无几何变更）")
+            self._update_tune_status("问答完成（无几何变更）")
         elif status == "failed":
-            self.tune_status.setText("轮次失败（可重发）")
+            self._update_tune_status("轮次失败（可重发）")
 
     def _upload_round(self, round_no: int) -> None:
         """导出 STEP/FCStd 并上传（主线程导出，上传同步执行——v1 从简）。"""
-        self.tune_status.setText("导出上传中…")
+        self._update_tune_status("导出上传中…")
         try:
-            step_path, fcstd_path = self._export_current(round_no)
+            step_path, fcstd_path = self._export_current(f"r{round_no}")
             resp = self._client.upload_version(self._tune_id, round_no, step_path, fcstd_path)
             version = resp.get("ir_version")
+            if version:
+                self._latest_version = int(version)
             self._append_note(f"已上传定稿 → 平台 IR3 v{version}（三维预览稍后自动刷新）")
-            self.tune_status.setText(f"已上传 IR3 v{version}")
+            self._update_tune_status(f"已上传 IR3 v{version}")
         except PlatformError as exc:
             self._append_note(f"上传失败：{exc.detail}（可在平台侧重试或手工导出）")
-            self.tune_status.setText("上传失败")
+            self._update_tune_status("上传失败")
         except Exception as exc:
             self._append_note(f"导出/上传异常：{type(exc).__name__}: {exc}")
-            self.tune_status.setText("上传异常")
+            self._update_tune_status("上传异常")
 
-    def _export_current(self, round_no: int) -> tuple[str, str]:
+    def _export_current(self, tag: str) -> tuple[str, str]:
         import Import
 
         doc = FreeCAD.ActiveDocument
@@ -421,11 +485,38 @@ class AgentPanel(QtWidgets.QDockWidget):
             targets = [o for o in doc.Objects if getattr(o, "Shape", None) is shape]
         if not targets:
             raise RuntimeError("文档中没有可导出的形体")
-        step_path = tempfile.gettempdir() + f"/sonarlink_r{round_no}.step"
-        fcstd_path = tempfile.gettempdir() + f"/sonarlink_r{round_no}.FCStd"
+        step_path = tempfile.gettempdir() + f"/sonarlink_{tag}.step"
+        fcstd_path = tempfile.gettempdir() + f"/sonarlink_{tag}.FCStd"
         Import.export(targets, step_path)
         doc.saveCopy(fcstd_path)
         return step_path, fcstd_path
+
+    def _on_upload_manual(self) -> None:
+        """设计师在视口手动调整后一键回流：当前模型上传为平台 IR3 新版本（manual 轮次承接）。"""
+        if not self._tune_id:
+            QtWidgets.QMessageBox.information(
+                self, "上传当前模型", "请先在上方下拉选择设计会话（选中后会自动打开微调）。")
+            return
+        doc = FreeCAD.ActiveDocument
+        if doc is None or not doc.Objects:
+            QtWidgets.QMessageBox.information(
+                self, "上传当前模型", "当前没有可上传的模型——请先「拉取模型」或在 3D 视口调整后重试。")
+            return
+        self._update_tune_status("导出上传中…")
+        try:
+            step_path, fcstd_path = self._export_current("manual")
+            resp = self._client.upload_manual(self._tune_id, step_path, fcstd_path)
+            version = resp.get("ir_version")
+            if version:
+                self._latest_version = int(version)
+            self._append_note(f"已上传当前模型 → 平台 IR3 v{version}（手动调整已回流，三维预览稍后自动刷新）")
+            self._update_tune_status(f"已上传 IR3 v{version}")
+        except PlatformError as exc:
+            self._append_note(f"手动上传失败：{exc.detail}")
+            self._update_tune_status("上传失败")
+        except Exception as exc:
+            self._append_note(f"导出/上传异常：{type(exc).__name__}: {exc}")
+            self._update_tune_status("上传异常")
 
     # ------------------------------------------------------------------
     # 工具调用（主线程执行 FreeCAD API）
@@ -460,7 +551,7 @@ class AgentPanel(QtWidgets.QDockWidget):
             return
         try:
             self._client.finalize(self._tune_id, note="插件定稿")
-            self.tune_status.setText("已定稿（等待审阅关②）")
+            self._update_tune_status("已定稿（等待审阅关②）")
             self._append_note("微调会话已定稿：审阅关②将审阅最新版本。")
         except PlatformError as exc:
             QtWidgets.QMessageBox.warning(self, "定稿失败", exc.detail)
@@ -474,6 +565,8 @@ class AgentPanel(QtWidgets.QDockWidget):
             self._client.close(self._tune_id)
             self._worker.set_tune(None)
             self._tune_id = None
+            self._baseline_version = None
+            self._latest_version = None
             self.tune_status.setText("已结束")
         except PlatformError as exc:
             QtWidgets.QMessageBox.warning(self, "结束失败", exc.detail)

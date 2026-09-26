@@ -214,6 +214,22 @@ def _run_round(tune: dict[str, Any], round_row: dict[str, Any]) -> None:
 # ----------------------------------------------------------------------
 # 定稿上传 → 几何实测 → IR3 版本追加
 # ----------------------------------------------------------------------
+MANUAL_UPLOAD_SCRIPT = "# 手动上传（设计师在 FreeCAD 视口直接调整，无对话编辑脚本）"
+
+
+def begin_manual_round(tune: dict[str, Any]) -> int:
+    """手动上传通道：新建一个 manual 轮次承接，复用轮次留痕与版本链（A-02 溯源不断）。
+
+    单用户桌面插件场景，latest_round_no+1 的并发窗口可忽略。
+    """
+    round_no = tune_store.latest_round_no(str(tune["id"])) + 1
+    rnd = tune_store.create_round(
+        str(tune["id"]), round_no, tune.get("baseline_ir_version"),
+        "（手动上传：设计师在 FreeCAD 视口直接调整，无对话脚本）", None, created_by="manual")
+    tune_store.update_round(rnd["id"], status="awaiting_upload", script=MANUAL_UPLOAD_SCRIPT)
+    return round_no
+
+
 def _inspect_step_file(step_path: str) -> dict[str, Any] | None:
     """subprocess 调 geometry_inspect.py（A3 同款：OCCT 不进 agent 进程）。
 

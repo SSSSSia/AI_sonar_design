@@ -156,8 +156,10 @@ function TuneCard({ sessionId, ir3Version }: { sessionId: string; ir3Version?: n
           children: (
             <Typography.Paragraph style={{ fontSize: 12, marginBottom: 0 }} type="secondary">
               把仓库 <code>clients/freecad-plugin/SonarCADLink</code> 复制进 FreeCAD 的 Mod
-              目录，重启后切到 SonarCADLink 工作台：登录平台 → 粘贴本会话 ID →
-              「打开/新建微调」→「拉取模型」→ 对话微调 → 定稿（详见插件 README 的人工验收清单）。
+              目录，重启后切到 SonarCADLink 工作台：登录平台 → 下拉选择本会话
+              （自动开微调并载入模型到 3D 视口）→ 对话微调，或直接在视口手动调整后点
+              「上传当前模型」→ 满意后「定稿」，审阅关②审的即最新版本
+              （详见插件 README 的人工验收清单）。
             </Typography.Paragraph>
           ),
         }]}
