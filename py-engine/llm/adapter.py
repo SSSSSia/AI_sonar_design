@@ -52,7 +52,8 @@ class ProviderConfig(BaseModel):
 
 
 def _load_providers_from_db() -> list[ProviderConfig] | None:
-    """业务库读取 enabled 供应商；表不可用/无行返回 None（走 env 兜底）。"""
+    """业务库读取 enabled 供应商；表不可用返回 None（=查询失败，抖动保护）；
+    无 enabled 行返回 []（=确认切换为空，走 env 兜底/MISSING）。两者语义不同，T10.3 修订。"""
     try:
         import psycopg
 
@@ -65,7 +66,7 @@ def _load_providers_from_db() -> list[ProviderConfig] | None:
         return [
             ProviderConfig(name=r[0], base_url=r[1], api_key=r[2], model=r[3], timeout_s=r[4])
             for r in rows
-        ] or None
+        ]
     except Exception as exc:  # 连接失败不阻断：降级 env 供应商并如实记录
         logger.warning("llm_providers 读取失败，回退 env 供应商: %s", exc)
         return None
@@ -80,26 +81,29 @@ class _ProviderStore:
         self._providers: list[ProviderConfig] = []
         self._lock = threading.Lock()
 
+    def _env_fallback(self) -> list[ProviderConfig]:
+        if LLM_BASE_URL and LLM_API_KEY:
+            return [
+                ProviderConfig(
+                    name="env-fallback",
+                    base_url=LLM_BASE_URL,
+                    api_key=LLM_API_KEY,
+                    model=LLM_MODEL,
+                    timeout_s=LLM_TIMEOUT_S,
+                )
+            ]
+        return []
+
     def active(self) -> ProviderConfig:
         with self._lock:
             if time.time() - self._cached_at > self._ttl_s:
                 providers = _load_providers_from_db()
-                if providers:
-                    self._providers = providers
-                elif not self._providers:
-                    # DB 无可用行且无历史供应商时才走 env 兜底；已有供应商保持不变（DB 抖动不切换）
-                    if LLM_BASE_URL and LLM_API_KEY:
-                        self._providers = [
-                            ProviderConfig(
-                                name="env-fallback",
-                                base_url=LLM_BASE_URL,
-                                api_key=LLM_API_KEY,
-                                model=LLM_MODEL,
-                                timeout_s=LLM_TIMEOUT_S,
-                            )
-                        ]
-                    else:
-                        self._providers = []
+                if providers is not None:
+                    # 查询成功：以 DB 为准——空列表 = 确认无 enabled 行，如实切换
+                    # （env 兜底 / MISSING）。T10.3 修订：旧逻辑把「确认无行」当抖动
+                    # 保留旧供应商，管理面禁用最后一家供应商永不生效（实测踩坑）。
+                    self._providers = providers or self._env_fallback()
+                # providers is None（查询失败）= DB 抖动：保留旧值不切换
                 self._cached_at = time.time()
             return self._providers[0] if self._providers else _MISSING
 

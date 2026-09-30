@@ -120,6 +120,11 @@ celery_app.conf.update(
     ],
     task_acks_late=True,                      # 执行成功才 ack，崩溃不丢任务
     worker_prefetch_multiplier=1,             # 长任务公平分发
+    # T10.3 基线实测返修：--pool=solo 下任务跑主循环，>~2min 的任务（A2 真实 LLM 286s /
+    # A3 177s）阻塞 AMQP 心跳 → broker 判死连接 → ack 随连接丢失 → 任务 100% 重投
+    # （短任务不复现；重投又级联双派下游）。broker_heartbeat=0 关闭心跳协商，
+    # 换取长任务不被误杀（连接真死由 publish 重试与消费重连兜底）。
+    broker_heartbeat=0,
     result_expires=3600,
     task_soft_time_limit=TASK_SOFT_TIME_LIMIT_S,
     task_time_limit=TASK_HARD_TIME_LIMIT_S,

@@ -137,3 +137,33 @@ class TestNoProvider:
         monkeypatch.setattr(adapter_mod, "_store", store)
         with pytest.raises(RuntimeError, match="无可用 LLM 供应商"):
             adapter_mod.active_provider()
+
+class TestProviderSwitchSemantics:
+    """T10.3 修订：区分「查询失败（抖动保留）」与「确认无 enabled 行（如实切换）」。"""
+
+    def _store(self):
+        return adapter_mod._ProviderStore(ttl_s=0)
+
+    def test_empty_db_switches_to_env_fallback(self, monkeypatch):
+        monkeypatch.setattr(adapter_mod, "LLM_BASE_URL", "http://fb")
+        monkeypatch.setattr(adapter_mod, "LLM_API_KEY", "sk-fb")
+        monkeypatch.setattr(adapter_mod, "LLM_MODEL", "fb-model")
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: [])  # 确认无行
+        store = self._store()
+        store._providers = [ProviderConfig(name="old", base_url="http://old", api_key="k", model="m", timeout_s=5)]
+        assert store.active().name == "env-fallback"  # 旧语义保留 old（bug），现如实切换
+
+    def test_empty_db_without_env_becomes_missing(self, monkeypatch):
+        monkeypatch.setattr(adapter_mod, "LLM_BASE_URL", "")
+        monkeypatch.setattr(adapter_mod, "LLM_API_KEY", "")
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: [])
+        store = self._store()
+        store._providers = [ProviderConfig(name="old", base_url="http://old", api_key="k", model="m", timeout_s=5)]
+        assert store.active() is adapter_mod._MISSING
+
+    def test_db_failure_keeps_old_provider(self, monkeypatch):
+        monkeypatch.setattr(adapter_mod, "_load_providers_from_db", lambda: None)  # 查询失败
+        store = self._store()
+        old = ProviderConfig(name="old", base_url="http://old", api_key="k", model="m", timeout_s=5)
+        store._providers = [old]
+        assert store.active() is old  # 抖动保护语义不变

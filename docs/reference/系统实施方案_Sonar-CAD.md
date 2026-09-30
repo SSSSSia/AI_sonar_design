@@ -705,7 +705,7 @@ graph TB
 | §5.2.3 WebSocket 契约 | `WS /api/v1/ws/tasks/{task_id}`，2 类消息 | JWT 握手 + 会话级订阅，5 类消息（task_progress / log / review_request / ir_updated / cad_tune_updated），契约文件 `contracts/ws/ws-message.schema.json`；前端断线指数退避重连 + HTTP 对账轮询兜底 |
 | §3.3 业务表 | `parameter_schemes` 为 IR2 可编辑工作副本 | 表已建（Flyway V1）但预留未用；参数展示与编辑经 IR2 快照（`ir_snapshots` jsonb）承载；另有 V6–V11 增补表（kb_* / cad_tune_* / session_logs / kb_bases） |
 | §3.4 MinIO 桶 | 5 桶（step-models / cad-scripts / design-docs / validation-reports / knowledge-dumps） | 实际 4 桶：step-models / cad-scripts / **kb-docs** / **cad-tunes**（后两桶为新增；设计文档与校验报告实际以 IR 快照承载，未建对象存储桶） |
-| §6.2 性能数据 | 总耗时 597.4s（三阶段 demo 实测拆解） | 为旧原型基线，对新架构无参考性；端到端性能待 v0.2 重新基线化 |
+| §6.2 性能数据 | 总耗时 597.4s（三阶段 demo 实测拆解） | 为旧原型基线，对新架构无参考性；**v0.3 已重新基线化**（2026-09-30，容器化全栈 4 轮真 LLM 中位 554.5s≈9.2min、检索 P95 1.3s，见 `docs/reviews/性能基线_v0.3.md`） |
 | §6.3 容器化 | frontend / api / celery-worker 均入 compose | 过渡态：数据底座十容器 compose 一键起；应用为宿主机进程（`scripts/start-all` 一键启动）；应用容器化列 v0.2 待办 |
 | §4.2 页面清单 | 任务中心独立页等 | 任务中心并入仪表盘（会话列表 + WS 实时进度）；新增项目管理页、知识库五页签（含多库）、系统管理页（服务探测真实、日志/备份/用户管理如实标注"待接"）、FreeCAD 微调时间线 |
 | §6.4 监控告警 | ELK、审计库、告警规则 | 监控告警零实现；会话日志落库（session_logs）+ 前端回看导出已有；审计语义由不可变 IR 快照 / 审阅记录 / 溯源链承担 |
