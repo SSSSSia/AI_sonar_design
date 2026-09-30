@@ -1,0 +1,12 @@
+# T9.5：镜像构建上下文瘦身 + 防宿主产物混入（Windows node_modules/target 进 Linux 镜像会损坏运行时）
+**/node_modules
+**/target
+**/__pycache__
+**/dist
+**/.pytest_cache
+.git
+.zcode
+logs-*.log
+*.log
+.env
+clients/freecad-plugin/.pytest_cache

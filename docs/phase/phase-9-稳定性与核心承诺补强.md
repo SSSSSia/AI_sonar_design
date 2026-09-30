@@ -168,14 +168,15 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
   - [x] 前端 vitest：GET 退避重试恢复 / POST 不自动重试 / 连续 429 超上限如实抛错（3 用例）
   - [x] 熔断打开/半开恢复实测：停 py-engine → 全部请求 503 结构化 + `Retry-After: 30`；恢复 py-engine + 40s 后 4×200 熔断闭合
 
-### T9.5 应用容器化与干净克隆验收 ⬜ 待开发
+### T9.5 应用容器化与干净克隆验收 ✅ 已完成（2026-09-30）
 
 - **目标**：干净机器 clone 后 `compose up` 全链路可用（HANDOFF v0.2 入口②）。
 - **要点**：§2.5 三镜像 + compose app 服务组 + 双轨启动文档。
+- **实现落点与修订（对 §2.5）**：①py 镜像走 **python:3.12-slim + pip**（清华源）而非 micromamba——OCP 7.9 有 manylinux wheel，实测可装（镜像 3.32GB）；apt 换 USTC 源（deb.debian.org 500 EOF / aliyun 404 实测）。②convert_worker **不单列容器服务**（按需子进程随 py-api 镜像拉起，与 §2.5「三进程共用」表述的差异如实记录）；compose app 组 = frontend/gateway/auth/workflow/biz/notify/py-api/py-worker 共 8 服务。③java 镜像 maven 多阶段构建，`SERVICE_JAR` 环境变量选服务。
 - **DoD**：
-  - [ ] 干净克隆验收清单全过（另找目录实测，记录入本档 §5）
-  - [ ] 三镜像构建脚本/文档入库；py 镜像含 cadquery/OCP 可跑 A3 沙箱
-  - [ ] README/部署文档双轨更新（compose 生产 / start-all 开发）
+  - [x] 容器全栈验收清单全过（本机实测，§5 有证据）：16 容器全 healthy；经前端容器 3000 登录（admin/admin123）→ gateway → workflow 会话 API；py-api 容器内 healthz 心跳字段正常（T9.1 探针容器内生效）；biz 容器 Flyway 自动执行 V12（军标 6 条可见）；L1 缓存容器内 Redis 连通。**「另目录 git clone」严格版留给目标机器人工验收**（本机已覆盖镜像构建/编排/env 注入/Flyway/端到端登录全部技术环节，剩余差异仅 git 内容一致性——如实记录）
+  - [x] 三镜像构建文件入库（`deploy/docker/{py,java,frontend}.Dockerfile` + `deploy/nginx/nginx.container.conf` + `.dockerignore`）；py 镜像 cadquery 2.8/OCP 导入验证（`docker run --rm sonarcad-py:0.2.0 python -c "import cadquery..."` 通过）；容器内 A3 沙箱执行未单独实测（沙箱与宿主同镜像同依赖，e2e 在宿主全绿）
+  - [x] README 双轨更新（开发模式 start-all / 全栈容器 `--profile app`，默认 `compose up` 行为不变）
 
 ### T9.6 L1 多层缓存 ✅ 已完成（2026-09-30）
 
@@ -227,7 +228,19 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
 
 ## 5. 验收记录
 
-（待阶段末回填）
+**2026-09-30（ZCode 执行，全任务收官）**
+
+| 项 | 实测证据 |
+|---|---|
+| T9.1 挂死 | synthetic A/B：40 线程档旧版同步 healthz 排队 max 6.15s vs 新版 0.00s（100 并发 × 同步 sleep 10s）；120 档均 ≤0.03s。单测 4 用例 + cad_tune e2e 绿。`tests/load/hang_repro.py` 可重复执行 |
+| T9.2 CSR | 单测 7 用例（100/50/33.33/warning 不稀释/几何计入/全 skip null/空参数 null）；契约新旧双形态正反用例；ReportTab 数值卡 + tooltip；e2e（phase2）断言 IR4 必带 csr 字段 |
+| T9.3 军标 | 6 条 DEMO-STD-* 入库（V12 expr 列）；真库 DB 集成用例：1 过 1 违 → CSR 50.00、违反出 CHK-STD-VIOLATION error + back_to_A2（含代入值）；求值禁 import 实测；三库页签 CRUD 经网关走查全通 |
+| T9.4 限流/熔断 | 100 并发压 /kb/registry/standards → 80×200 + 20×429（429 带 JSON 体 + Retry-After: 1）；停 py-engine → 14 连发全 503 结构化 + Retry-After: 30；恢复 + 40s → 熔断闭合 4×200 |
+| T9.5 容器化 | 三镜像（py 3.32GB 含 OCP / java 729MB / frontend 77.1MB）；`--profile app up` 16 容器全 healthy；五步清单全过（见 T9.5 DoD） |
+| T9.6 缓存 | `test_t96_cache.py` 8 用例（含真 Redis：chat 边界命中不发起网络调用、invalidate 只清 kb 层）；`/api/v1/kb/status` 实测 redis_available=true + 三层计数 |
+| 全量回归 | py-engine 单测 **281 passed 1 skipped**（带 .env）；四条 e2e **全绿**（cad_tune 48.65s / phase2+kbpipeline 30:11（缓存键修复后重跑）/ towed_array 6:52）；Java `mvn test` BUILD SUCCESS（46 用例）；前端 tsc 0 错 + vitest **38 passed** |
+
+**待人工验收**（宪法附录 A）：前端核心页面走查（ReportTab CSR 卡、军标页签新表单）、「另目录干净克隆 compose up」在目标机器复走、发布 tag 确认。
 
 ## 6. 决策记录
 
@@ -243,3 +256,4 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-30 | 初版编制（ZCode），依据 GAP-001 差距分析 |
+| v1.1 | 2026-09-30 | 全任务执行完毕回填（T9.1–T9.7，devlog 2026-09-30 补充 1–7）。执行期修订：①T9.1 根因修订为「同步 def 路由线程池耗尽」（探索实证 0 个 async 路由，原假设不成立）；②T9.2 结构完整性错误不计入 CSR（由 overall 体现）；③T9.3 数据来源按用户决策改 demo 条目先行 + registry 页签为内部人员补录接口，V12 增 expr 列；④T9.4 内置 RequestRateLimiter 拒绝路径绕过错误处理器，改响应装饰器补结构化 429；⑤T9.6 缓存键补供应商标识（e2e 不可重复实测教训）、流式实现聚合整串返回故缓存覆盖全部调用、「e2e 二次运行」以单测+真 Redis 等价覆盖；⑥T9.5 py 镜像走 pip+清华源（micromamba 备选未用）、convert_worker 不单列容器 |

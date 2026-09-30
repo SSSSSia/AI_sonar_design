@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-24 · ZCode，v0.1.0 已发布）
+## 当前状态（最后更新：2026-09-30 · ZCode，v0.2 阶段 9 已收官待人工验收）
 
 | 项 | 状态 |
 |---|---|
@@ -48,6 +48,8 @@
    - **2026-09-19 用户首轮验收反馈已修**（devlog 补充 30）：失败会话「重新执行」按钮（RETRY 事件+worker 开始即标记阶段）；审阅页降级 IR1 溢出；裁决历史 JSON 批注→可读（ReviewAnnotation）；会话 id 短显+复制；gate1 空方案/降级横幅警示；A1 降级缺失项去噪。**系统性功能交互/页面交互/UI 设计审查已执行**（2026-09-19 ZCode，报告 `docs/reviews/2026-09-19-全站设计审查.md`：P0×3/P1×9/P2×16）→ **报告全部条目闭环**：Top10（补充 32/33）+ P2 打磨组 14 项（补充 34：菜单分组/gate 中文化/横幅去重/仪表盘知识卡/图谱图例中文/文档库拖拽区/三库编号单位/空态文案/交付物 IR 下载/登录内联错误/合理偏离记录）；P2-9 调参与 P2-6 v-status 两项按 A-16 裁剪不做（无数据不造假，已记录）。会话 API 现回 createdByName（join users）
 3. 开发提示：**全栈一键启动：PowerShell/cmd 用 `.\scripts\start-all.cmd`（显式 Git Bash，勿直接敲 bash——PS 会命中已损坏的 WSL）；Git Bash 用 `bash scripts/start-all.sh`**（幂等：在跑的跳过；.env 注入/日志落根目录 logs-*.log；数据底座容器在跑则复用）；数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 四条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）/ `test_cad_tune_e2e.py`（~1 分钟，微调协议闭环，自带 mock LLM 随机端口+独立 provider 行不依赖现网供应商）。
 4. **设计-实现对照与优化路线（2026-09-30 新增）**：`docs/设计实现对照与优化路线.md`（GAP-001）——按桌面三份方案文档（已迁移至 `docs/reference/`，其中《设计方案》《系统实施方案》2026-09-30 补入，三份文末均已附纯增量增补）逐章对照实现现状，并维护 v0.2+ 优化补齐清单（P0：uvicorn 挂死根因/CSR 落地/军标首批条目；P1：限流熔断/容器化/监控/压测/性能重基线/L1 缓存；P2：E1 反向回写等 12 项）。**后续 v0.2/v0.3 迭代已按宪法 §7.1 编制阶段开发文档并登记 roadmap**：[PHASE-009](phase/phase-9-稳定性与核心承诺补强.md)（v0.2：T9.1 挂死根因 → T9.2 CSR/T9.3 军标并行 → T9.4 限流熔断 → T9.5 容器化 → T9.6 L1 缓存 → T9.7 收官 tag v0.2）与 [PHASE-010](phase/phase-10-生产就绪与M4验收.md)（v0.3：监控告警/50 并发压测/性能重基线 → M4 验收 tag v0.3）；阶段 11（v0.4）仅 roadmap 总览占位，任务分解待启动时编制。完成项随代码同 commit 回填状态。
+
+5. **阶段 9（稳定性与核心承诺补强，PHASE-009）已于 2026-09-30 全任务收官，待人工验收**：T9.1 挂死（线程池耗尽根因机制复现 + 线程池扩容 + 长轮询 async 化 + /healthz 事件循环心跳 503 探针）、T9.2 CSR（IR4 可空 csr + ReportTab 数值卡，口径 tooltip）、T9.3 军标激活（V12 expr 列 + SymPy 安全求值 + 6 条 DEMO 演示条目【待真实 GJB 授权后经军标页签替换】+ 完整管理表单）、T9.4 限流/熔断/429 结构化降级 + 前端幂等 GET 指数退避、T9.5 三镜像容器化（`deploy/docker/*.Dockerfile` + compose `--profile app`，README 双轨）、T9.6 L1 三层缓存（缓存键含供应商标识——e2e 可重复性教训）。全量回归绿（单测 281 / 四条 e2e / Java 46 / vitest 38），证据见 [PHASE-009](phase/phase-9-稳定性与核心承诺补强.md) §5。**人工验收清单**：①前端走查 ReportTab CSR 卡与军标页签新表单；②「另目录干净克隆 → compose --profile app up」目标机器复走；③确认后打 tag v0.2。之后进入阶段 10（PHASE-010，监控/压测/性能重基线/M4 验收）。
 
 ## 待验证 / 待决事项
 
