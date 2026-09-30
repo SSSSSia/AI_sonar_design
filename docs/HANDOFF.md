@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-30 · ZCode，v0.2 阶段 9 已收官待人工验收）
+## 当前状态（最后更新：2026-09-30 · ZCode，阶段 10（PHASE-010）执行中；v0.2.0 人工验收由用户明示豁免）
 
 | 项 | 状态 |
 |---|---|
@@ -49,7 +49,7 @@
 3. 开发提示：**全栈一键启动：PowerShell/cmd 用 `.\scripts\start-all.cmd`（显式 Git Bash，勿直接敲 bash——PS 会命中已损坏的 WSL）；Git Bash 用 `bash scripts/start-all.sh`**（幂等：在跑的跳过；.env 注入/日志落根目录 logs-*.log；数据底座容器在跑则复用）；数据底座与 Java 四服务均可直接连（Java 启动前 `set -a; source .env; set +a`）；**e2e 四条**：`test_towed_array_e2e.py`（7 分钟）/ `test_phase2_pipeline_e2e.py`（17 分钟，门语义）/ `test_kb_pipeline_e2e.py`（12 分钟，KB 全流程）/ `test_cad_tune_e2e.py`（~1 分钟，微调协议闭环，自带 mock LLM 随机端口+独立 provider 行不依赖现网供应商）。
 4. **设计-实现对照与优化路线（2026-09-30 新增）**：`docs/设计实现对照与优化路线.md`（GAP-001）——按桌面三份方案文档（已迁移至 `docs/reference/`，其中《设计方案》《系统实施方案》2026-09-30 补入，三份文末均已附纯增量增补）逐章对照实现现状，并维护 v0.2+ 优化补齐清单（P0：uvicorn 挂死根因/CSR 落地/军标首批条目；P1：限流熔断/容器化/监控/压测/性能重基线/L1 缓存；P2：E1 反向回写等 12 项）。**后续 v0.2/v0.3 迭代已按宪法 §7.1 编制阶段开发文档并登记 roadmap**：[PHASE-009](phase/phase-9-稳定性与核心承诺补强.md)（v0.2：T9.1 挂死根因 → T9.2 CSR/T9.3 军标并行 → T9.4 限流熔断 → T9.5 容器化 → T9.6 L1 缓存 → T9.7 收官 tag v0.2）与 [PHASE-010](phase/phase-10-生产就绪与M4验收.md)（v0.3：监控告警/50 并发压测/性能重基线 → M4 验收 tag v0.3）；阶段 11（v0.4）仅 roadmap 总览占位，任务分解待启动时编制。完成项随代码同 commit 回填状态。
 
-5. **阶段 9（稳定性与核心承诺补强，PHASE-009）已于 2026-09-30 全任务收官，待人工验收**：T9.1 挂死（线程池耗尽根因机制复现 + 线程池扩容 + 长轮询 async 化 + /healthz 事件循环心跳 503 探针）、T9.2 CSR（IR4 可空 csr + ReportTab 数值卡，口径 tooltip）、T9.3 军标激活（V12 expr 列 + SymPy 安全求值 + 6 条 DEMO 演示条目【待真实 GJB 授权后经军标页签替换】+ 完整管理表单）、T9.4 限流/熔断/429 结构化降级 + 前端幂等 GET 指数退避、T9.5 三镜像容器化（`deploy/docker/*.Dockerfile` + compose `--profile app`，README 双轨）、T9.6 L1 三层缓存（缓存键含供应商标识——e2e 可重复性教训）。全量回归绿（单测 281 / 四条 e2e / Java 46 / vitest 38），证据见 [PHASE-009](phase/phase-9-稳定性与核心承诺补强.md) §5。**人工验收清单**：①前端走查 ReportTab CSR 卡与军标页签新表单；②「另目录干净克隆 → compose --profile app up」目标机器复走；③确认后打 tag v0.2。之后进入阶段 10（PHASE-010，监控/压测/性能重基线/M4 验收）。
+5. **阶段 9（稳定性与核心承诺补强，PHASE-009）已于 2026-09-30 全任务收官，待人工验收**：T9.1 挂死（线程池耗尽根因机制复现 + 线程池扩容 + 长轮询 async 化 + /healthz 事件循环心跳 503 探针）、T9.2 CSR（IR4 可空 csr + ReportTab 数值卡，口径 tooltip）、T9.3 军标激活（V12 expr 列 + SymPy 安全求值 + 6 条 DEMO 演示条目【待真实 GJB 授权后经军标页签替换】+ 完整管理表单）、T9.4 限流/熔断/429 结构化降级 + 前端幂等 GET 指数退避、T9.5 三镜像容器化（`deploy/docker/*.Dockerfile` + compose `--profile app`，README 双轨）、T9.6 L1 三层缓存（缓存键含供应商标识——e2e 可重复性教训）。全量回归绿（单测 281 / 四条 e2e / Java 46 / vitest 38），证据见 [PHASE-009](phase/phase-9-稳定性与核心承诺补强.md) §5。**人工验收清单**：①前端走查 ReportTab CSR 卡与军标页签新表单；②「另目录干净克隆 → compose --profile app up」目标机器复走；③确认后打 tag v0.2。之后进入阶段 10（PHASE-010，监控/压测/性能重基线/M4 验收）。**2026-09-30 补记**：用户明示「我懒得测试了，直接开始执行下一阶段」——v0.2.0 人工验收豁免（见 PHASE-009 §5 补记），阶段 10 已启动。
 
 ## 待验证 / 待决事项
 
