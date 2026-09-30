@@ -42,21 +42,32 @@ class A4Agent:
         params: list[dict[str, Any]] = ir2.get("parameters", [])
         features: list[dict[str, Any]] = (ir3 or {}).get("features", [])
 
-        issues: list[dict[str, Any]] = []
-        issues += self._check_formula(params)
-        issues += self._check_case(params)
-        issues += self._check_standard(params)
-        issues += self._check_estimated(params)
-        issues += self._check_geometry(ir2, ir3 or {})
+        # CSR 统计器（T9.2，PHASE-009）：口径写死于本注释与 PHASE-009 §2.2，前端 tooltip 同文案——
+        # CSR = 通过的约束检查数 / (通过 + 违反) × 100。
+        # 计数对象 = 产出确定性判定的检查：formula 复算、standard 符合性核对、几何数值复核（CHK-GEO-NUM）；
+        # warning（来源冲突存疑）与 info（提示/待补/跳过）不计入分母——存疑不等于违反，避免虚低；
+        # 结构完整性错误（引用悬空/特征重复/产物缺失）属产物完整性而非约束满足，由 overall=fail 体现，不计入 CSR；
+        # 无任何有效检查（全 skip / 空方案）→ csr=None（A-16 无数据不造假，前端显示「—」）。
+        stats: dict[str, int] = {"pass": 0, "violation": 0}
 
+        issues: list[dict[str, Any]] = []
+        issues += self._check_formula(params, stats)
+        issues += self._check_case(params)
+        issues += self._check_standard(params, stats)
+        issues += self._check_estimated(params)
+        issues += self._check_geometry(ir2, ir3 or {}, stats)
+
+        total = stats["pass"] + stats["violation"]
+        csr = round(stats["pass"] / total * 100, 2) if total > 0 else None
         ir4 = {
             "overall": "fail" if any(i["severity"] == "error" for i in issues) else "pass",
             "issues": issues,
+            "csr": csr,
         }
         return validate_ir("IR4", ir4)
 
     # ------------------------------------------------------------------
-    def _check_formula(self, params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _check_formula(self, params: list[dict[str, Any]], stats: dict[str, int]) -> list[dict[str, Any]]:
         """formula 参数：SymPy 复算。定位顺序：solver REGISTRY → kb_formulas 业务库（T3.3）；
         都无法定位的出 info 请人工复核，不硬失败。"""
         issues: list[dict[str, Any]] = []
@@ -99,16 +110,20 @@ class A4Agent:
                 continue
             value = _first_number(p.get("value"))
             if value is None:
+                stats["violation"] += 1
                 issues.append(_issue(
                     "CHK-FORMULA-RECOMPUTE", "error",
                     f"formula 参数「{p.get('name')}」取值缺失或非数值，无法与复算结果比对",
                     [p["id"]], suggestion="back_to_A2"))
             elif not recompute.values_match(result.value, value):
+                stats["violation"] += 1
                 issues.append(_issue(
                     "CHK-FORMULA-RECOMPUTE", "error",
                     f"复算不符：参数「{p.get('name')}」登记值 {p.get('value')} {p.get('unit')}，"
                     f"{result.derivation}（依据 {p.get('source_ref')}）",
                     [p["id"]], suggestion="back_to_A2"))
+            else:
+                stats["pass"] += 1  # 复算一致：静默通过（不产 issue），计入 CSR
         return issues
 
     @staticmethod
@@ -166,7 +181,7 @@ class A4Agent:
         return issues
 
     # ------------------------------------------------------------------
-    def _check_standard(self, params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _check_standard(self, params: list[dict[str, Any]], stats: dict[str, int]) -> list[dict[str, Any]]:
         """standard 参数：军标核对（A-16：空库如实待补，不伪装已核对）。"""
         issues: list[dict[str, Any]] = []
         for p in params:
@@ -174,9 +189,12 @@ class A4Agent:
                 continue
             result = standards.check_param(p)
             if result["status"] == "violation":
+                stats["violation"] += 1
                 issues.append(_issue(
                     "CHK-STD-VIOLATION", "error",
                     f"军标违例：{result['message']}", [p["id"]], suggestion="back_to_A2"))
+            elif result["status"] == "pass":
+                stats["pass"] += 1  # 军标核对通过：静默（不产 issue），计入 CSR
             elif result["status"] == "pending":
                 issues.append(_issue(
                     "CHK-STD-PENDING", "info",
@@ -195,7 +213,8 @@ class A4Agent:
             [p["id"] for p in estimated])]
 
     # ------------------------------------------------------------------
-    def _check_geometry(self, ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
+    def _check_geometry(self, ir2: dict[str, Any], ir3: dict[str, Any],
+                        stats: dict[str, int]) -> list[dict[str, Any]]:
         """几何自洽：特征-参数引用完整、feature_id 唯一、STEP/脚本引用非空
         ＋ 数值级复核（T7.4：linked 参数 vs 实测 bbox 维度）。"""
         issues: list[dict[str, Any]] = []
@@ -230,11 +249,12 @@ class A4Agent:
                 "IR3 缺少 CadQuery 脚本",
                 [], [], suggestion="back_to_A3"))
 
-        issues += self._check_geometry_numeric(ir2, ir3)
+        issues += self._check_geometry_numeric(ir2, ir3, stats)
         return issues
 
     # ------------------------------------------------------------------
-    def _check_geometry_numeric(self, ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
+    def _check_geometry_numeric(self, ir2: dict[str, Any], ir3: dict[str, Any],
+                                stats: dict[str, int]) -> list[dict[str, Any]]:
         """数值级几何复核（T7.4，PHASE-007）。确定性无 LLM；A-09 只报告不改参数。
 
         - extracted：逐个「已联动」特征比对 bbox[linked_dim] vs 参数值（换算 mm），
@@ -302,12 +322,14 @@ class A4Agent:
             measured = float(bbox[dim])
             dev_pct = abs(measured - expected_mm) / expected_mm * 100.0
             if dev_pct <= tol:
+                stats["pass"] += 1  # 数值一致（issue 保持 info 级降低噪音），计入 CSR
                 issues.append(_issue(
                     "CHK-GEO-NUM", "info",
                     f"数值一致：参数 {linked}「{p.get('name')}」= {value}{p.get('unit')}，"
                     f"关联特征 {fid} 实测 {measured:g} mm，偏差 {dev_pct:.2f}%（容差 {tol:g}%）",
                     [linked], [fid]))
             else:
+                stats["violation"] += 1
                 issues.append(_issue(
                     "CHK-GEO-NUM", "error",
                     f"{linked}「{p.get('name')}」= {value}{p.get('unit')}，但关联特征 {fid} "

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sonarcad.local/contracts/ir/ir4.schema.json",
   "title": "IR4 校验报告（A4 输出）",
-  "description": "总体结论 + 逐条问题清单。A4 边界：只出报告不改参数（宪法 A-09）；不通过由编排层触发局部回环（A-11）。军标 0 条时如实标\"待补\"（A-16）。三级风险：error=高 / warning=中 / info=低。",
+  "description": "总体结论 + 逐条问题清单。A4 边界：只出报告不改参数（宪法 A-09）；不通过由编排层触发局部回环（A-11）。军标 0 条时如实标\"待补\"（A-16）。三级风险：error=高 / warning=中 / info=低。T9.2 增补可空 csr 字段（加法演进，旧快照无此字段合法）。",
   "type": "object",
   "additionalProperties": false,
   "required": ["overall", "issues"],
@@ -15,6 +15,12 @@
       "type": "array",
       "description": "逐条问题清单（可为空数组）",
       "items": { "$ref": "#/$defs/issue" }
+    },
+    "csr": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "CSR 约束满足率（T9.2）= 通过/(通过+违反)×100，两位小数。计数对象：formula 复算 / 军标核对 / 几何数值复核等确定性检查；warning 与 info 不计入分母；结构完整性错误不计入（由 overall 体现）；无有效检查时为 null（A-16）"
     }
   },
   "$defs": {

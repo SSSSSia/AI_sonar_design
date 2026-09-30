@@ -211,6 +211,23 @@ def test_ir4_three_level_severity_and_optional_suggestion() -> None:
         _validate(schema, bad)
 
 
+def test_ir4_csr_field_additive_evolution() -> None:
+    """T9.2 契约加法演进：可空 csr（0–100 两位小数）；旧快照（无 csr）双形态兼容。"""
+    schema = _load("ir4.schema.json")
+    # 旧形态（历史快照）：无 csr 字段仍合法
+    old_form = {"overall": "pass", "issues": []}
+    _validate(schema, old_form)
+    # 新形态：数值
+    _validate(schema, {"overall": "pass", "issues": [], "csr": 87.5})
+    # 新形态：null（无有效检查，A-16 不造假）
+    _validate(schema, {"overall": "pass", "issues": [], "csr": None})
+    # 越界 / 类型错误非法
+    with pytest.raises(Exception):
+        _validate(schema, {"overall": "pass", "issues": [], "csr": 150})
+    with pytest.raises(Exception):
+        _validate(schema, {"overall": "pass", "issues": [], "csr": "95"})
+
+
 def test_ir5_writeback_pending_by_default() -> None:
     schema = _load("ir5.schema.json")
     ir5 = {

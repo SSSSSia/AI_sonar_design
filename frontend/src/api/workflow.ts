@@ -102,6 +102,8 @@ export interface Ir4Issue {
 export interface Ir4 {
   overall: 'pass' | 'fail'
   issues: Ir4Issue[]
+  /** CSR 约束满足率（T9.2）：旧快照无此字段；无有效检查时为 null（显示「—」） */
+  csr?: number | null
 }
 
 // ---- IR5 ----

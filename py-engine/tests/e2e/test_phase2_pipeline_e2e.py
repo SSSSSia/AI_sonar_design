@@ -178,6 +178,10 @@ def test_phase2_full_gate_loop(stack):
     assert ir4_v1["content"]["overall"] in ("pass", "fail")
     severities = {i["severity"] for i in ir4_v1["content"]["issues"]}
     assert severities <= {"error", "warning", "info"}, "IR4 severity 超出三级风险"
+    # T9.2：IR4 必带 csr 字段（数值 0–100 或 null=无有效检查，A-16）
+    csr_v1 = ir4_v1["content"].get("csr", "__missing__")
+    assert csr_v1 is None or (isinstance(csr_v1, (int, float)) and 0 <= csr_v1 <= 100), \
+        f"IR4 csr 字段缺失或越界: {csr_v1!r}"
     r = httpx.post(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/reviews/gate2", headers=headers,
                    json={"decision": "rejected", "annotations": ["e2e 驳回回流演练"],
                          "reworkStage": "A2"}, timeout=15)

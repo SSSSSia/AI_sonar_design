@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { App, Alert, Button, Card, Input, Modal, Radio, Select, Table, Tag, Typography } from 'antd'
+import { App, Alert, Button, Card, Input, Modal, Radio, Select, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
 import { ApiError } from '../../api/client'
@@ -15,6 +15,13 @@ const SEVERITY_META: Record<string, { label: string; color: string }> = {
   warning: { label: '警告', color: 'warning' },
   info: { label: '提示', color: 'default' },
 }
+
+/** CSR 口径（T9.2，与 PHASE-009 §2.2 及 A4 agent 注释同文案） */
+const CSR_TOOLTIP =
+  'CSR（约束满足率）= 通过的约束检查数 ÷（通过 + 违反）× 100。' +
+  '计数对象为 A4 确定性检查：公式复算 / 军标核对 / 几何数值复核；' +
+  'warning（存疑）与 info（提示）不计入分母；' +
+  '无任何有效检查时显示「—」（不显示 0% 或 100%）。'
 
 export function ReportTab({
   sessionId,
@@ -112,6 +119,19 @@ export function ReportTab({
                 description="IR2 参数方案为 0 项（LLM 不可用时降级生成），A4 无实质检查项——「pass」仅表示无可校验内容，不代表设计合规。建议到「审阅与参数」页签驳回并回退 A2，待 LLM 恢复后重算。"
               />
             )}
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <Typography.Text type="secondary">CSR 约束满足率</Typography.Text>
+              <Tooltip title={CSR_TOOLTIP}>
+                <Typography.Text strong style={{ fontSize: 22, cursor: 'help' }}>
+                  {ir4.csr == null ? '—' : `${ir4.csr.toFixed(2)}%`}
+                </Typography.Text>
+              </Tooltip>
+              {ir4.csr == null && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  （无有效检查项，A-16 不显示 0%/100%）
+                </Typography.Text>
+              )}
+            </div>
             <IssueGroups issues={ir4.issues} />
           </>
         )}

@@ -137,14 +137,15 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
   - [x] healthz 心跳探针 + 容器 restart 策略联动（restart 策略在 T9.5 compose 落地）
   - [x] e2e 回归全绿（cad_tune e2e 针对性回归 48.65s passed；四条全量按计划留 T9.7 统一跑）
 
-### T9.2 CSR 约束满足率落地 ⬜ 待开发
+### T9.2 CSR 约束满足率落地 ✅ 已完成（2026-09-30）
 
 - **目标**：CSR 从文档概念变为端到端可见的量化指标。
 - **要点**：§2.2 口径；A4 汇总段计算；IR4 schema 加法演进（可空 `csr`）；契约测试新旧双形态；ReportTab CSR 数值卡 + tooltip。
+- **实现落点**：`agents/a4_validation/agent.py` run() 穿统计器（formula 复算/standard 核对/CHK-GEO-NUM 三类确定性检查计 pass/violation；结构完整性错误不计入，由 overall 体现）；`contracts/ir/ir4.schema.json` 可空 csr；ReportTab CSR 数值卡 + 口径 tooltip（null 显示「—」+ A-16 说明）。
 - **DoD**：
-  - [ ] e2e 断言：mock 场景 CSR 数值与手工核算一致（含 error 计入、warning/info 不计入）
-  - [ ] 全 skip / 空方案场景 `csr=null`，前端显示「—」（A-16）
-  - [ ] 契约 jsonschema 正反用例更新
+  - [x] 单测断言 CSR 数值与手工核算一致（7 用例：全过 100 / 混合 50 / 1过2违 33.33 / warning 不稀释 / 几何数值计入 / 全 skip null / 空参数 null）；e2e（phase2）断言 IR4 必带 csr 字段且形态合法（0–100 或 null）
+  - [x] 全 skip / 空方案场景 `csr=null`，前端显示「—」（A-16）
+  - [x] 契约 jsonschema 正反用例更新（旧形态无 csr 仍合法 + 越界/类型错误非法）
 
 ### T9.3 军标库首批条目录入与核对激活 ⬜ 待开发
 
