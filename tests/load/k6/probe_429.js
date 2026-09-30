@@ -23,7 +23,7 @@ export const options = {
   scenarios: {
     burst: {
       executor: 'shared-iterations',
-      vus: 1,
+      vus: Number(__ENV.PROBE_VUS || 1), // 单连接 ~100 req/s 贴 replenish 线不触顶；PROBE_VUS 提并发
       iterations: BURST,
       maxDuration: '2m',
     },
