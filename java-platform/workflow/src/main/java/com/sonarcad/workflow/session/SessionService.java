@@ -275,12 +275,18 @@ public class SessionService {
                 notifyClient.publish(id, NotifyMessages.taskProgress("A2", "running",
                         NotifyMessages.stageProgress("A2"), "A2 方案生成中"));
             } else if ("A2".equals(stage)) {
+                if ("gate1".equals(s.getCurrentStage()) && "paused".equals(s.getPipelineStatus())) {
+                    return s; // T10.2 压测返修：broker 抖动致 acks_late 重投时 STAGE_DONE 重复回调，幂等返回
+                }
                 pauseAtGate(id, "gate1");
             } else if ("A3".equals(stage)) {
                 taskPublisher.publishA4Task(id);
                 notifyClient.publish(id, NotifyMessages.taskProgress("A4", "running",
                         NotifyMessages.stageProgress("A4"), "A4 合规校验中"));
             } else if ("A4".equals(stage)) {
+                if ("gate2".equals(s.getCurrentStage()) && "paused".equals(s.getPipelineStatus())) {
+                    return s; // 同上：重复回调幂等
+                }
                 pauseAtGate(id, "gate2");
             }
             return s;
@@ -357,12 +363,15 @@ public class SessionService {
         DesignSessionEntity patch = new DesignSessionEntity();
         patch.setPipelineStatus(PipelineStatus.paused.name());
         patch.setCurrentStage(gate);
+        // T10.2 压测返修：worker 重投场景下 py 的 update_stage 可能把 current_stage 写回 Agent 阶段
+        // （paused+A2），此时须允许重挂闸门自愈；已在目标闸则幂等跳过（不再 409 卡死驱动方）。
         int updated = mapper.update(patch, new LambdaQueryWrapper<DesignSessionEntity>()
                 .eq(DesignSessionEntity::getId, id)
-                .eq(DesignSessionEntity::getPipelineStatus, PipelineStatus.running.name()));
+                .in(DesignSessionEntity::getPipelineStatus,
+                        PipelineStatus.running.name(), PipelineStatus.paused.name())
+                .ne(DesignSessionEntity::getCurrentStage, gate));
         if (updated == 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "审阅关暂停失败：会话不在 running 状态（可能已被并发修改）");
+            return get(id); // 已在目标闸（重复回调），幂等返回现态
         }
         DesignSessionEntity s = get(id);
         s.setPipelineStatus(PipelineStatus.paused.name());

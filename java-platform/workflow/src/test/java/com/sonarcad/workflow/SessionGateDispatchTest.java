@@ -240,13 +240,26 @@ class SessionGateDispatchTest {
     }
 
     @Test
-    void pauseConflictSurfaces409() {
-        when(sessionMapper.selectById("s1")).thenReturn(session("s1", "completed", "A2"));
-        when(sessionMapper.update(any(), any())).thenReturn(0);
+    void pauseIdempotentWhenAlreadyAtGate() {
+        // T10.2 压测返修：broker 抖动重投致 STAGE_DONE 重复回调——已在 gate1 暂停时幂等返回，不再 409
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", "paused", "gate1"));
 
-        assertThrows(ResponseStatusException.class,
-                () -> service.fireEvent("s1", PipelineEvent.STAGE_DONE));
-        verify(taskPublisher, never()).publishA3Task(any());
+        DesignSessionEntity out = service.fireEvent("s1", PipelineEvent.STAGE_DONE);
+        assertEquals("paused", out.getPipelineStatus());
+        assertEquals("gate1", out.getCurrentStage());
+        verify(sessionMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void pauseSelfHealsFromOverwrittenStage() {
+        // 重投的 A2 用 update_stage 把 current_stage 写回 A2（paused+A2）——重挂闸门自愈而非 409 卡死
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", "paused", "A2"));
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+
+        DesignSessionEntity out = service.fireEvent("s1", PipelineEvent.STAGE_DONE);
+        assertEquals("paused", out.getPipelineStatus());
+        assertEquals("gate1", out.getCurrentStage());
+        verify(taskPublisher, never()).publishA2Task(any());
     }
 
     @Test
