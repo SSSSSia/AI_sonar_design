@@ -1,0 +1,55 @@
+# 首批 4 条核心告警（T10.1c；对齐总体设计 §10.5 与 PHASE-010 §2.1）。
+# 口径注释即验收依据；触发证据见 docs/reviews/（任务书 §2.1 DoD）。
+groups:
+  - name: sonarcad-core
+    rules:
+      # ① Agent 任务软超时：>15 分钟完成任务占比 >10%（持续 2m）
+      - alert: AgentTaskSoftTimeoutRatio
+        expr: >
+          sum(rate(py_agent_soft_timeout_total[10m]))
+            / clamp_min(sum(rate(py_agent_task_total[10m])), 1e-9) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          team: sonarcad
+        annotations:
+          summary: "Agent 任务超 15 分钟占比超 10%"
+          description: "近 10 分钟完成的 A1–A5 任务中，耗时 >15min 的占比超过阈值（总体设计 §10.5 告警①口径）"
+
+      # ② CadQuery 沙箱执行失败率 >10%（含修复循环重跑，持续 2m）
+      - alert: CadQueryFailureRateHigh
+        expr: >
+          sum(rate(py_cadquery_exec_total{outcome="fail"}[10m]))
+            / clamp_min(sum(rate(py_cadquery_exec_total[10m])), 1e-9) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          team: sonarcad
+        annotations:
+          summary: "CadQuery 执行失败率超 10%"
+          description: "沙箱执行（含修复循环）失败占比超阈值（总体设计 §10.5 告警②）"
+
+      # ③ 检索延迟 P95 > 30s（持续 2m；按命中层级聚合）
+      - alert: KbRetrievalLatencyP95High
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(py_kb_query_duration_seconds_bucket[5m])) by (le)) > 30
+        for: 2m
+        labels:
+          severity: warning
+          team: sonarcad
+        annotations:
+          summary: "知识检索 P95 超 30s"
+          description: "单条检索 P95（全层级）超过 30s（总体设计 §10.5 告警③）"
+
+      # ④ Celery 任务队列积压：任一 sonarcad.* 队列深度 >100（持续 1m）
+      - alert: CeleryQueueBacklog
+        # 正则用字符类 [.]（双引号 YAML + PromQL 双层转义已实测踩坑）
+        expr: max(rabbitmq_queue_messages{queue=~"sonarcad[.](a1|a2|a3|a4|a5|kb|echo)"}) > 100
+        for: 1m
+        labels:
+          severity: warning
+          team: sonarcad
+        annotations:
+          summary: "Celery 任务队列积压超 100"
+          description: "RabbitMQ sonarcad.* 队列消息数 >100（总体设计 §10.5 告警④）"

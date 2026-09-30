@@ -170,4 +170,67 @@ class NotifyIntegrationTest {
         assertThat(httpResp.statusCode()).isEqualTo(200);
         ws.sendClose(WebSocket.NORMAL_CLOSURE, "done");
     }
+
+    @org.junit.jupiter.api.Test
+    void alertRequiresTrustHeader(@org.springframework.boot.test.web.server.LocalServerPort int port) throws Exception {
+        HttpResponse<String> resp = http().send(java.net.http.HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/internal/alerts"))
+                        .header("Content-Type", "application/json")
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
+                                "{\"status\":\"firing\",\"alerts\":[]}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(resp.statusCode()).isEqualTo(401);
+    }
+
+    @org.junit.jupiter.api.Test
+    void alertWebhookAcceptedAndBroadcast(@org.springframework.boot.test.web.server.LocalServerPort int port) throws Exception {
+        Listener listener = new Listener();
+        WebSocket ws = http().newWebSocketBuilder()
+                .buildAsync(URI.create(wsUrl(port, "any-session-does-not-matter", makeJwt())), listener)
+                .get(5, TimeUnit.SECONDS);
+        listener.open.get(5, TimeUnit.SECONDS);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-User-Id", "alertmanager");
+        String amBody = "{\"status\":\"firing\",\"alerts\":[{\"status\":\"firing\","
+                + "\"labels\":{\"alertname\":\"CeleryQueueBacklog\",\"severity\":\"warning\",\"instance\":\"sonarcad.a1\"},"
+                + "\"annotations\":{\"summary\":\"队列积压\"}}]}";
+        ResponseEntity<String> resp = rest.exchange(
+                "http://localhost:" + port + "/internal/alerts",
+                HttpMethod.POST, new HttpEntity<>(amBody, headers), String.class);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getBody()).contains("\"accepted\"").contains("\"subscribers\":1");
+        String received = listener.firstMessage.get(5, TimeUnit.SECONDS);
+        assertThat(received).contains("\"type\":\"alert\"").contains("CeleryQueueBacklog");
+    }
+
+    @org.junit.jupiter.api.Test
+    void alertAcceptedWithBridgeBearerToken(@org.springframework.boot.test.web.server.LocalServerPort int port) {
+        // AM 0.27 无法注入自定义头 → 桥接端点接受静态 Bearer token（T10.1c 实测决策）
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer sonarcad-alert-bridge");
+        String amBody = "{\"status\":\"firing\",\"alerts\":[{\"status\":\"firing\","
+                + "\"labels\":{\"alertname\":\"X\",\"severity\":\"warning\"}}]}";
+        ResponseEntity<String> resp = rest.exchange(
+                "http://localhost:" + port + "/internal/alerts",
+                HttpMethod.POST, new HttpEntity<>(amBody, headers), String.class);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+    }
+
+    @org.junit.jupiter.api.Test
+    void alertRejectsBadBearerToken(@org.springframework.boot.test.web.server.LocalServerPort int port) throws Exception {
+        // JDK HttpClient：TestRestTemplate 对 401 流式 body 会重试报 I/O error（同 publishRequiresTrustHeader）
+        HttpResponse<String> resp = http().send(java.net.http.HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/internal/alerts"))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer wrong-token")
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
+                                "{\"status\":\"firing\",\"alerts\":[]}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(resp.statusCode()).isEqualTo(401);
+    }
 }

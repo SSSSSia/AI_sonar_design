@@ -267,5 +267,6 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("MOCK_LLM_PORT", "8091")),
-                log_level="warning")
+    # HOST 默认 127.0.0.1（本机 e2e）；容器内运行（compose loadtest）注入 MOCK_LLM_HOST=0.0.0.0
+    uvicorn.run(app, host=os.environ.get("MOCK_LLM_HOST", "127.0.0.1"),
+                port=int(os.environ.get("MOCK_LLM_PORT", "8091")), log_level="warning")

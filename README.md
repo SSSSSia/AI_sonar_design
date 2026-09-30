@@ -33,6 +33,18 @@
 - 干净克隆验收：新目录 `git clone` → `cp .env.example .env` 填密钥 → `docker compose --profile app up -d --build` → 全部 healthy → 浏览器登录（admin/admin123，上线前必改）。完整清单见 `docs/phase/phase-9-稳定性与核心承诺补强.md` §2.5。
 - 默认 `docker compose up` 行为不变（只起底座），开发模式脚本保留——双轨互不影响。
 
+## 监控告警（T10.1，PHASE-010）
+
+| 组件 | 访问 | 说明 |
+|---|---|---|
+| Prometheus | `http://localhost:${PROMETHEUS_PORT:-9090}` | 抓取 15s；目标 = 容器化 app 栈（五 Java `/actuator/prometheus`、py-api `/metrics`、py-worker `:9101`、RabbitMQ `:15692`、postgres-exporter） |
+| Alertmanager | `http://localhost:${ALERTMANAGER_PORT:-9093}` | 4 条核心告警 → webhook 桥接 notify `/internal/alerts`（全播 WS，type=alert） |
+| Grafana | `http://localhost:${GRAFANA_PORT:-3300}`（admin/`${GRAFANA_ADMIN_PASSWORD:-admin}`） | 两块预置面板：平台总览 / Agent 管线（provisioning 自动装载） |
+
+- 启动：与 app 配套 `cd deploy && docker compose --profile app --profile monitoring up -d`（纯开发模式无对应目标，监控栈会显示 target down——监控面向容器化栈设计）。
+- 4 条告警规则在 `deploy/prometheus/alerts.yml`：Agent 任务 >15min 占比 / CadQuery 失败率>10% / 检索 P95>30s / Celery 队列>100；触发证据见 `docs/reviews/`。
+- 压测：`docker compose --profile loadtest up -d mock-llm` 起 mock LLM（:8091），k6 场景脚本见 `tests/load/k6/`（T10.2）。
+
 ## 开发约定（速记）
 
 - 文档先行：无文档不开工；文档与代码同一 commit 同步。

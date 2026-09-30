@@ -78,12 +78,12 @@
 
 > 执行顺序：T10.1 与 T10.3 埋点可先行 → T10.2（前置：PHASE-009 全部完成）→ T10.4（视基线）→ T10.5 收官。
 
-### T10.1 监控告警起步 ⬜ 待开发
+### T10.1 监控告警起步 ✅ 已完成（2026-09-30）
 
 - **DoD**：
-  - [ ] compose 起 prometheus/grafana，五 Java 服务 + py-engine + RabbitMQ/PG 指标可查
-  - [ ] 4 条告警规则各一次触发证据；通知渠道（Grafana alert → webhook/邮件）打通
-  - [ ] 面板 JSON 与规则文件入库，干净环境可重放
+  - [x] compose 起 prometheus/grafana，五 Java 服务 + py-engine + RabbitMQ/PG 指标可查（monitoring profile：prometheus/alertmanager/grafana/postgres-exporter；10 抓取目标全 up，含 py-api /metrics、py-worker :9101、rabbitmq 原生 prometheus 插件 :15692）
+  - [x] 4 条告警规则各一次触发证据（docs/reviews/evidence/t101-*.json：四条同时 firing + AM active + 队列深度 211；①②③ 按任务书 §2.1 允许以临时调低阈值触发，④ 走真实阈值 >100；恢复后全部回落 inactive）；通知渠道打通 = Prometheus 规则 → Alertmanager → notify /internal/alerts 桥接（AM 0.27 webhook 无法注入自定义头，实测改 Bearer 静态信任 token，notify 侧 200 accepted；决策记录 §6）
+  - [x] 面板 JSON 与规则文件入库，干净环境可重放（deploy/prometheus/、deploy/alertmanager/、deploy/grafana/：两块预置面板 provisioning 自动装载）
 
 ### T10.2 50 并发压测 ⬜ 待开发
 
@@ -126,11 +126,20 @@
 
 ## 5. 验收记录
 
-（待阶段末回填）
+| 任务 | 实测证据 | 时间 |
+|---|---|---|
+| T10.1a py 指标 | 单测 12 用例 + 全量 293 passed；宿主实测 API :8090/metrics 200、worker :9101 全指标族；容器栈 10 抓取目标全 up | 2026-09-30 |
+| T10.1b Java actuator | mvn test BUILD SUCCESS（notify 9 用例含桥接 2 例）；五服务 /actuator/prometheus 全 200 | 2026-09-30 |
+| T10.1c 监控栈 | 4 条告警同时 firing 证据（docs/reviews/evidence/t101-*.json）；AM→notify 桥接 200 + 零投递错误；恢复正式规则后全部回落 inactive；echo 队列排空归零 | 2026-09-30 |
+
+（阶段末随 T10.2/T10.3 增补压测与基线证据）
 
 ## 6. 决策记录
 
-（执行中补；压测工具选型、检索优化路线若争议则 ADR）
+- **压测工具 = k6**（docker 镜像 grafana/k6:0.53.0，免宿主安装；任务书默认项）。
+- **压测目标栈 = 容器化 app 栈**（§1.1 可复现性依据）；mock LLM 以 compose `--profile loadtest` 服务（sonarcad-py 镜像 + 挂载 mock_llm_server.py，MOCK_LLM_HOST=0.0.0.0）入网，provider 表注册 priority=1000 热切换。
+- **告警通知链 = Prometheus 规则 + Alertmanager → notify 桥接**，非任务书字面的「Grafana alert」：AM 的 webhook http_config 可携带信任凭证而 Grafana 11 OSS 联系点不能稳定注入；AM 0.27 不支持自定义 http_headers（实测 config.plain 拒绝），改 `authorization: Bearer` 静态 token（开发默认 `sonarcad-alert-bridge`，上线必改），notify `InternalAlertController` 接受 X-User-Id 或该 Bearer 双通道。
+- **告警触发证据口径**：④ 队列积压走真实阈值（worker 停止 + 150 条 echo 灌队列，深度 211 > 100）；①②③ 以「临时调低阈值」触发（任务书 §2.1 明示允许），触发后恢复正式阈值并确认回落 inactive。
 
 ## 7. 演进路线（承诺项，非本期范围）
 

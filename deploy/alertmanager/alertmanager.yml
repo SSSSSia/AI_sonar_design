@@ -1,0 +1,22 @@
+# Alertmanager（T10.1c）：webhook → notify /internal/alerts 桥接端点（X-User-Id 信任头注入）。
+# 决策记录 §6：选 Prometheus 规则 + Alertmanager 而非 Grafana unified alerting——
+# AM 的 http_config 可注入自定义信任头（Grafana 11 OSS 联系点配置无法稳定注入），且触发
+# 状态有原生 API/UI 可留证。
+route:
+  receiver: notify
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 3h
+
+receivers:
+  - name: notify
+    webhook_configs:
+      - url: http://notify:8084/internal/alerts
+        # AM 0.27 webhook 不支持自定义 http_headers（实测 config.plain 拒绝），
+        # 改用 authorization Bearer 静态信任 token（notify 桥接端点校验；开发默认值上线必改）
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: sonarcad-alert-bridge
+        send_resolved: false

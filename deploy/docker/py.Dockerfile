@@ -29,6 +29,9 @@ COPY py-engine/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 COPY py-engine/ ./
+# IR 契约 schema（ir_contract.py 按 parents[1]/contracts/ir 解析 → 容器内 /contracts；
+# T10.2 压测实测缺陷：缺它 A1 契约校验 FileNotFoundError 全挂，宿主模式无此问题）
+COPY contracts/ /contracts/
 
 EXPOSE 8090
 # 0.0.0.0：容器内须对外（宿主开发模式是 127.0.0.1，互不影响——由启动方指定）

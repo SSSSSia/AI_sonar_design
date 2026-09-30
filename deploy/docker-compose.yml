@@ -31,6 +31,8 @@ volumes:
   milvus-minio-data:
   milvus-data:
   rabbitmq-data:
+  prometheus-data:
+  grafana-data:
 
 services:
   # ---------- 业务库 ----------
@@ -215,6 +217,9 @@ services:
       - "${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+      # T10.1c：原生 prometheus 插件（:15692/metrics，告警④队列深度数据源），免装 exporter
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./rabbitmq/conf.d-prometheus.conf:/etc/rabbitmq/conf.d/99-prometheus.conf:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 15s
@@ -248,10 +253,12 @@ services:
   # ================= 应用层（T9.5，PHASE-009） =================
   # 默认 `docker compose up` 仍只起数据底座（开发模式 scripts/start-all 不受影响）；
   # 全栈：`cd deploy && docker compose --profile app up -d --build`
+  # 监控（T10.1c，PHASE-010）：与 app 配套 `--profile monitoring up -d`
+  # 压测 mock LLM（T10.2）：`--profile loadtest up -d mock-llm`
   # 干净克隆验收清单见 docs/phase/phase-9-稳定性与核心承诺补强.md §2.5
 
   gateway:
-    image: sonarcad-java:0.2.0
+    image: sonarcad-java:0.3.0
     build: { context: .., dockerfile: deploy/docker/java.Dockerfile }
     container_name: sonarcad-gateway
     profiles: ["app"]
@@ -293,7 +300,7 @@ services:
     networks: [sonar-net]
 
   auth:
-    image: sonarcad-java:0.2.0
+    image: sonarcad-java:0.3.0
     container_name: sonarcad-auth
     profiles: ["app"]
     restart: unless-stopped
@@ -311,7 +318,7 @@ services:
     networks: [sonar-net]
 
   workflow:
-    image: sonarcad-java:0.2.0
+    image: sonarcad-java:0.3.0
     container_name: sonarcad-workflow
     profiles: ["app"]
     restart: unless-stopped
@@ -330,7 +337,7 @@ services:
     networks: [sonar-net]
 
   biz:
-    image: sonarcad-java:0.2.0
+    image: sonarcad-java:0.3.0
     container_name: sonarcad-biz
     profiles: ["app"]
     restart: unless-stopped
@@ -349,7 +356,7 @@ services:
     networks: [sonar-net]
 
   notify:
-    image: sonarcad-java:0.2.0
+    image: sonarcad-java:0.3.0
     container_name: sonarcad-notify
     profiles: ["app"]
     restart: unless-stopped
@@ -365,7 +372,7 @@ services:
     networks: [sonar-net]
 
   py-api:
-    image: sonarcad-py:0.2.0
+    image: sonarcad-py:0.3.0
     build: { context: .., dockerfile: deploy/docker/py.Dockerfile }
     container_name: sonarcad-py-api
     profiles: ["app"]
@@ -402,7 +409,7 @@ services:
     networks: [sonar-net]
 
   py-worker:
-    image: sonarcad-py:0.2.0
+    image: sonarcad-py:0.3.0
     container_name: sonarcad-py-worker
     profiles: ["app"]
     restart: unless-stopped
@@ -422,7 +429,7 @@ services:
     networks: [sonar-net]
 
   frontend:
-    image: sonarcad-frontend:0.2.0
+    image: sonarcad-frontend:0.3.0
     build: { context: .., dockerfile: deploy/docker/frontend.Dockerfile }
     container_name: sonarcad-frontend
     profiles: ["app"]
@@ -435,6 +442,101 @@ services:
       notify: { condition: service_started }
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [sonar-net]
+
+  # ================= 监控（T10.1c，PHASE-010；与 --profile app 配套） =================
+  prometheus:
+    image: ${DOCKER_MIRROR:-}prom/prometheus:v2.53.3
+    container_name: sonarcad-prometheus
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [sonar-net]
+
+  alertmanager:
+    image: ${DOCKER_MIRROR:-}prom/alertmanager:v0.27.0
+    container_name: sonarcad-alertmanager
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [sonar-net]
+
+  grafana:
+    image: ${DOCKER_MIRROR:-}grafana/grafana:11.2.0
+    container_name: sonarcad-grafana
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3300}:3000"
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [sonar-net]
+
+  postgres-exporter:
+    image: ${DOCKER_MIRROR:-}prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: sonarcad-pg-exporter
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-sonarcad}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sonarcad}?sslmode=disable
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9187/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks: [sonar-net]
+
+  # ================= 压测 mock LLM（T10.2；容器栈指向 http://mock-llm:8091/v1） =================
+  mock-llm:
+    image: sonarcad-py:0.3.0
+    build: { context: .., dockerfile: deploy/docker/py.Dockerfile }
+    container_name: sonarcad-mock-llm
+    profiles: ["loadtest"]
+    restart: unless-stopped
+    volumes:
+      - ../py-engine/tests/e2e/mock_llm_server.py:/srv/mock_llm_server.py:ro
+    command: ["python", "/srv/mock_llm_server.py"]
+    environment:
+      MOCK_LLM_HOST: 0.0.0.0
+      MOCK_LLM_PORT: "8091"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz', timeout=5)"]
       interval: 15s
       timeout: 5s
       retries: 5

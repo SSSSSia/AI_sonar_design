@@ -79,6 +79,35 @@ public class SessionWebSocketHandler extends TextWebSocketHandler {
         return delivered;
     }
 
+    /** 向全部存活会话频道广播（T10.1c 告警通道：监控告警无会话归属，到达所有在连客户端）。返回送达数。 */
+    public int broadcastAll(Object envelope) {
+        String json;
+        try {
+            json = mapper.writeValueAsString(envelope);
+        } catch (IOException e) {
+            throw new IllegalStateException("WS 消息序列化失败", e);
+        }
+        int delivered = 0;
+        for (Set<WebSocketSession> set : subscribers.values()) {
+            for (WebSocketSession ws : set) {
+                if (!ws.isOpen()) {
+                    set.remove(ws);
+                    continue;
+                }
+                try {
+                    synchronized (ws) {
+                        ws.sendMessage(new TextMessage(json));
+                    }
+                    delivered++;
+                } catch (IOException e) {
+                    set.remove(ws);
+                    log.debug("WS 全播发送失败，移除订阅者：{}", e.getMessage());
+                }
+            }
+        }
+        return delivered;
+    }
+
     public int subscriberCount(String sid) {
         Set<WebSocketSession> set = subscribers.get(sid);
         return set == null ? 0 : set.size();
