@@ -123,19 +123,41 @@ def active_provider() -> ProviderConfig:
 
 
 def reload_providers() -> None:
-    """强制立即重载（测试/管理用）。"""
+    """强制立即重载（测试/管理用）。供应商配置变更 → L1 的 LLM 缓存一并失效（T9.6）。"""
+    from storage import cache
+
     _store._cached_at = 0.0
+    cache.invalidate_llm()
 
 
 class LlmAdapter:
-    """OpenAI 兼容 chat completion 客户端（流式）。
+    """OpenAI 兼容 chat completion 客户端（流式 + L1 缓存边界）。
 
     流式原因（旧仓库同款踩坑）：长脚本生成（A3 可达数千 token）非流式等待整包
     极易触发读超时；流式下读超时按 chunk 间隔计，连接持续有数据即不超时。
+
+    L1 缓存（T9.6）：chat() 边界整体生效——实现上虽走流式，但结果聚合为完整字符串返回
+    （无 SSE 透传），故「流式不走缓存」的顾虑不成立，缓存覆盖全部调用；
+    键 = sha256(model+messages+temperature 等 kwargs)，TTL 7d，LLM_CACHE_ENABLED 可关。
     """
 
     def chat(self, messages: list[dict[str, str]], timeout_s: int | None = None, **kwargs: Any) -> str:
         """timeout_s：单次调用超时覆盖（默认用供应商配置）；其余 kwargs 透传请求体。"""
+        from app_config import LLM_CACHE_ENABLED
+        from storage import cache
+
+        cache_key: str | None = None
+        if LLM_CACHE_ENABLED:
+            try:
+                model = active_provider().model
+            except RuntimeError:
+                model = None  # 无可用供应商时本次调用本就会失败，跳过缓存
+            if model:
+                cache_key = cache.llm_cache_key(model, messages, kwargs)
+                cached = cache.get_str("llm", cache_key)
+                if cached is not None:
+                    return cached
+
         last_exc: Exception | None = None
         for attempt in range(1, LLM_MAX_RETRIES + 1):
             provider = active_provider()
@@ -166,7 +188,10 @@ class LlmAdapter:
                         content = choices[0].get("delta", {}).get("content")
                         if content:
                             chunks.append(content)
-                return "".join(chunks)
+                result = "".join(chunks)
+                if cache_key and result:
+                    cache.set_str(cache_key, result, cache.TTL_LLM_S)
+                return result
             except Exception as exc:
                 last_exc = exc
                 logger.warning(

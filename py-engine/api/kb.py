@@ -25,6 +25,16 @@ router = APIRouter(prefix="/kb", dependencies=[Depends(require_user)])
 
 
 # ----------------------------------------------------------------------
+# T9.6：L1 缓存命中率（阶段 10 告警预留数据源；本进程=API 视角，worker 计数独立）
+# ----------------------------------------------------------------------
+@router.get("/status")
+def kb_cache_status() -> dict[str, Any]:
+    from storage import cache
+
+    return {"service": "py-engine", "cache": cache.stats()}
+
+
+# ----------------------------------------------------------------------
 # T3.1 文档上传与解析
 # ----------------------------------------------------------------------
 @router.post("/documents")

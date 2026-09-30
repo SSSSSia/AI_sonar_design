@@ -9,6 +9,18 @@ import pytest
 import llm.adapter as adapter_mod
 from llm.adapter import LlmAdapter, ProviderConfig
 
+@pytest.fixture(autouse=True)
+def _bypass_l1_cache(monkeypatch):
+    """T9.6 缓存隔离：本文件的用例针对直连/降级语义，L1 缓存（真 Redis 跨测试污染）
+    一律旁路——chat() 不查缓存，query() 直落 _query_uncached。"""
+    import threading
+    import time as _t
+
+    from storage import cache
+
+    monkeypatch.setattr(cache, "_state",
+                        {"client": None, "failed_at": _t.time(), "lock": threading.Lock()})
+
 
 class TestProviderConfig:
     def test_redacted_hides_api_key(self):

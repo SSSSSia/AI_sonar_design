@@ -6,6 +6,7 @@ uploaded → parsed → chunked → indexed（异常分支 failed，error 如实
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import uuid
@@ -348,3 +349,34 @@ def set_extraction_graph_key(extraction_id: int, graph_key: str) -> None:
             "UPDATE kb_extractions SET graph_key = %s WHERE id = %s",
             (graph_key, extraction_id),
         )
+
+
+# ----------------------------------------------------------------------
+# T9.6（PHASE-009 §2.6）：KB 内容/范围变更统一挂 L1 缓存失效。
+# 失效纪律：KB 任何变更（文档增删/分块替换/嵌入标记/抽取确认/图谱键/库增删与归属调整）
+# 必清 cache:kb:*——API 与 worker 共用本存储层，两个进程的变更都会走到这里。
+# 调用方均为模块属性风格（kb_store.xxx），模块级包装不失效。
+def _invalidate_kb_cache() -> None:
+    from storage import cache
+
+    cache.invalidate_kb()
+
+
+for _name in (
+    "create_document", "update_document", "delete_document",
+    "replace_chunks", "mark_embedded",
+    "replace_extractions", "set_extraction_status", "set_extraction_graph_key",
+    "create_base", "update_base", "delete_base",
+    "add_docs_to_base", "remove_docs_from_base",
+):
+    _orig = globals()[_name]
+
+    @functools.wraps(_orig)
+    def _wrapped(*args, __orig=_orig, **kwargs):  # noqa: ANN001, ANN202
+        try:
+            return __orig(*args, **kwargs)
+        finally:
+            _invalidate_kb_cache()
+
+    globals()[_name] = _wrapped
+del _name, _orig, _wrapped

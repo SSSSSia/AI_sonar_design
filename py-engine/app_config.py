@@ -112,6 +112,12 @@ API_HEARTBEAT_STALE_S = float(_env("API_HEARTBEAT_STALE_S", "5"))
 # uvicorn keep-alive 超时（秒）：慢客户端空闲连接尽早回收，防单 worker 连接被占满
 UVICORN_TIMEOUT_KEEP_ALIVE_S = int(_env("UVICORN_TIMEOUT_KEEP_ALIVE_S", "30"))
 
+# ---- L1 多层缓存（T9.6，PHASE-009 §2.6）----
+# Redis 连接串（复用 Celery result backend 同实例）；不可用时缓存静默旁路
+REDIS_URL = _env("REDIS_URL", CELERY_RESULT_BACKEND)
+# LLM 调用缓存开关（默认开；调试/对词时可关）
+LLM_CACHE_ENABLED = _env("LLM_CACHE_ENABLED", "1").lower() in ("1", "true", "yes")
+
 # ---- OCR 插件（D-14 落地）：扫描页 → PaddleOCR-VL-1.5（SiliconFlow）----
 KB_OCR_ENABLED = _env("KB_OCR_ENABLED", "1").lower() in ("1", "true", "yes")
 KB_OCR_MODEL = _env("KB_OCR_MODEL", "PaddlePaddle/PaddleOCR-VL-1.5")

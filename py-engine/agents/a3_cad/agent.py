@@ -52,10 +52,21 @@ class A3Agent:
         if self._llm is None:
             raise RuntimeError("A3 依赖 LLM 生成 CadQuery 脚本，当前无可用供应商")
 
-        # Step 1: 参考范例 + 代码生成
+        # Step 1: 参考范例 + 代码生成（L1 codegen 缓存，T9.6：键=IR2 参数指纹，TTL 30d；
+        # 沙箱执行/几何实测链路照跑，IR3 真实性不受缓存影响；修复循环 _fix 不查缓存）
         ref_code, match_info = self._ref_service.select_reference(design_doc)
         logger.info("A3 参考范例: %s", (match_info or {}).get("filename", "无（默认）"))
-        script = self._generate(design_doc, ref_code)
+        from storage import cache
+
+        cache_key = cache.codegen_cache_key(ir2)
+        cached_script = cache.get_str("codegen", cache_key)
+        if cached_script:
+            logger.info("A3 codegen 缓存命中（IR2 参数指纹一致），跳过 LLM 生成")
+            script = cached_script
+        else:
+            script = self._generate(design_doc, ref_code)
+            if script.strip():
+                cache.set_str(cache_key, script, cache.TTL_CODEGEN_S)
 
         # Step 2: 静态校验链（★★迁移；未过但代码非空不丢弃，交执行修复循环）
         script, static_ok, errors, warnings = validators.validate_chain(script)

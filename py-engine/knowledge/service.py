@@ -158,6 +158,23 @@ class GraphRAGService:
     # 单条查询（三级降级；kb_ids = PHASE-006 会话选库范围，空列表 = 全部库，None = 不过滤）
     # ------------------------------------------------------------------
     def query(self, query: str, kb_ids: Optional[list[str]] = None) -> RetrievalResult:
+        """L1 检索缓存（T9.6）：键 = sha256(query+kb_ids)，TTL 24h；KB 任何变更经
+        kb_store 钩子清 cache:kb:*。降级级 text/unavailable 不缓存（劣化结果不粘住）。"""
+        from storage import cache
+
+        key = cache.kb_cache_key(query, kb_ids)
+        cached = cache.get_json("kb", key)
+        if cached is not None:
+            return RetrievalResult(
+                cached.get("content", ""), cached.get("level", "text"),
+                cached.get("degraded_from", []), cached.get("refs", []),
+            )
+        result = self._query_uncached(query, kb_ids)
+        if result.level not in ("text", "unavailable"):
+            cache.set_json(key, result.to_dict(), cache.TTL_KB_S)
+        return result
+
+    def _query_uncached(self, query: str, kb_ids: Optional[list[str]] = None) -> RetrievalResult:
         degraded: list[str] = []
         scoped = kb_ids is not None
         doc_scope = self._scope_doc_ids(kb_ids) if scoped else None

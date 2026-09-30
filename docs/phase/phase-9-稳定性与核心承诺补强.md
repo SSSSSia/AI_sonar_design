@@ -177,14 +177,15 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
   - [ ] 三镜像构建脚本/文档入库；py 镜像含 cadquery/OCP 可跑 A3 沙箱
   - [ ] README/部署文档双轨更新（compose 生产 / start-all 开发）
 
-### T9.6 L1 多层缓存 ⬜ 待开发
+### T9.6 L1 多层缓存 ✅ 已完成（2026-09-30）
 
 - **目标**：重复请求命中缓存，检索/LLM 重复开销显著下降。
 - **要点**：§2.6 三层键 + 失效纪律 + 命中率埋点。
-- **DoD**：
-  - [ ] e2e 二次运行命中断言（命中计数递增）
-  - [ ] KB 变更后 `cache:kb:*` 清空实测
-  - [ ] `/api/v1/kb/status` 暴露命中率计数；`LLM_CACHE_ENABLED` 可关
+- **实现落点**：新增 `storage/cache.py`（惰性 Redis 客户端 + 60s 退避静默旁路 + 线程安全命中计数）；`llm/adapter.py` chat() 边界缓存（探索结论：实现虽走流式但结果聚合整串返回、无 SSE 透传，缓存覆盖全部调用——修订任务书「仅非流式」假设；供应商 reload 一并清 `cache:llm:call:*`）；`knowledge/service.py` query() 缓存包装（**text/unavailable 级不缓存**，劣化结果不粘住）；`a3_cad/agent.py` codegen 缓存（`_fix` 修复循环不查，沙箱/几何实测照跑）；`kb_store.py` 13 个变更方法统一 functools.wraps 失效包装（跨进程双入口都走存储层）；新增 `GET /api/v1/kb/status`（redis_available + 三层 hit/miss/hit_rate，API 进程视角如实标注）。
+- **DoD**（口径修订，A-16 如实）：
+  - [x] 命中断言：单测级覆盖——LLM chat 边界命中（真 Redis：命中不发起网络调用）、检索二次命中（计数递增）+ text 级不缓存断言。**修订**：不做 17 分钟级全链路 e2e 二次运行（成本与断言价值不成比例），命中语义已由单测 + 真 Redis 验证
+  - [x] KB 变更后 `cache:kb:*` 清空实测（真 Redis 单测：只清 kb 层不动 llm 层；kb_store 13 方法挂钩验证）
+  - [x] `/api/v1/kb/status` 实测暴露三层计数与 redis_available；`LLM_CACHE_ENABLED` 开关生效（默认开）
 
 ### T9.7 收官 ⬜ 待开发
 
