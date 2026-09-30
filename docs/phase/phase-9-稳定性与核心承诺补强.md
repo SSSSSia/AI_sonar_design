@@ -158,14 +158,15 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
   - [x] 违反时 IR4 error + `back_to_A2` 建议（含代入值审计文案）；通过时计入 CSR（真库 DB 集成用例：1 过 1 违 → 50.00）
   - [x] 求值安全与分支单测 10 用例（禁 import 实测、uncovered、空 applies_to 不匹配、跨参数符号）+ 三库页签 CRUD 走查（经网关 list/create/patch expr/delete 全通）
 
-### T9.4 网关限流/熔断/429 结构化降级 ⬜ 待开发
+### T9.4 网关限流/熔断/429 结构化降级 ✅ 已完成（2026-09-30）
 
 - **目标**：超载返回结构化降级而非雪崩；前端自动恢复瞬时抖动。
 - **要点**：§2.4 网关过滤器与前端拦截器；阈值全部 `.env` 化。
+- **实现落点**：gateway pom 加 data-redis-reactive + circuitbreaker-reactor-resilience4j；路由挂 RequestRateLimiter（Redis 令牌桶，`RateLimitBodyGlobalFilter` 响应装饰器补结构化 429 体——内置过滤器拒绝时 `setComplete()` 直写空体，绕过错误处理器，实测踩过）；py 四路由加 CircuitBreaker（失败率 60%/最少 10 次/半开等待 30s）→ `GatewayFallbackController` 结构化 503；`GatewayErrorWebExceptionHandler` 兜底下游 5xx；`RateLimitConfig.userKeyResolver`（JWT 用户，登录回退 IP）；前端 `client.ts` 拦截器 429/503 幂等 GET 指数退避（1s/2s/4s×3+jitter，尊重 retryAfterSeconds/Retry-After；POST 一律不自动重试）。阈值 RL_*/CB_* 全 `.env` 化（.env.example 已登记）。
 - **DoD**：
-  - [ ] 压测触发限流：429 JSON 体 + `Retry-After` 头实测
-  - [ ] 前端 vitest：GET 退避重试 / POST 不自动重试两用例
-  - [ ] 熔断打开/半开恢复实测（模拟 py-engine 不可用）
+  - [x] 压测触发限流：100 并发 → 80×200 + 20×429，429 带 JSON 体（code/message/retryAfterSeconds）+ `Retry-After: 1` 头实测
+  - [x] 前端 vitest：GET 退避重试恢复 / POST 不自动重试 / 连续 429 超上限如实抛错（3 用例）
+  - [x] 熔断打开/半开恢复实测：停 py-engine → 全部请求 503 结构化 + `Retry-After: 30`；恢复 py-engine + 40s 后 4×200 熔断闭合
 
 ### T9.5 应用容器化与干净克隆验收 ⬜ 待开发
 

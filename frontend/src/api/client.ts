@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { AxiosRequestConfig } from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
 /** 平台统一响应包（宪法 §5.3）：{ code, message, data, traceId } */
@@ -11,6 +12,68 @@ export class ApiError extends Error {
 }
 
 export const http = axios.create({ baseURL: '/api/v1', timeout: 30_000 })
+
+// ---- T9.4（PHASE-009）429/503 幂等 GET 指数退避 ----
+/** 退避参数可注入（测试改小延迟）；POST/审阅类写操作一律不自动重试（防重复裁决）。 */
+export const retryConfig = {
+  delaysMs: [1000, 2000, 4000],
+  jitterRatio: 0.2, // 每档延迟附加 0–20% 随机抖动，防同步重试风暴
+}
+
+/** 拦截器错误侧的结构形状（axios 内部 error 的宽松视图） */
+interface HttpErrorLike {
+  config?: AxiosRequestConfig & { __retryCount?: number }
+  response?: {
+    status?: number
+    headers?: Record<string, unknown>
+    data?: { message?: unknown; retryAfterSeconds?: unknown }
+  }
+  message?: string
+}
+
+function retryDelayMs(retryCount: number): number {
+  const delays = retryConfig.delaysMs
+  const base = delays[Math.min(retryCount, delays.length - 1)]
+  return base + Math.random() * base * retryConfig.jitterRatio
+}
+
+/** 从 429/503 错误响应提取服务端建议等待（Retry-After 头或 body.retryAfterSeconds，秒）。 */
+function retryAfterSeconds(error: HttpErrorLike): number | null {
+  const headers = error.response?.headers ?? {}
+  const headerVal = String(headers['retry-after'] ?? headers['Retry-After'] ?? '')
+  const headerNum = Number(headerVal)
+  if (Number.isFinite(headerNum) && headerNum > 0) return headerNum
+  const bodyNum = Number(error.response?.data?.retryAfterSeconds)
+  if (Number.isFinite(bodyNum) && bodyNum > 0) return bodyNum
+  return null
+}
+
+function toApiError(error: HttpErrorLike): ApiError {
+  const status: number | undefined = error.response?.status
+  if (status === 401) handleUnauthorized()
+  const message = String(error.response?.data?.message ?? error.message ?? '网络错误')
+  return new ApiError(status ?? -1, message)
+}
+
+/** 429/503 时幂等 GET 指数退避重试（最多 delaysMs.length 次，尊重服务端 retryAfterSeconds）；
+ * 其余状态与所有写操作（POST/PATCH/DELETE）直接转 ApiError 不自动重试（防重复裁决）。 */
+async function retryIdempotentGet(error: HttpErrorLike): Promise<unknown> {
+  const cfg = error.config
+  const status = error.response?.status
+  const method = (cfg?.method ?? '').toLowerCase()
+  if (!cfg || (status !== 429 && status !== 503) || method !== 'get') {
+    return Promise.reject(toApiError(error))
+  }
+  const retryCount = cfg.__retryCount ?? 0
+  if (retryCount >= retryConfig.delaysMs.length) {
+    return Promise.reject(toApiError(error))
+  }
+  cfg.__retryCount = retryCount + 1
+  const seconds = retryAfterSeconds(error)
+  const delayMs = seconds != null ? seconds * 1000 : retryDelayMs(retryCount)
+  await new Promise((r) => setTimeout(r, delayMs))
+  return http.request(cfg)
+}
 
 http.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token
@@ -44,12 +107,7 @@ http.interceptors.response.use(
     }
     return resp
   },
-  (error) => {
-    const status: number | undefined = error.response?.status
-    if (status === 401) handleUnauthorized()
-    const message = error.response?.data?.message ?? error.message ?? '网络错误'
-    return Promise.reject(new ApiError(status ?? -1, message))
-  },
+  (error) => retryIdempotentGet(error as HttpErrorLike),
 )
 
 export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {

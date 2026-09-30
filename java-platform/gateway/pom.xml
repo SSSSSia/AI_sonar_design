@@ -19,6 +19,16 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway</artifactId>
         </dependency>
+        <!-- T9.4 限流：RequestRateLimiter（Redis 令牌桶）需要 reactive redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        <!-- T9.4 熔断：CircuitBreaker 过滤器（resilience4j reactor 实现） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
         <!-- jjwt 0.12：网关侧 JWT 校验（HS256，与 auth 共享 JWT_SECRET）。理由：网关需独立校验签名并注入信任头 -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

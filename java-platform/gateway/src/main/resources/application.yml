@@ -4,47 +4,130 @@ server:
 spring:
   application:
     name: sonarcad-gateway
+  data:
+    redis:
+      # T9.4 限流令牌桶存储（复用 compose redis，带密码）
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
   cloud:
     gateway:
       # PHASE-001 §2 服务拓扑：auth=8081 / workflow=8082 / biz=8083（py-engine=8090 自 T1.2 接入）
+      # T9.4：RequestRateLimiter = Redis 令牌桶限流（RateLimitBodyGlobalFilter 补结构化 429 体）；
+      #       py 算力路由另加 CircuitBreaker 熔断（失败率触发，fallback 结构化 503）
       routes:
         - id: auth
           uri: http://${AUTH_HOST:localhost}:8081
           predicates:
             - Path=/api/v1/auth/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_AUTH_REPLENISH:10}
+                redis-rate-limiter.burstCapacity: ${RL_AUTH_BURST:30}
+                key-resolver: "#{@userKeyResolver}"
         - id: workflow
           uri: http://${WORKFLOW_HOST:localhost}:8082
           predicates:
             - Path=/api/v1/workflow/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_WF_REPLENISH:50}
+                redis-rate-limiter.burstCapacity: ${RL_WF_BURST:150}
+                key-resolver: "#{@userKeyResolver}"
         # T2.4 溯源反查（§5.4 基线端点 /api/v1/trace/{trace_id}，宿主 workflow）
         - id: workflow-trace
           uri: http://${WORKFLOW_HOST:localhost}:8082
           predicates:
             - Path=/api/v1/trace/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_WF_REPLENISH:50}
+                redis-rate-limiter.burstCapacity: ${RL_WF_BURST:150}
+                key-resolver: "#{@userKeyResolver}"
         # T3.1 知识治理（§6，宿主 py-engine 8090；经 gateway JWT 后信任头转发）
         - id: py-engine-kb
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/kb/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_PY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: pyEngine
+                fallbackUri: forward:/fallback/py-engine
         # T4.3 三维预览与交付物（STEP→GLB / 预签名下载，宿主 py-engine 8090）
         - id: py-engine-cad
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/cad/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_PY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: pyEngine
+                fallbackUri: forward:/fallback/py-engine
         # T8.3 CAD 交互微调（PHASE-008，FreeCAD 插件/前端 → py-engine cad_agent）
         - id: py-engine-cad-agent
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/cad-agent/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_PY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: pyEngine
+                fallbackUri: forward:/fallback/py-engine
         # 会话运行日志留存回放（总览「全部日志」；宿主 py-engine 8090）
         - id: py-engine-logs
           uri: http://${PY_ENGINE_HOST:localhost}:8090
           predicates:
             - Path=/api/v1/logs/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_PY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: pyEngine
+                fallbackUri: forward:/fallback/py-engine
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:
             - Path=/api/v1/**
+
+# T9.4 熔断参数（py-engine 不可达/超时 → 失败率超阈值打开，half-open 试探恢复）
+resilience4j:
+  circuitbreaker:
+    instances:
+      pyEngine:
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 60
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+
+# T9.4 结构化降级文案的重试等待（秒）：429 = 令牌桶回充节奏；503 = 熔断半开等待
+gateway:
+  fallback:
+    retryAfterSeconds: ${CB_RETRY_AFTER_SECONDS:30}
+    rateLimitRetryAfterSeconds: ${RL_RETRY_AFTER_SECONDS:1}
 
 jwt:
   secret: ${JWT_SECRET}
