@@ -182,12 +182,12 @@ class A4Agent:
 
     # ------------------------------------------------------------------
     def _check_standard(self, params: list[dict[str, Any]], stats: dict[str, int]) -> list[dict[str, Any]]:
-        """standard 参数：军标核对（A-16：空库如实待补，不伪装已核对）。"""
+        """standard 参数：军标核对（T9.3：库内 expr 条目自动求值；A-16 空库/未覆盖如实待补）。"""
         issues: list[dict[str, Any]] = []
         for p in params:
             if p.get("source_type") != "standard":
                 continue
-            result = standards.check_param(p)
+            result = standards.check_param(p, all_params=params)
             if result["status"] == "violation":
                 stats["violation"] += 1
                 issues.append(_issue(
@@ -195,6 +195,11 @@ class A4Agent:
                     f"军标违例：{result['message']}", [p["id"]], suggestion="back_to_A2"))
             elif result["status"] == "pass":
                 stats["pass"] += 1  # 军标核对通过：静默（不产 issue），计入 CSR
+            elif result["status"] == "uncovered":
+                # 条目引用符号在 IR2 无对应值：如实提示未覆盖，不算违反（A-16）
+                issues.append(_issue(
+                    "CHK-STD-UNCOVERED", "info",
+                    f"参数「{p.get('name')}」：{result['message']}", [p["id"]]))
             elif result["status"] == "pending":
                 issues.append(_issue(
                     "CHK-STD-PENDING", "info",

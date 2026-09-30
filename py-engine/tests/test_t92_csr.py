@@ -11,9 +11,18 @@ import math
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agents.a4_validation.agent import A4Agent
+from solver import standards
+
+
+@pytest.fixture(autouse=True)
+def _empty_standards_db(monkeypatch):
+    """隔离真库 demo 条目（T9.3 已入库）：CSR 口径测试只测公式/几何计数语义。"""
+    monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])
 
 KB_REF = "towed_array_cad_knowledge.txt#声学约束公式"
 

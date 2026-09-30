@@ -77,7 +77,7 @@ def test_standards_db_entry_registered_pending(monkeypatch):
     ])
     result = standards.check_param({"name": "换能器灵敏度", "value": -195})
     assert result["status"] == "pending"
-    assert "GJB 585" in result["message"] and "待实现" in result["message"]
+    assert "GJB 585" in result["message"] and "无判定表达式" in result["message"]
 
 
 def test_standards_registry_check_still_violates(monkeypatch):

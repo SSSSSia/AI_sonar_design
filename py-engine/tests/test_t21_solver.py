@@ -137,7 +137,9 @@ def test_case_conflicts_detected_and_within_tolerance_ignored():
 # 军标框架占位
 # ----------------------------------------------------------------------
 
-def test_standards_empty_registry_reports_pending_honestly():
+def test_standards_empty_registry_reports_pending_honestly(monkeypatch):
+    # 空库视图（T9.3 后库内有 demo 条目，空库语义需隔离验证）
+    monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])
     result = standards.check_param(_param("S-1", "换能器灵敏度", -195, "standard"))
     assert result["status"] == "pending"
     assert "待补" in result["message"]

@@ -148,7 +148,11 @@ def test_case_close_candidates_no_conflict():
 # standard / estimated 分流
 # ----------------------------------------------------------------------
 
-def test_standard_empty_registry_reports_pending_info():
+def test_standard_empty_registry_reports_pending_info(monkeypatch):
+    from solver import standards
+
+    # 空库视图（T9.3 后库内有 demo 条目，空库语义需隔离验证）
+    monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])
     ir4 = A4Agent().run(_ir2(_good_params()), _ir3())
     issue = _first(ir4["issues"], "CHK-STD-PENDING")
     assert issue["severity"] == "info"

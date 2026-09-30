@@ -28,7 +28,7 @@ TABLES = {
 WRITABLE: dict[str, set[str]] = {
     "formulas": {"key", "name", "expr", "symbols", "unit", "source_ref", "enabled", "confidence"},
     "constraints": {"name", "expression", "applies_to", "severity_hint", "source_ref", "enabled", "confidence"},
-    "standards": {"code", "name", "applies_to", "requirement", "enabled", "confidence"},
+    "standards": {"code", "name", "applies_to", "requirement", "expr", "enabled", "confidence"},
 }
 
 

@@ -147,15 +147,16 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
   - [x] 全 skip / 空方案场景 `csr=null`，前端显示「—」（A-16）
   - [x] 契约 jsonschema 正反用例更新（旧形态无 csr 仍合法 + 越界/类型错误非法）
 
-### T9.3 军标库首批条目录入与核对激活 ⬜ 待开发
+### T9.3 军标库首批条目录入与核对激活 ✅ 已完成（2026-09-30）
 
 - **目标**：插拔式军标接入经真实数据验证机制闭环。
 - **要点**：§2.3 条目结构与求值；registry 页签录入走查；e2e 含 standard 参数会话（通过 + 违反两分支）。
-- **前置依赖**：军标条目文本来源（用户提供/确认；无授权文本时用自拟 demo 条目并标注）。
+- **前置依赖**：军标条目文本来源——**用户决策（2026-09-30）：先自拟 demo 条目，管理接口留给内部人员自行上传补充**（registry 页签即此接口，本期补齐表达式字段编辑）。
+- **实现落点**：Flyway `V12__kb_standards_expr.sql`（expr 列，幂等）；`solver/standards.py` 重写求值（`parse_expr` 受限 global_dict 禁 builtins/import；符号表 = IR2 各参数 derivation 的 symbol=value ∪ value，命中参数自身 derivation 优先；四分支 pass/violation/uncovered/invalid，旧 `'' in name` 全匹配缺陷一并修复）；`registry_store` 白名单 + `A4._check_standard` 传全参数（uncovered → CHK-STD-UNCOVERED info）；前端军标页签完整表单（编号/名称/适用对象/条款/表达式/可信度，新增+编辑）；`deploy/seed/demo_standards.sql` 6 条演示条目（DEMO-STD-* 前缀+名称【演示】+confidence=low，不冒充军标编号）。
 - **DoD**：
-  - [ ] 首批 5–10 条入库（真实或 demo 标注如实）
-  - [ ] 违反时 IR4 error + `back_to_A2` 建议；通过时计入 CSR
-  - [ ] e2e 两分支断言 + 三库页签操作走查
+  - [x] 首批 6 条 demo 条目入库（编号/名称/标注如实；经 gateway 实测列表可见 expr）
+  - [x] 违反时 IR4 error + `back_to_A2` 建议（含代入值审计文案）；通过时计入 CSR（真库 DB 集成用例：1 过 1 违 → 50.00）
+  - [x] 求值安全与分支单测 10 用例（禁 import 实测、uncovered、空 applies_to 不匹配、跨参数符号）+ 三库页签 CRUD 走查（经网关 list/create/patch expr/delete 全通）
 
 ### T9.4 网关限流/熔断/429 结构化降级 ⬜ 待开发
 

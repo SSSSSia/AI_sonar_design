@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Input, Popconfirm, Select, Space, Switch, Table, Tag } from 'antd'
+import { App, Button, Card, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   createRegistryRow, deleteRegistryRow, listRegistry, updateRegistryRow,
@@ -15,7 +15,25 @@ const KIND_TAB: { value: RegistryKind; label: string }[] = [
   { value: 'standards', label: '军标库' },
 ]
 
-/** 三库管理：公式/约束/军标 CRUD + 启停 + 可信度（A4 校验优先读库）。 */
+const EXPR_HELP = 'SymPy 布尔表达式（如 outer_diameter <= 325）。符号取 IR2 参数 derivation 记录的「符号=数值」+ value（命中参数登记值）；留空 = 仅登记提示性核对'
+
+interface StdFormState {
+  visible: boolean
+  editId?: string
+  code: string
+  name: string
+  appliesTo: string
+  requirement: string
+  expr: string
+  confidence: string
+}
+
+const STD_FORM_EMPTY: StdFormState = {
+  visible: false, code: '', name: '', appliesTo: '', requirement: '', expr: '', confidence: 'low',
+}
+
+/** 三库管理：公式/约束/军标 CRUD + 启停 + 可信度（A4 校验优先读库）。
+ * 军标库（T9.3）：完整字段管理（编号/适用对象/条款/判定表达式），供内部人员自行录入补充。 */
 export function RegistryTab() {
   const { message } = App.useApp()
   const queryClient = useQueryClient()
@@ -24,6 +42,7 @@ export function RegistryTab() {
   const [newKey, setNewKey] = useState('')
   const [newName, setNewName] = useState('')
   const [newExpr, setNewExpr] = useState('')
+  const [stdForm, setStdForm] = useState<StdFormState>(STD_FORM_EMPTY)
 
   const rowsQuery = useQuery({ queryKey: ['kb-registry', kind], queryFn: () => listRegistry(kind) })
   const rows: RegistryRow[] = rowsQuery.data?.rows ?? []
@@ -36,57 +55,144 @@ export function RegistryTab() {
     } catch (e) { message.error(errText(e, 140)) }
   }
 
-  const columns: ColumnsType<RegistryRow> = [
-    {
-      title: '编号/键', key: 'id', width: 130,
-      render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{String(r.key ?? r.row_id ?? r.id ?? '—')}</span>,
-    },
-    { title: '名称', key: 'name', render: (_, r) => <span style={{ fontWeight: 500 }}>{String(r.name ?? r.label ?? r.key ?? '—')}</span> },
-    ...(kind === 'formulas' ? [{
-      title: '单位', key: 'unit', width: 70,
-      render: (_: unknown, r: RegistryRow) => {
-        const u = String(r.unit ?? '').trim()
-        return u && u !== '-' ? <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{u}</span> : <span style={{ color: '#8b949e' }}>—</span>
-      },
-    }] : []),
-    {
-      title: '表达式 / 内容',
-      key: 'expr',
-      render: (_, r) => {
-        const e = (r.expr ?? r.expression ?? r.check ?? r.description ?? '') as string
-        return <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: '#57606a' }}>{String(e).slice(0, 120) || '—'}</span>
-      },
-    },
-    {
-      title: '可信度',
-      dataIndex: 'confidence',
-      width: 100,
-      render: (v) => (v ? <Tag color={v === 'high' ? 'green' : 'default'}>{String(v)}</Tag> : '—'),
-    },
-    {
-      title: '启用',
-      dataIndex: 'enabled',
-      width: 80,
-      render: (v, r) => (
-        <Switch size="small" checked={!!v} onChange={(on) => patch(r, { enabled: on })} />
-      ),
-    },
-    {
-      title: '',
-      key: 'del',
-      width: 70,
-      render: (_, r) => (
-        <Popconfirm title="确认删除该条目？" onConfirm={async () => {
-          try {
-            await deleteRegistryRow(kind, String(r.row_id ?? r.id ?? r.key))
-            void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
-          } catch (e) { message.error(errText(e, 140)) }
-        }}>
-          <Button size="small" danger type="text">删除</Button>
-        </Popconfirm>
-      ),
-    },
-  ]
+  function openStdNew() {
+    setStdForm({ ...STD_FORM_EMPTY, visible: true, confidence: 'low' })
+  }
+
+  function openStdEdit(r: RegistryRow) {
+    setStdForm({
+      visible: true,
+      editId: String(r.row_id ?? r.id ?? ''),
+      code: String(r.code ?? ''),
+      name: String(r.name ?? ''),
+      appliesTo: String(r.applies_to ?? ''),
+      requirement: String(r.requirement ?? ''),
+      expr: String(r.expr ?? ''),
+      confidence: String(r.confidence ?? 'low'),
+    })
+  }
+
+  async function saveStd() {
+    const f = stdForm
+    if (!f.code.trim() || !f.name.trim() || !f.appliesTo.trim()) {
+      message.warning('编号、名称、适用对象必填')
+      return
+    }
+    const fields: Record<string, unknown> = {
+      code: f.code.trim(), name: f.name.trim(), applies_to: f.appliesTo.trim(),
+      requirement: f.requirement.trim(), expr: f.expr.trim() || null,
+      confidence: f.confidence,
+    }
+    try {
+      if (f.editId) await updateRegistryRow('standards', f.editId, fields)
+      else await createRegistryRow('standards', { ...fields, enabled: true })
+      message.success(f.editId ? '已保存' : '已新增（启停即时生效）')
+      setStdForm(STD_FORM_EMPTY)
+      void queryClient.invalidateQueries({ queryKey: ['kb-registry', 'standards'] })
+    } catch (e) { message.error(errText(e, 180)) }
+  }
+
+  const columns: ColumnsType<RegistryRow> =
+    kind === 'standards'
+      ? [
+        {
+          title: '编号', key: 'code', width: 130,
+          render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{String(r.code ?? r.row_id ?? '—')}</span>,
+        },
+        { title: '名称', key: 'name', render: (_, r) => <span style={{ fontWeight: 500 }}>{String(r.name ?? '—')}</span> },
+        {
+          title: '适用对象', key: 'applies_to', width: 110,
+          render: (_, r) => {
+            const a = String(r.applies_to ?? '')
+            return a ? <Tag>{a}</Tag> : <span style={{ color: '#8b949e' }}>—</span>
+          },
+        },
+        {
+          title: <Tooltip title={EXPR_HELP}>判定表达式 ⓘ</Tooltip>,
+          key: 'expr',
+          render: (_, r) => {
+            const e = String(r.expr ?? '').trim()
+            return e
+              ? <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: '#1f6feb' }}>{e}</span>
+              : <span style={{ color: '#8b949e' }}>仅登记（提示性）</span>
+          },
+        },
+        {
+          title: '可信度', dataIndex: 'confidence', width: 90,
+          render: (v) => (v ? <Tag color={v === 'high' ? 'green' : v === 'low' ? 'orange' : 'default'}>{String(v)}</Tag> : '—'),
+        },
+        {
+          title: '启用', dataIndex: 'enabled', width: 70,
+          render: (v, r) => <Switch size="small" checked={!!v} onChange={(on) => patch(r, { enabled: on })} />,
+        },
+        {
+          title: '', key: 'ops', width: 110,
+          render: (_, r) => (
+            <Space size={0}>
+              <Button size="small" type="text" onClick={() => openStdEdit(r)}>编辑</Button>
+              <Popconfirm title="确认删除该条目？" onConfirm={async () => {
+                try {
+                  await deleteRegistryRow(kind, String(r.row_id ?? r.id))
+                  void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
+                } catch (e) { message.error(errText(e, 140)) }
+              }}>
+                <Button size="small" danger type="text">删除</Button>
+              </Popconfirm>
+            </Space>
+          ),
+        },
+      ]
+      : [
+        {
+          title: '编号/键', key: 'id', width: 130,
+          render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{String(r.key ?? r.row_id ?? r.id ?? '—')}</span>,
+        },
+        { title: '名称', key: 'name', render: (_, r) => <span style={{ fontWeight: 500 }}>{String(r.name ?? r.label ?? r.key ?? '—')}</span> },
+        ...(kind === 'formulas' ? [{
+          title: '单位', key: 'unit', width: 70,
+          render: (_: unknown, r: RegistryRow) => {
+            const u = String(r.unit ?? '').trim()
+            return u && u !== '-' ? <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{u}</span> : <span style={{ color: '#8b949e' }}>—</span>
+          },
+        }] : []),
+        {
+          title: '表达式 / 内容',
+          key: 'expr',
+          render: (_, r) => {
+            const e = (r.expr ?? r.expression ?? r.check ?? r.description ?? '') as string
+            return <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: '#57606a' }}>{String(e).slice(0, 120) || '—'}</span>
+          },
+        },
+        {
+          title: '可信度',
+          dataIndex: 'confidence',
+          width: 100,
+          render: (v) => (v ? <Tag color={v === 'high' ? 'green' : 'default'}>{String(v)}</Tag> : '—'),
+        },
+        {
+          title: '启用',
+          dataIndex: 'enabled',
+          width: 80,
+          render: (v, r) => (
+            <Switch size="small" checked={!!v} onChange={(on) => patch(r, { enabled: on })} />
+          ),
+        },
+        {
+          title: '',
+          key: 'del',
+          width: 70,
+          render: (_, r) => (
+            <Popconfirm title="确认删除该条目？" onConfirm={async () => {
+              try {
+                await deleteRegistryRow(kind, String(r.row_id ?? r.id ?? r.key))
+                void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
+              } catch (e) { message.error(errText(e, 140)) }
+            }}>
+              <Button size="small" danger type="text">删除</Button>
+            </Popconfirm>
+          ),
+        },
+      ]
 
   return (
     <Card
@@ -99,7 +205,7 @@ export function RegistryTab() {
       }
       extra={
         kind === 'standards' ? (
-          <Button type="primary" onClick={() => setAdding(true)}>＋ 新增军标条目</Button>
+          <Button type="primary" onClick={openStdNew}>＋ 新增军标条目</Button>
         ) : (
           <Button type="primary" onClick={() => setAdding(true)}>＋ 新增条目</Button>
         )
@@ -108,7 +214,7 @@ export function RegistryTab() {
     >
       {kind === 'standards' && rows.length === 0 && (
         <div style={{ margin: '10px 16px', borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '8px 12px', fontSize: 12, borderRadius: 4 }}>
-          军标库空态（如实）：当前 0 条，A4 对 standard 参数相关检查如实标「待补」；录入后自动参与校验。
+          军标库空态（如实）：当前 0 条，A4 对 standard 参数相关检查如实标「待补」；录入带判定表达式的条目后自动参与校验（首批演示条目见 deploy/seed/demo_standards.sql）。
         </div>
       )}
       <Table
@@ -116,7 +222,7 @@ export function RegistryTab() {
         locale={{ emptyText: <QueryEmpty query={rowsQuery} subject="三库条目" emptyText={kind === 'standards' ? '军标库暂无条目——录入后自动参与 A4 校验' : '暂无条目——右上角新增'} /> }}
       />
 
-      {adding && (
+      {kind !== 'standards' && adding && (
         <Card size="small" style={{ margin: 12 }} title="新增条目">
           <Space direction="vertical" style={{ width: '100%' }}>
             <Input placeholder="编号/键（如 F-08 / GJB 585-91）" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
@@ -131,7 +237,6 @@ export function RegistryTab() {
                   try {
                     const fields: Record<string, unknown> = { key: newKey.trim(), name: newName.trim(), enabled: true, confidence: 'high' }
                     if (newExpr.trim()) fields[kind === 'formulas' ? 'expr' : 'description'] = newExpr.trim()
-                    if (kind === 'standards') fields.check = null
                     await createRegistryRow(kind, fields)
                     message.success('已新增')
                     setAdding(false); setNewKey(''); setNewName(''); setNewExpr('')
@@ -143,6 +248,42 @@ export function RegistryTab() {
           </Space>
         </Card>
       )}
+
+      <Modal
+        title={stdForm.editId ? '编辑军标条目' : '新增军标条目'}
+        open={stdForm.visible}
+        onCancel={() => setStdForm(STD_FORM_EMPTY)}
+        onOk={saveStd}
+        okText="保存"
+        cancelText="取消"
+        width={560}
+      >
+        <Space direction="vertical" style={{ width: '100%', marginTop: 12 }}>
+          <Input placeholder="编号（如 GJB xxx-xx 或 DEMO-STD-00x）" value={stdForm.code}
+            onChange={(e) => setStdForm({ ...stdForm, code: e.target.value })} />
+          <Input placeholder="名称（如 阵元间距下限）" value={stdForm.name}
+            onChange={(e) => setStdForm({ ...stdForm, name: e.target.value })} />
+          <Input placeholder="适用对象（参数名包含匹配，如：阵元间距 / 灵敏度）" value={stdForm.appliesTo}
+            onChange={(e) => setStdForm({ ...stdForm, appliesTo: e.target.value })} />
+          <Input.TextArea placeholder="条款要求描述（来源与条款号，供审阅关人工核对）" value={stdForm.requirement}
+            onChange={(e) => setStdForm({ ...stdForm, requirement: e.target.value })} rows={2} />
+          <Input.TextArea placeholder="判定表达式（SymPy 布尔式，如 outer_diameter <= 325；留空 = 仅登记）" value={stdForm.expr}
+            onChange={(e) => setStdForm({ ...stdForm, expr: e.target.value })} rows={2} />
+          <Tooltip title={EXPR_HELP} placement="topLeft">
+            <div style={{ fontSize: 12, color: '#8b949e' }}>{EXPR_HELP}</div>
+          </Tooltip>
+          <Select
+            value={stdForm.confidence}
+            onChange={(v) => setStdForm({ ...stdForm, confidence: v })}
+            style={{ width: 200 }}
+            options={[
+              { value: 'high', label: '可信度 high（授权原文）' },
+              { value: 'medium', label: '可信度 medium' },
+              { value: 'low', label: '可信度 low（演示/待核）' },
+            ]}
+          />
+        </Space>
+      </Modal>
     </Card>
   )
 }
