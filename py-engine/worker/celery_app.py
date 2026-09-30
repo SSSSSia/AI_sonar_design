@@ -140,6 +140,21 @@ def declare_dead_letter_queue(**_kwargs):
         dlq = Queue("sonarcad.dlq", exchange=dead_letter_exchange, routing_key="dead", durable=True)
         dlq(conn.default_channel).declare()
 
+
+@worker_ready.connect
+def start_metrics_endpoint(**_kwargs):
+    """worker 进程独立 /metrics（T10.1a）：API 进程无法看到的任务/沙箱/检索指标由此暴露。
+
+    --pool=solo（现部署形态）下任务在主进程执行，进程内计数可见；若未来改 prefork 池，
+    子进程计数不会回流 master，需迁 prometheus_client multiprocess 模式——如实记录，勿静默换池。
+    """
+    import logging
+
+    from app_config import METRICS_PORT
+    from observability.metrics import start_metrics_server
+
+    start_metrics_server(METRICS_PORT)
+
 # 关键：让本 app 成为 current/default，否则 api 进程里 shared_task.delay()
 # 会绑到 Celery 内置默认 app（消息进默认 celery 队列、路由/死信配置全部失效）
 celery_app.set_current()

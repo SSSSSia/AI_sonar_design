@@ -22,6 +22,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,16 @@ from storage import object_store
 logger = logging.getLogger("sonarcad.a3")
 
 GEOMETRY_INSPECT_CLI = Path(__file__).resolve().parents[2] / "cad_engine" / "geometry_inspect.py"
+
+
+def _metrics():
+    """指标模块（缺失时返回 None，打点调用静默跳过——指标故障不阻断建模主链路）。"""
+    try:
+        from observability import metrics
+
+        return metrics
+    except Exception:  # noqa: BLE001
+        return None
 
 
 class A3Agent:
@@ -58,6 +69,8 @@ class A3Agent:
         logger.info("A3 参考范例: %s", (match_info or {}).get("filename", "无（默认）"))
         from storage import cache
 
+        _m = _metrics()
+        t_gen = time.perf_counter()
         try:
             from llm.adapter import active_provider
 
@@ -74,6 +87,8 @@ class A3Agent:
             script = self._generate(design_doc, ref_code)
             if script.strip():
                 cache.set_str(cache_key, script, cache.TTL_CODEGEN_S)
+        if _m:
+            _m.observe_a3_codegen(time.perf_counter() - t_gen)
 
         # Step 2: 静态校验链（★★迁移；未过但代码非空不丢弃，交执行修复循环）
         script, static_ok, errors, warnings = validators.validate_chain(script)
@@ -83,7 +98,10 @@ class A3Agent:
             raise RuntimeError(f"CadQuery 代码生成为空: {'; '.join(errors)}")
 
         # Step 3: 沙箱执行 + 修复循环（A-13 有界）
+        t_sbx = time.perf_counter()
         result = sandbox.run_in_subprocess(script, self._timeout_s)
+        if _m:
+            _m.observe_a3_sandbox(time.perf_counter() - t_sbx, result["ok"])
         fix_round = 0
         while not result["ok"] and fix_round < self._fix_max_rounds:
             fix_round += 1
@@ -92,7 +110,12 @@ class A3Agent:
             )
             script = self._fix(script, result["error"])
             script = validators.auto_fix_patterns(script)
+            t_sbx = time.perf_counter()
             result = sandbox.run_in_subprocess(script, self._timeout_s)
+            if _m:
+                _m.observe_a3_sandbox(time.perf_counter() - t_sbx, result["ok"])
+        if _m:
+            _m.observe_fix_rounds(fix_round)
         if not result["ok"]:
             raise RuntimeError(
                 f"CadQuery 执行在 {self._fix_max_rounds} 轮修复后仍失败: {result['error']}"
@@ -120,12 +143,17 @@ class A3Agent:
             return None
         out_path = f"{step_local_path}.inspect.json"
         cmd = [sys.executable, str(GEOMETRY_INSPECT_CLI), str(step_local_path), out_path]
+        _m = _metrics()
+        t_ins = time.perf_counter()
         try:
             subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": f"geometry inspect timeout after {timeout}s"}
         except OSError as exc:
             return {"ok": False, "error": f"geometry inspect spawn failed: {exc}"}
+        finally:
+            if _m:
+                _m.observe_geometry_inspect(time.perf_counter() - t_ins)
         try:
             result = json.loads(Path(out_path).read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:

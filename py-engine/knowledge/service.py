@@ -159,19 +159,30 @@ class GraphRAGService:
     # ------------------------------------------------------------------
     def query(self, query: str, kb_ids: Optional[list[str]] = None) -> RetrievalResult:
         """L1 检索缓存（T9.6）：键 = sha256(query+kb_ids)，TTL 24h；KB 任何变更经
-        kb_store 钩子清 cache:kb:*。降级级 text/unavailable 不缓存（劣化结果不粘住）。"""
+        kb_store 钩子清 cache:kb:*。降级级 text/unavailable 不缓存（劣化结果不粘住）。
+        耗时打点（T10.1a，告警③数据源）：命中层级作标签。"""
+        import time as _t
+
         from storage import cache
 
         key = cache.kb_cache_key(query, kb_ids)
+        t0 = _t.perf_counter()
         cached = cache.get_json("kb", key)
         if cached is not None:
-            return RetrievalResult(
+            result = RetrievalResult(
                 cached.get("content", ""), cached.get("level", "text"),
                 cached.get("degraded_from", []), cached.get("refs", []),
             )
-        result = self._query_uncached(query, kb_ids)
-        if result.level not in ("text", "unavailable"):
-            cache.set_json(key, result.to_dict(), cache.TTL_KB_S)
+        else:
+            result = self._query_uncached(query, kb_ids)
+            if result.level not in ("text", "unavailable"):
+                cache.set_json(key, result.to_dict(), cache.TTL_KB_S)
+        try:
+            from observability.metrics import observe_kb_query
+
+            observe_kb_query(_t.perf_counter() - t0, result.level)
+        except Exception:
+            pass  # 指标故障不影响检索主链路
         return result
 
     def _query_uncached(self, query: str, kb_ids: Optional[list[str]] = None) -> RetrievalResult:
@@ -319,6 +330,12 @@ class GraphRAGService:
     # 批量查询（并发 + 逐条降级，A1 的 4~8 条子查询用）
     # ------------------------------------------------------------------
     def query_batch(self, queries: list[str], kb_ids: Optional[list[str]] = None) -> list[RetrievalResult]:
+        try:
+            from observability.metrics import observe_kb_query_batch
+
+            observe_kb_query_batch(len(queries))
+        except Exception:
+            pass  # 指标故障不影响检索主链路（SDK 未 scoped 旁路路径不经过 query()，批规模在此兜底记录）
         scoped = kb_ids is not None
         if self.sdk is not None and not scoped:
             try:
@@ -332,6 +349,9 @@ class GraphRAGService:
                         out.append(RetrievalResult(content, "text", ["local", "basic"], refs))
                     else:
                         out.append(RetrievalResult(f"查询失败: {r.get('error', '未知错误')}", "unavailable"))
+                # A-16 口径说明：SDK 批量路径单条时延不可拆分，不逐条记直方图（避免均摊值
+                # 污染 P95）；现部署 graphrag SDK 未装、会话均 scoped，实际检索时延全走
+                # query() 逐条如实记录。批规模已由 observe_kb_query_batch 记录。
                 return out
             except Exception as exc:
                 logger.warning("批量查询异常，降级到逐条文本搜索: %s", exc)

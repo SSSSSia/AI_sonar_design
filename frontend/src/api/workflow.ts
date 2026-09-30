@@ -200,6 +200,8 @@ export interface SessionLogRow {
   id: number
   level: 'debug' | 'info' | 'ok' | 'warn' | 'error'
   text: string
+  /** 行类型（T10.3，V13）：log=普通运行日志；stage_duration=阶段耗时结构化行 */
+  kind?: 'log' | 'stage_duration' | string
   created_at: string
 }
 

@@ -165,6 +165,7 @@ class LlmAdapter:
         last_exc: Exception | None = None
         for attempt in range(1, LLM_MAX_RETRIES + 1):
             provider = active_provider()
+            t0 = time.perf_counter()
             try:
                 chunks: list[str] = []
                 with httpx.stream(
@@ -193,16 +194,28 @@ class LlmAdapter:
                         if content:
                             chunks.append(content)
                 result = "".join(chunks)
+                _observe_llm_call(provider.name, time.perf_counter() - t0, True)
                 if cache_key and result:
                     cache.set_str(cache_key, result, cache.TTL_LLM_S)
                 return result
             except Exception as exc:
+                _observe_llm_call(provider.name, time.perf_counter() - t0, False)
                 last_exc = exc
                 logger.warning(
                     "LLM 调用失败(第 %s/%s 次, provider=%s): %s",
                     attempt, LLM_MAX_RETRIES, provider.name, exc,
                 )
         raise RuntimeError(f"LLM 调用在 {LLM_MAX_RETRIES} 次重试后仍失败") from last_exc
+
+
+def _observe_llm_call(provider_name: str, duration_s: float, ok: bool) -> None:
+    """单次尝试耗时/成败打点（T10.1a；缓存命中路径不在此列——那不是 LLM 调用）。"""
+    try:
+        from observability.metrics import observe_llm
+
+        observe_llm(provider_name, duration_s, ok)
+    except Exception:
+        pass  # 指标故障不影响调用主链路
 
 
 llm_adapter = LlmAdapter()

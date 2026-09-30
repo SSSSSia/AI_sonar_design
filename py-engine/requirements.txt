@@ -39,3 +39,7 @@ python-multipart>=0.0.9
 # T3.2：知识向量检索（Milvus standalone 容器 19530；embedding 走供应商 /embeddings BAAI/bge-m3）
 pymilvus>=2.4
 
+# T10.1a（PHASE-010）：Prometheus 指标埋点（HTTP/Agent 阶段/检索/CadQuery/LLM/缓存；
+#      API /metrics + worker :9101 独立端点；缺失时埋点静默降级，主链路不受影响）
+prometheus-client>=0.21
+

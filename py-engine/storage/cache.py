@@ -83,6 +83,13 @@ def fingerprint(*parts: Any) -> str:
 def _bump(layer: str, hit: bool) -> None:
     with _counters_lock:
         _counters[layer][0 if hit else 1] += 1
+    # Prometheus 侧同步打点（T10.1a）：本进程计数，随 /metrics（API）或 :9101（worker）暴露
+    try:
+        from observability.metrics import observe_cache
+
+        observe_cache(layer, hit)
+    except Exception:
+        pass  # 指标故障不影响缓存主链路
 
 
 def get_str(layer: str, key: str) -> str | None:

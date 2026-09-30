@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import time
 
 import httpx
 from celery import shared_task
@@ -108,6 +110,51 @@ def _a2_trace(ir2: dict, session_id: str) -> list[dict]:
     return trace_steps.build_a2_steps(ir2, ir_store.get_latest_snapshot_id(session_id, "IR2"), session_id)
 
 
+# ---- 阶段耗时埋点（T10.1a 指标 + T10.3 stage_duration 双通道，PHASE-010）----
+def _record_stage(session_id: str, stage: str, duration_s: float, ok: bool) -> None:
+    """阶段收尾统一打点：Prometheus 直方图/计数 + session_logs kind='stage_duration' 行。
+
+    只落库不推 WS（阶段耗时非运营事件，刷屏无益）；落库/打点失败均不拖垮管线（遥测纪律）。
+    重试场景每条尝试各记一行——如实反映（A-16）。
+    """
+    try:
+        from observability import metrics
+
+        metrics.observe_agent_task(stage, duration_s, ok)
+    except Exception:
+        logger.debug("stage 指标打点失败", exc_info=True)
+    try:
+        from storage import log_store
+
+        log_store.append(
+            session_id, "info",
+            f"[计时] {stage} 阶段耗时 {duration_s:.1f}s（{'成功' if ok else '失败'}）",
+            kind="stage_duration",
+        )
+    except Exception as exc:
+        logger.warning("session %s stage_duration 落库失败（不影响管线）: %s", session_id, exc)
+
+
+def _agent_stage(stage: str):
+    """Agent 任务阶段计时装饰器：包住任务体（含内部 try/except 转换），成功/失败都计时。"""
+
+    def deco(func):
+        @functools.wraps(func)
+        def wrapper(self, session_id: str, *args, **kwargs):
+            t0 = time.perf_counter()
+            ok = False
+            try:
+                result = func(self, session_id, *args, **kwargs)
+                ok = True
+                return result
+            finally:
+                _record_stage(session_id, stage, time.perf_counter() - t0, ok)
+
+        return wrapper
+
+    return deco
+
+
 def _a3_trace(ir3: dict, ir2: dict | None, session_id: str) -> list[dict]:
     from storage import ir_store, trace_steps
 
@@ -140,6 +187,7 @@ def echo_task(self, session_id: str, payload: str = "") -> dict:
 
 
 @shared_task(bind=True, name="sonarcad.a1", max_retries=TASK_MAX_RETRIES)
+@_agent_stage("A1")
 def a1_task(self, session_id: str) -> dict:
     """A1 需求解析：IR0 → IR1。重试语义：LLM/检索瞬时故障可重试（上限 A-13）。
 
@@ -211,6 +259,7 @@ def _kb_name(kb_id: str) -> str:
 
 
 @shared_task(bind=True, name="sonarcad.a2", max_retries=TASK_MAX_RETRIES)
+@_agent_stage("A2")
 def a2_task(self, session_id: str) -> dict:
     """A2 方案生成：IR1 → IR2。公式参数由 solver 计算（A-07），LLM 仅文档组织。"""
     try:
@@ -248,6 +297,7 @@ def a2_task(self, session_id: str) -> dict:
 
 
 @shared_task(bind=True, name="sonarcad.a3", max_retries=0)
+@_agent_stage("A3")
 def a3_task(self, session_id: str) -> dict:
     """A3 CAD 建模：IR2 → IR3（沙箱出 STEP 落 MinIO）。
 
@@ -291,6 +341,7 @@ def a3_task(self, session_id: str) -> dict:
 
 
 @shared_task(bind=True, name="sonarcad.a4", max_retries=TASK_MAX_RETRIES)
+@_agent_stage("A4")
 def a4_task(self, session_id: str) -> dict:
     """A4 合规校验：IR2 + IR3 → IR4（纯确定性，无 LLM；A-09 只出报告不改参数）。
 
@@ -335,6 +386,7 @@ def a4_task(self, session_id: str) -> dict:
 
 
 @shared_task(bind=True, name="sonarcad.a5", max_retries=0)
+@_agent_stage("A5")
 def a5_task(self, session_id: str) -> dict:
     """A5 知识沉淀：IR1 + IR2 + IR4 → IR5（pending 候选，A-10 绝不直接写图谱）。
 

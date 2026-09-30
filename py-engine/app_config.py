@@ -118,6 +118,10 @@ REDIS_URL = _env("REDIS_URL", CELERY_RESULT_BACKEND)
 # LLM 调用缓存开关（默认开；调试/对词时可关）
 LLM_CACHE_ENABLED = _env("LLM_CACHE_ENABLED", "1").lower() in ("1", "true", "yes")
 
+# ---- 可观测性（T10.1a，PHASE-010）----
+# worker 进程独立 /metrics 端口（API 进程的 /metrics 挂在 8090 同端口；两进程各自暴露本进程计数）
+METRICS_PORT = int(_env("METRICS_PORT", "9101"))
+
 # ---- OCR 插件（D-14 落地）：扫描页 → PaddleOCR-VL-1.5（SiliconFlow）----
 KB_OCR_ENABLED = _env("KB_OCR_ENABLED", "1").lower() in ("1", "true", "yes")
 KB_OCR_MODEL = _env("KB_OCR_MODEL", "PaddlePaddle/PaddleOCR-VL-1.5")

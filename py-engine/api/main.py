@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from app_config import (
@@ -78,6 +78,43 @@ app.include_router(kb_router, prefix="/api/v1")
 app.include_router(cad_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
 app.include_router(cad_agent_router, prefix="/api/v1")  # gateway /api/v1/cad-agent/**（T8.3 微调）
 app.include_router(logs_router, prefix="/api/v1")  # gateway /api/v1/logs/**（会话运行日志留存回放）
+
+
+# ---- Prometheus 指标（T10.1a）：HTTP 计数/时延中间件 + /metrics 挂载 ----
+@app.middleware("http")
+async def _http_metrics_middleware(request, call_next):
+    from observability import metrics
+
+    t0 = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        # route 用模板路径（FastAPI 匹配后写入 scope），避免 /{id} 类高基数标签
+        route_obj = request.scope.get("route")
+        route = getattr(route_obj, "path", None) or "unmatched"
+        metrics.observe_http(request.method, route, status, time.perf_counter() - t0)
+
+
+_metrics_asgi = None
+try:
+    from observability import metrics as _metrics_mod
+
+    HAS_PROMETHEUS = _metrics_mod.HAS_PROMETHEUS
+except Exception:  # noqa: BLE001 - 指标缺失不阻断应用
+    HAS_PROMETHEUS = False
+
+
+if HAS_PROMETHEUS:
+    @app.get("/metrics", include_in_schema=False)
+    def prometheus_metrics() -> Any:
+        # 显式路由而非 app.mount：mount 会对 /metrics 发 307 尾斜杠重定向，
+        # Prometheus 抓取器默认不跟随重定向（实测日志 307），直接回文本最稳
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 def _mask(url: str) -> str:
