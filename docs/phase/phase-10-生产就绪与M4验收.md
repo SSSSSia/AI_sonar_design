@@ -85,25 +85,25 @@
   - [x] 4 条告警规则各一次触发证据（docs/reviews/evidence/t101-*.json：四条同时 firing + AM active + 队列深度 211；①②③ 按任务书 §2.1 允许以临时调低阈值触发，④ 走真实阈值 >100；恢复后全部回落 inactive）；通知渠道打通 = Prometheus 规则 → Alertmanager → notify /internal/alerts 桥接（AM 0.27 webhook 无法注入自定义头，实测改 Bearer 静态信任 token，notify 侧 200 accepted；决策记录 §6）
   - [x] 面板 JSON 与规则文件入库，干净环境可重放（deploy/prometheus/、deploy/alertmanager/、deploy/grafana/：两块预置面板 provisioning 自动装载）
 
-### T10.2 50 并发压测 ⬜ 待开发
+### T10.2 50 并发压测 ✅ 已完成（2026-09-30）
 
 - **DoD**：
-  - [ ] k6 场景脚本入库（mock + 真实两种 LLM 模式开关）
-  - [ ] 50 并发 × 30 分钟通过口径全项达标，报告入 docs/reviews/
-  - [ ] 限流阈值回调记录（PHASE-009 保守值 → 压测校准值）
+  - [x] k6 场景脚本入库（mock + 真实两种 LLM 模式开关）：`tests/load/k6/stress_mixed.js`（混合场景含 30% 返工闭环）+ `probe_429.js`（限流降级探针）+ `tests/load/baseline_driver.py`（基线驱动，LLM_MODE 切换同一机制）
+  - [x] 50 并发 × 30 分钟通过口径全项达标，报告入 docs/reviews/：错误率 0.0148%（<1%）/ 5xx=0 / 轮询 P95 7ms（<3s）/ 无挂死 / 429 结构化降级验证（45×429 全带 JSON 体+Retry-After）/ 83 次返工闭环 0 失败（无环形震荡）；`docs/reviews/压测报告_v0.3.md`
+  - [x] 限流阈值回调记录（PHASE-009 保守值 → 压测校准值）：WF 50/150→150/450、PY 20/60→100/300、AUTH 维持；回调依据与「compose RL_* 漏绑定」缺陷修复见报告 §2（commit 1aa3e2c）
 
-### T10.3 端到端性能重基线 ⬜ 待开发
-
-- **DoD**：
-  - [ ] stage_duration 埋点落 session_logs + Prometheus 双通道
-  - [ ] 3 轮中位数基线报告（NFR 逐项对照 + 差距归因）入库
-  - [ ] GAP-001 §5 偏差表「性能数据为旧 demo 基线」条目更新为新基线引用
-
-### T10.4 检索查询优化（条件触发） ⬜ 待开发
+### T10.3 端到端性能重基线 ✅ 已完成（2026-09-30）
 
 - **DoD**：
-  - [ ] 触发判定记录（基线数字）；未触发则本任务关账为「未触发」
-  - [ ] 触发时：优化后检索阶段复测达标（≤ 4 分钟或给出 residual 归因）；结构性改动补 ADR
+  - [x] stage_duration 埋点落 session_logs（V13 kind 列）+ Prometheus 双通道（py_agent_task_duration_seconds{stage} 直方图，随 T10.1a 落地）
+  - [x] 基线报告入库（真 LLM **4 轮**中位数，超出 3 轮要求）：端到端中位 554.5s≈9.2min ≤15min 达成、分阶段中位 A1 36.5/A2 283.4/A3 154.9/A4 0.6/A5 69.4s、mock 对照 14.4s；`docs/reviews/性能基线_v0.3.md`
+  - [x] GAP-001 §3 P1-5 状态与 reference 增补行「597s 旧基线」条目已更新为本报告引用（桌面原文未动）
+
+### T10.4 检索查询优化（条件触发） ✅ 关账「未触发」（2026-09-30）
+
+- **DoD**：
+  - [x] 触发判定记录：基线检索 P95 = **1.3s**（Prometheus 容器栈实测）≪ 4 分钟阈值（余量 >180 倍）→ **未触发**，判定依据见 `docs/reviews/性能基线_v0.3.md` §5
+  - [x] （未触发，无优化项；候选措施清单留存于该节备查）
 
 ### T10.5 M4 验收收官 ⬜ 待开发
 
@@ -128,11 +128,30 @@
 
 | 任务 | 实测证据 | 时间 |
 |---|---|---|
-| T10.1a py 指标 | 单测 12 用例 + 全量 293 passed；宿主实测 API :8090/metrics 200、worker :9101 全指标族；容器栈 10 抓取目标全 up | 2026-09-30 |
+| T10.1a py 指标 | 单测 12 用例 + 全量 296 passed；宿主实测 API :8090/metrics 200、worker :9101 全指标族；容器栈 10 抓取目标全 up | 2026-09-30 |
 | T10.1b Java actuator | mvn test BUILD SUCCESS（notify 9 用例含桥接 2 例）；五服务 /actuator/prometheus 全 200 | 2026-09-30 |
 | T10.1c 监控栈 | 4 条告警同时 firing 证据（docs/reviews/evidence/t101-*.json）；AM→notify 桥接 200 + 零投递错误；恢复正式规则后全部回落 inactive；echo 队列排空归零 | 2026-09-30 |
+| T10.2 压测 | 50 VU×30min：错误率 0.0148%（<1%）/5xx=0/轮询 P95 7ms（<3s）/无挂死/429 结构化 45 例/返工闭环 83 次 0 失败；400 会话 0 失败；限流校准 WF 150/450、PY 100/300 | 2026-09-30 |
+| T10.3 基线 | 真 LLM 4 轮中位 554.5s≈9.2min（≤15min 达成）；分阶段 A2 283.4s 为最大头（供应商侧）；检索 P95 1.3s；mock 对照 14.4s | 2026-09-30 |
+| T10.4 判定 | 检索 P95 1.3s ≪ 4min → 未触发关账 | 2026-09-30 |
 
-（阶段末随 T10.2/T10.3 增补压测与基线证据）
+### M4 验收标准逐项核验（总体设计 §11.2）
+
+| M4 标准 | 核验结论 | 证据 |
+|---|---|---|
+| 通过 50 并发压测 | ✅ | T10.2 全项达标（报告 `docs/reviews/压测报告_v0.3.md` §1 逐项判定表） |
+| CSR 达标 | ✅ | CSR 口径已落码（T9.2：通过/(通过+违反)×100，无有效检查时 csr=null 不造假）；设计文档未定数值阈值，以基线 4 轮真实样例抽验 100/100/100/80 如实记录（80 分轮 = LLM 越界参数被军标核对正确捕获，证明口径端到端有效）；前端 ReportTab 数值卡可视 |
+| 无环形震荡 | ✅ | 压测 83 次 gate1 驳回→A2 局部回算→复批全部闭环收敛、0 失败；返工回调幂等（重投场景实测自愈）；注：E1 参数双向联动的「发起方原子锁+最大传播深度」机制属 v0.4（总体设计 §11.2 M5），本期口径 = 审阅关返工闭环（任务书 §2.2 已注明） |
+
+### 全量回归（阶段末）
+
+| 项 | 结果 |
+|---|---|
+| py-engine 单测 | 296 passed 1 skipped（含 .env；T10.1a 12 例 + provider 切换语义 3 例新增） |
+| 四条 e2e | 全绿（40:39 首轮 2 过 2 挂 → 三处容器化适配/竞态修复后复跑全过）：towed（真 LLM 全链）/ kb_pipeline / phase2（断言竞态修订）/ cad_tune（presign 公开端点 + mock host 适配） |
+| Java mvn test | BUILD SUCCESS（workflow 35 用例含返修 2 例 + notify 9 含桥接） |
+| 前端 | tsc 0 错 + vitest 38 passed |
+| k6 压测 | 50 VU×30min 全过（见 T10.2 行） |
 
 ## 6. 决策记录
 

@@ -92,8 +92,27 @@ def get_context(tune_id: str, version: Optional[int] = Query(default=None),
     ref = ir3["step_file"]
     from storage.object_store import _get_client
 
-    url = _get_client().presigned_get_object(ref["bucket"], ref["object_key"],
-                                             expires=timedelta(minutes=15))
+    from app_config import MINIO_ACCESS_KEY, MINIO_PRESIGN_PUBLIC_ENDPOINT, MINIO_SECRET_KEY
+
+    if MINIO_PRESIGN_PUBLIC_ENDPOINT:
+        # 容器化：内部 endpoint（minio:9000）签出的 URL 宿主/插件不可达，且签名含 host
+        # 不可事后替换（SignatureDoesNotMatch）——用公开端点独立 client 现签（T10.5）
+        from urllib.parse import urlparse
+
+        from minio import Minio
+
+        pu = urlparse(MINIO_PRESIGN_PUBLIC_ENDPOINT)
+        secure = pu.scheme == "https"
+        endpoint = f"{pu.hostname}:{pu.port or (443 if secure else 9000)}"
+        # region 显式固定（MinIO 默认 us-east-1）：免 presign 前置 bucket-location 网络查询
+        # （公开端点在容器内不可达，查询必挂）
+        public_client = Minio(endpoint, access_key=MINIO_ACCESS_KEY,
+                              secret_key=MINIO_SECRET_KEY, secure=secure, region="us-east-1")
+        url = public_client.presigned_get_object(ref["bucket"], ref["object_key"],
+                                                 expires=timedelta(minutes=15))
+    else:
+        url = _get_client().presigned_get_object(ref["bucket"], ref["object_key"],
+                                                 expires=timedelta(minutes=15))
     from cad_agent.service import _geometry_summary_text
 
     return {

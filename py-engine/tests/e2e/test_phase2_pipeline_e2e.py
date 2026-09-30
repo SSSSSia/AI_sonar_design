@@ -182,6 +182,10 @@ def test_phase2_full_gate_loop(stack):
     csr_v1 = ir4_v1["content"].get("csr", "__missing__")
     assert csr_v1 is None or (isinstance(csr_v1, (int, float)) and 0 <= csr_v1 <= 100), \
         f"IR4 csr 字段缺失或越界: {csr_v1!r}"
+    # 驳回时刻已存在版本快照（T10.5 修订）：L1 缓存（T9.6）使驳回触发的 A2 重算可秒级落库，
+    # 重算产生的新版本天然有效——失效断言只应覆盖驳回时刻已存在的版本，否则与重算赛跑（实测竞态）
+    versions_before = {t: max((v["version"] for v in _versions(headers, sid, t)), default=0)
+                       for t in ("IR2", "IR3", "IR4")}
     r = httpx.post(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/reviews/gate2", headers=headers,
                    json={"decision": "rejected", "annotations": ["e2e 驳回回流演练"],
                          "reworkStage": "A2"}, timeout=15)
@@ -190,10 +194,11 @@ def test_phase2_full_gate_loop(stack):
     assert effects["rework_stage"] == "A2"
     assert effects["invalidated"] == ["IR2", "IR3", "IR4", "IR5"]
 
-    # 4. 下游失效断言：IR2/IR3/IR4 全部版本带 invalidated 标记
+    # 4. 下游失效断言：驳回时刻已存在的 IR2/IR3/IR4 版本全部带 invalidated 标记
     for t in ("IR2", "IR3", "IR4"):
         for v in _versions(headers, sid, t):
-            assert v["invalidated"], f"{t} v{v['version']} 未标记失效"
+            if v["version"] <= versions_before[t]:
+                assert v["invalidated"], f"{t} v{v['version']} 未标记失效"
 
     # 5. 局部回算：A2 重跑 → gate1 再次暂停（门语义：新产物重新过闸）→ 批准
     _wait_for(headers, sid, "paused", "gate1", total_budget)

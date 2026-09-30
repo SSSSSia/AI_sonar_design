@@ -14,6 +14,7 @@ finalize → gate2 批准冻结（review 的 ir_snapshot_id = 微调版本快照
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -47,7 +48,7 @@ def _pg_exec(sql: str, fetch: bool = False):
 
 def _free_port() -> int:
     with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
+        s.bind(("0.0.0.0", 0))  # 容器化 py-api 经 host.docker.internal 访问，须对外监听
         return s.getsockname()[1]
 
 
@@ -114,11 +115,15 @@ def env():
         env={**os.environ, "MOCK_LLM_PORT": str(port), "MOCK_LLM_LOG": mock_log},
         stdout=subprocess.DEVNULL, stderr=open(mock_err, "w"),
     )
-    base_url = f"http://127.0.0.1:{port}"
+    # mock LLM 绑定 0.0.0.0；注册地址供 py-api 消费——py-api 容器化时须用 host.docker.internal
+    # （容器内 127.0.0.1 不是宿主），宿主开发模式默认 127.0.0.1 不变（T10.5 适配）
+    mock_host = os.environ.get("CAD_TUNE_MOCK_HOST", "127.0.0.1")
+    base_url = f"http://{mock_host}:{port}"
     ready = False
     for _ in range(30):
         try:
-            h = httpx.get(f"{base_url}/healthz", timeout=2).json()
+            # 健康探测从测试进程（宿主）走本机回环；base_url（注册给 py-api）才是消费地址
+            h = httpx.get(f"http://127.0.0.1:{port}/healthz", timeout=2).json()
             if h.get("tune_routing"):
                 ready = True
                 break

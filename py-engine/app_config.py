@@ -56,6 +56,9 @@ KNOWLEDGE_KB_DIR = _env("KNOWLEDGE_KB_DIR", os.path.join(os.path.dirname(__file_
 MINIO_ENDPOINT = _env("MINIO_ENDPOINT", f"localhost:{_env('MINIO_API_PORT', '19000')}")
 MINIO_ACCESS_KEY = _env("MINIO_ROOT_USER", "sonarcad")
 MINIO_SECRET_KEY = _env("MINIO_ROOT_PASSWORD", "")
+# presigned URL 对外端点（T10.5 容器化适配）：容器内签名 host=minio:9000 宿主/插件不可达，
+# 配置后把签名 URL 里的内部 endpoint 文本替换为该公开地址（宿主映射端口）
+MINIO_PRESIGN_PUBLIC_ENDPOINT = _env("MINIO_PRESIGN_PUBLIC_ENDPOINT")
 BUCKET_STEP_MODELS = "step-models"
 BUCKET_CAD_SCRIPTS = "cad-scripts"
 
