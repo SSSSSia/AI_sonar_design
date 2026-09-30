@@ -284,6 +284,13 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # T10.2 校准回调（PHASE-009 保守值无压测依据；.env 可覆盖，缺省=压测校准值）
+      RL_AUTH_REPLENISH: ${RL_AUTH_REPLENISH:-10}
+      RL_AUTH_BURST: ${RL_AUTH_BURST:-30}
+      RL_WF_REPLENISH: ${RL_WF_REPLENISH:-150}
+      RL_WF_BURST: ${RL_WF_BURST:-450}
+      RL_PY_REPLENISH: ${RL_PY_REPLENISH:-100}
+      RL_PY_BURST: ${RL_PY_BURST:-300}
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
     depends_on:
