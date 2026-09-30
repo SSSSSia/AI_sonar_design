@@ -62,7 +62,9 @@ def test_fingerprint_stable_and_distinct():
     b = cache.fingerprint("m", [{"role": "user", "content": "hi"}], {"temperature": 0.2})
     c = cache.fingerprint("m", [{"role": "user", "content": "hi"}], {"temperature": 0.9})
     assert a == b and a != c
-    assert cache.llm_cache_key("m", [], {}).startswith("cache:llm:call:")
+    assert cache.llm_cache_key("http://x|model-a", [], {}).startswith("cache:llm:call:")
+    # 供应商标识入键（T9.6 修订）：同 messages 换 provider 必 miss
+    assert cache.llm_cache_key("http://x|model-a", [], {}) != cache.llm_cache_key("http://y|model-a", [], {})
     assert cache.kb_cache_key("q", ["b1", "b2"]) == cache.kb_cache_key("q", ["b2", "b1"])  # kb_ids 序无关
 
 
@@ -127,6 +129,8 @@ def test_codegen_key_tracks_ir2_parameters():
     ir2_a = {"design_document": "d", "parameters": [{"name": "p", "value": 1}]}
     ir2_b = {"design_document": "d", "parameters": [{"name": "p", "value": 2}]}
     assert cache.codegen_cache_key(ir2_a) != cache.codegen_cache_key(ir2_b)
+    # 供应商标识入键：同 IR2 换 provider 必 miss
+    assert cache.codegen_cache_key(ir2_a, "http://x|m") != cache.codegen_cache_key(ir2_a, "http://y|m")
 
 
 # ----------------------------------------------------------------------
@@ -148,11 +152,12 @@ class TestWithLiveRedis:
 
         class _P:
             name = "fake"
+            base_url = "http://fake"
             model = "fake-model"
 
         monkeypatch.setattr(adapter, "active_provider", lambda: _P())
         messages = [{"role": "user", "content": "T9.6 缓存边界测试"}]
-        key = cache.llm_cache_key("fake-model", messages, {})
+        key = cache.llm_cache_key("http://fake|fake-model", messages, {})
         assert cache.set_str(key, "CACHED-ANSWER", cache.TTL_LLM_S)
         assert adapter.llm_adapter.chat(messages) == "CACHED-ANSWER"
 

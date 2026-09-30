@@ -58,7 +58,14 @@ class A3Agent:
         logger.info("A3 参考范例: %s", (match_info or {}).get("filename", "无（默认）"))
         from storage import cache
 
-        cache_key = cache.codegen_cache_key(ir2)
+        try:
+            from llm.adapter import active_provider
+
+            p = active_provider()
+            provider_tag = f"{p.base_url}|{p.model}"
+        except Exception:  # noqa: BLE001 - 无供应商（单测/降级）时退化指纹
+            provider_tag = ""
+        cache_key = cache.codegen_cache_key(ir2, provider_tag)
         cached_script = cache.get_str("codegen", cache_key)
         if cached_script:
             logger.info("A3 codegen 缓存命中（IR2 参数指纹一致），跳过 LLM 生成")

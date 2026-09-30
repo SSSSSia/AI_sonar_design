@@ -126,19 +126,21 @@ def set_json(key: str, value: Any, ttl_s: int) -> bool:
 
 
 # ---- 三层专用入口（键名约定集中于此） ----
-def llm_cache_key(model: str, messages: list[dict[str, str]], kwargs: dict[str, Any]) -> str:
-    # timeout_s 不参与（不影响生成语义）；temperature/max_tokens 等参与
+def llm_cache_key(provider_tag: str, messages: list[dict[str, str]], kwargs: dict[str, Any]) -> str:
+    """provider_tag = "{base_url}|{model}"（T9.6 修订：不含供应商标识会让 mock/换供应商
+    场景跨实例命中旧响应——e2e 不可重复的实测教训）。timeout_s 不参与（不影响生成语义）。"""
     semantic = {k: v for k, v in kwargs.items() if k != "timeout_s"}
-    return f"cache:llm:call:{fingerprint(model, messages, semantic)}"
+    return f"cache:llm:call:{fingerprint(provider_tag, messages, semantic)}"
 
 
 def kb_cache_key(query: str, kb_ids: list[str] | None) -> str:
     return f"cache:kb:query:{fingerprint(query, sorted(kb_ids or []))}"
 
 
-def codegen_cache_key(ir2: dict[str, Any]) -> str:
-    """IR2 参数指纹：design_document + parameters（A2 产物变动即 miss）。"""
-    return f"cache:codegen:{fingerprint(ir2.get('design_document', ''), ir2.get('parameters', []))}"
+def codegen_cache_key(ir2: dict[str, Any], provider_tag: str = "") -> str:
+    """IR2 参数指纹：design_document + parameters（A2 产物变动即 miss）+ 供应商标识
+    （同 IR2 换供应商应 miss——同上修订）。"""
+    return f"cache:codegen:{fingerprint(ir2.get('design_document', ''), ir2.get('parameters', []), provider_tag)}"
 
 
 def invalidate_kb() -> int:

@@ -149,11 +149,15 @@ class LlmAdapter:
         cache_key: str | None = None
         if LLM_CACHE_ENABLED:
             try:
-                model = active_provider().model
+                provider = active_provider()
+                # 供应商标识入键（T9.6 修订）：mock/换供应商场景跨实例命中旧响应
+                # 会让 e2e 不可重复（实测教训）——同 base_url+model 才命中
+                tag = f"{provider.base_url}|{provider.model}"
             except RuntimeError:
-                model = None  # 无可用供应商时本次调用本就会失败，跳过缓存
-            if model:
-                cache_key = cache.llm_cache_key(model, messages, kwargs)
+                provider = None  # 无可用供应商时本次调用本就会失败，跳过缓存
+                tag = ""
+            if provider:
+                cache_key = cache.llm_cache_key(tag, messages, kwargs)
                 cached = cache.get_str("llm", cache_key)
                 if cached is not None:
                     return cached
