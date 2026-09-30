@@ -27,3 +27,17 @@ py-engine:
 # notify 推送服务（T4.1 WS 进度；失败仅告警，推送是增强不是权威）
 notify:
   base-url: ${NOTIFY_BASE_URL:http://localhost:8084}
+
+# ---- T10.1b（PHASE-010）：Prometheus 抓取端点（仅内网可达；网关无 /actuator 路由不外暴） ----
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      show-details: never
+  prometheus:
+    metrics:
+      export:
+        enabled: true

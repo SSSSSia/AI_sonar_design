@@ -131,3 +131,17 @@ gateway:
 
 jwt:
   secret: ${JWT_SECRET}
+
+# ---- T10.1b（PHASE-010）：Prometheus 抓取端点（仅内网可达；网关无 /actuator 路由不外暴） ----
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      show-details: never
+  prometheus:
+    metrics:
+      export:
+        enabled: true

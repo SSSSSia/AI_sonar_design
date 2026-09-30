@@ -25,7 +25,10 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            .authorizeHttpRequests(auth -> auth
+                // T10.1b：/actuator/** 放行（Prometheus 内网抓取；网关无该路由，不外暴）
+                .requestMatchers("/actuator/**").permitAll()
+                .anyRequest().authenticated())
             .addFilterBefore(trustedHeaderAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
