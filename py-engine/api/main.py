@@ -1,7 +1,7 @@
 """FastAPI 应用入口（T1.2 扩展）。
 
 内部接口（仅网关/本机可达，不对外）：
-- GET  /healthz            存活探针（含 broker/backend 连通性）
+- GET  /healthz            存活探针（含 broker/backend 连通性 + 事件循环心跳，T9.1）
 - GET  /tasks/{task_id}    Celery 任务状态查询（供 workflow 轮询，契约 §5.4 GET /api/v1/tasks/{id} 的算力侧实现）
 - POST /debug/echo         手动入队 echo 任务（联调用；正常流由 workflow START 事件投递）
 - GET  /llm/provider       当前生效 LLM 供应商（脱敏输出，宪法 §10.2）
@@ -10,12 +10,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app_config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, KNOWLEDGE_KB_DIR, WORKFLOW_BASE_URL
+from app_config import (
+    API_HEARTBEAT_STALE_S,
+    API_THREAD_POOL_SIZE,
+    CELERY_BROKER_URL,
+    CELERY_RESULT_BACKEND,
+    KNOWLEDGE_KB_DIR,
+    WORKFLOW_BASE_URL,
+)
 from api.kb import router as kb_router
 from api.cad import router as cad_router
 from api.cad_agent import router as cad_agent_router
@@ -24,10 +35,44 @@ from llm.adapter import active_provider, llm_adapter, reload_providers
 from worker.celery_app import celery_app
 from worker.tasks import always_fail_task, echo_task
 
+# ---- 事件循环心跳（T9.1）：后台协程每秒打点，healthz 据此判定 loop 是否被阻塞 ----
+heartbeat = {"ts": 0.0, "enabled": False, "pool_tokens": 0}
+
+
+async def _heartbeat_loop() -> None:
+    while True:
+        heartbeat["ts"] = time.time()
+        await asyncio.sleep(1.0)
+
+
+def _broker_ping() -> None:
+    conn = celery_app.connection()
+    conn.ensure_connection(max_retries=1, timeout=3)
+    conn.close()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # 同步 def 路由全部跑 AnyIO 默认线程池：容量提到配置值，防并发长轮询/慢端点耗尽（T9.1 根因嫌疑）
+    import anyio.to_thread
+
+    anyio.to_thread.current_default_thread_limiter().total_tokens = API_THREAD_POOL_SIZE
+    heartbeat["pool_tokens"] = API_THREAD_POOL_SIZE
+    task = asyncio.create_task(_heartbeat_loop())
+    heartbeat["enabled"] = True
+    heartbeat["ts"] = time.time()
+    try:
+        yield
+    finally:
+        heartbeat["enabled"] = False
+        task.cancel()
+
+
 app = FastAPI(
     title="Sonar-CAD v2 算力层",
     version="0.3.0",
     description="A1–A5 Agent / CAD 执行 / 约束求解 / 检索 / 知识治理（T1.2 骨架 → T3 治理 → T8 交互微调）",
+    lifespan=_lifespan,
 )
 app.include_router(kb_router, prefix="/api/v1")
 app.include_router(cad_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
@@ -47,17 +92,38 @@ def _mask(url: str) -> str:
 
 
 @app.get("/healthz")
-def healthz() -> dict[str, Any]:
+async def healthz():
+    """存活探针（T9.1 async 化）。
+
+    判定顺序：事件循环心跳（纯协程，不占线程池——线程池耗尽时也能立刻回答）→ broker 连通
+    （to_thread + 超时上界，不再阻塞 loop）。心跳滞后超阈值 = loop 被同步调用卡死（挂死特征），
+    返回 503 供容器探针/重启策略联动（A-16：如实上报，不夸大也不掩饰）。
+    """
     health: dict[str, Any] = {"status": "ok", "service": "py-engine", "version": "0.2.0"}
-    # 依赖连通性如实上报（A-16：不夸大）
-    try:
-        conn = celery_app.connection()
-        conn.ensure_connection(max_retries=1, timeout=3)
-        conn.close()
-        health["broker"] = "ok"
-    except Exception as exc:
+    lag = (time.time() - heartbeat["ts"]) if heartbeat["enabled"] else 0.0
+    health["event_loop_lag_s"] = round(lag, 3)
+    if heartbeat["enabled"] and lag > API_HEARTBEAT_STALE_S:
+        health["status"] = "unhealthy"
+        health["event_loop"] = f"stale {lag:.1f}s > {API_HEARTBEAT_STALE_S}s（疑似同步阻塞）"
+        return JSONResponse(content=health, status_code=503)
+    health["event_loop"] = "ok"
+    # 依赖连通性如实上报（A-16：不夸大）；broker 检查仅在池有余量时做——
+    # 池饱和（慢端点占满）时跳过并如实标注，保证探针本身永不排队（容器重启判据只看 503）
+    import anyio.to_thread
+
+    if anyio.to_thread.current_default_thread_limiter().available_tokens <= 0:
         health["status"] = "degraded"
-        health["broker"] = f"unreachable: {exc}"
+        health["broker"] = "skipped: 线程池饱和（慢端点占用中），事件循环本身健康"
+    else:
+        try:
+            await asyncio.wait_for(asyncio.to_thread(_broker_ping), timeout=6.0)
+            health["broker"] = "ok"
+        except asyncio.TimeoutError:
+            health["status"] = "degraded"
+            health["broker"] = "unreachable: 探测超时（broker 无响应）"
+        except Exception as exc:
+            health["status"] = "degraded"
+            health["broker"] = f"unreachable: {exc}"
     health["broker_url"] = _mask(CELERY_BROKER_URL)
     health["result_backend"] = _mask(CELERY_RESULT_BACKEND)
     health["workflow_base_url"] = WORKFLOW_BASE_URL

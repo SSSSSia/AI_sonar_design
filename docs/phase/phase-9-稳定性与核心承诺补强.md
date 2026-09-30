@@ -126,15 +126,16 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
 
 > 执行顺序：T9.1 →（T9.2/T9.3 可并行，均独立）→ T9.4 → T9.5（依赖 T9.1 探针）→ T9.6 → T9.7 收官。
 
-### T9.1 uvicorn 事件循环挂死根因排查与修复 ⬜ 待开发
+### T9.1 uvicorn 事件循环挂死根因排查与修复 ✅ 已完成（2026-09-30）
 
 - **目标**：挂死不再发生，或有探针自动恢复 + 告警；根因结论留档。
 - **要点**：§2.1 排查假设清单逐项过；复现脚本 `tests/load/hang_repro.py`；同步 IO 治理（AsyncClient/to_thread/线程池）；`/healthz` 事件循环心跳；uvicorn keep-alive 与线程池容量配置化。
+- **根因结论**：全部路由为同步 `def` 跑 AnyIO 默认 40 线程池，并发长占线程端点（长轮询 25s/慢 IO）耗尽后旧版同步 healthz 也要排队——「连接建立但无响应」。机制经 synthetic A/B 复现证实（40 档旧 healthz max 6.15s 排队 vs 新版 0.00s；120 档均 ≤0.03s），详见 devlog 2026-09-30 补充 1（含同步 IO 静态盘点清单 7 项）。
 - **DoD**：
-  - [ ] 复现脚本可重复执行（无论是否复现，结论如实记 devlog；涉及架构调整则补 ADR）
-  - [ ] `py-engine/api/**` 无 async 路由内同步 IO（静态盘点清单入 devlog）
-  - [ ] healthz 心跳探针 + 容器 restart 策略联动
-  - [ ] e2e 回归全绿
+  - [x] 复现脚本可重复执行（机制复现成立；无架构调整，未补 ADR）
+  - [x] `py-engine/api/**` 无 async 路由内同步 IO（async 路由均 to_thread 包裹；盘点清单入 devlog）
+  - [x] healthz 心跳探针 + 容器 restart 策略联动（restart 策略在 T9.5 compose 落地）
+  - [x] e2e 回归全绿（cad_tune e2e 针对性回归 48.65s passed；四条全量按计划留 T9.7 统一跑）
 
 ### T9.2 CSR 约束满足率落地 ⬜ 待开发
 

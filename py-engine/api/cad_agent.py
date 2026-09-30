@@ -9,6 +9,7 @@ LLM/插件失败透因到 round.error，不伪造成功。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import timedelta
@@ -148,19 +149,24 @@ def get_round(tune_id: str, round_no: int, user: str = Depends(require_user)) ->
 # 工具调用长轮询（插件侧）
 # ----------------------------------------------------------------------
 @router.get("/tune/{tune_id}/tool-calls")
-def poll_tool_calls(tune_id: str, cursor: int = Query(default=0, ge=0),
-                    wait: int = Query(default=15, ge=0, le=_LONGPOLL_CAP_S),
-                    user: str = Depends(require_user)) -> dict[str, Any]:
-    """长轮询：cursor 之后 pending 的工具调用；wait 秒内无新调用返回空数组。"""
-    _tune_or_404(tune_id)
+async def poll_tool_calls(tune_id: str, cursor: int = Query(default=0, ge=0),
+                          wait: int = Query(default=15, ge=0, le=_LONGPOLL_CAP_S),
+                          user: str = Depends(require_user)) -> dict[str, Any]:
+    """长轮询：cursor 之后 pending 的工具调用；wait 秒内无新调用返回空数组。
+
+    T9.1 async 化：原同步实现每连接占用线程池线程最长 25s（wait 上限），
+    插件并发轮询会耗尽默认 40 线程池导致全站「连接建立但无响应」；
+    现挂起在事件循环上，仅每 0.5s 借线程做一次快查。
+    """
+    await asyncio.to_thread(_tune_or_404, tune_id)
     deadline = time.time() + wait
     while True:
-        calls = tune_store.poll_tool_calls(tune_id, after_id=cursor)
+        calls = await asyncio.to_thread(tune_store.poll_tool_calls, tune_id, after_id=cursor)
         if calls:
             return {"calls": calls, "cursor": calls[-1]["call_id"]}
         if time.time() >= deadline:
             return {"calls": [], "cursor": cursor}
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
 
 
 class ToolResultBody(BaseModel):

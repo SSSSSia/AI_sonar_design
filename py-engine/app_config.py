@@ -104,6 +104,14 @@ KB_RETRIEVAL_LEVELS = _env("KB_RETRIEVAL_LEVELS", "1")
 # LLM 抽取并行度（大文档异步抽取任务用；对供应商限流友好）
 KB_EXTRACT_WORKERS = int(_env("KB_EXTRACT_WORKERS", "4"))
 
+# ---- API 稳定性（T9.1，PHASE-009：2026-09-19 挂死实发的防御性配置）----
+# 同步 def 路由跑 AnyIO 默认线程池（原 40 线程）：长轮询/慢端点并发下耗尽即「连接建立但无响应」
+API_THREAD_POOL_SIZE = int(_env("API_THREAD_POOL_SIZE", "120"))
+# 事件循环心跳：后台协程每 1s 打点，healthz 发现滞后超过该秒数判定 loop 被阻塞 → 503（容器探针联动重启）
+API_HEARTBEAT_STALE_S = float(_env("API_HEARTBEAT_STALE_S", "5"))
+# uvicorn keep-alive 超时（秒）：慢客户端空闲连接尽早回收，防单 worker 连接被占满
+UVICORN_TIMEOUT_KEEP_ALIVE_S = int(_env("UVICORN_TIMEOUT_KEEP_ALIVE_S", "30"))
+
 # ---- OCR 插件（D-14 落地）：扫描页 → PaddleOCR-VL-1.5（SiliconFlow）----
 KB_OCR_ENABLED = _env("KB_OCR_ENABLED", "1").lower() in ("1", "true", "yes")
 KB_OCR_MODEL = _env("KB_OCR_MODEL", "PaddlePaddle/PaddleOCR-VL-1.5")

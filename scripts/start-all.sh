@@ -50,7 +50,7 @@ start_java notify   notify/target/notify-0.1.0-SNAPSHOT.jar    8084
 
 # 3) py-engine（API + worker；均需上面的 .env 环境）
 if listen 8090; then say "py-engine API(:8090) 已在跑"; else
-  ( cd "$ROOT/py-engine" && nohup python -m uvicorn api.main:app --host 127.0.0.1 --port 8090 > "$ROOT/logs-py-api.log" 2>&1 & )
+  ( cd "$ROOT/py-engine" && nohup python -m uvicorn api.main:app --host 127.0.0.1 --port 8090 --timeout-keep-alive "${UVICORN_TIMEOUT_KEEP_ALIVE_S:-30}" > "$ROOT/logs-py-api.log" 2>&1 & )
   say "py-engine API(:8090) 已启动 → logs-py-api.log"
 fi
 CELERY_CNT=$(wmic process where "name='python.exe' and commandline like '%celery%'" get processid 2>/dev/null | grep -cE '^[0-9]+')
