@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-09-30 · ZCode，阶段 10（PHASE-010）执行中；v0.2.0 人工验收由用户明示豁免）
+## 当前状态（最后更新：2026-10-01 · ZCode，v0.3.0 阶段 10 已收官 tag 待用户复核；当前在跑栈 = 容器化全栈 + 监控）
 
 | 项 | 状态 |
 |---|---|
@@ -111,3 +111,5 @@
 - 架构硬约束 A-01~A-16（尤其：IR Schema 单一事实源在 `contracts/ir/`；Agent 不互调；LLM 不给公式参数数值；军标 0 条如实标"待补"）。
 - UI 先 mockup 确认再写码；蓝色仅交互语义；中性生产力美学。
 - 密钥只存 `.env`（已 gitignore）；提交/日志/文档中不得出现真实 Key。
+
+6. **阶段 10（生产就绪与 M4 验收，PHASE-010）已于 2026-10-01 全任务收官**（v0.2.0 人工验收由用户明示豁免后直跑）：T10.1 监控告警（compose `--profile monitoring`：prometheus/alertmanager/grafana/postgres-exporter + RabbitMQ 原生 prometheus 插件；py 指标双通道 API /metrics + worker :9101；Java 五服务 actuator；4 条核心告警触发证据入 `docs/reviews/evidence/`；AM→notify 桥接 Bearer 信任）；T10.2 50 并发×30min 压测全过（错误率 0.015%/轮询 P95 7ms/5xx=0/返工闭环 83 次 0 失败；限流校准 WF 150/450、PY 100/300——并修复 T9.4 compose RL_* 漏绑定）；T10.3 性能重基线（真 LLM 4 轮中位 554.5s≈9.2min 达成 NFR ≤15min；检索 P95 1.3s；T10.4 未触发关账）；压测/基线途中返修五项：py 镜像缺 contracts/、broker 心跳被 solo 长任务阻塞（broker_heartbeat=0）、闸门重投卡死（幂等+自愈）、供应商切换失效（查询失败/确认空双语义）、presigned URL 容器化不可达（公开端点独立签名 client region 固定）。全量回归绿：py 296 单测 / 四条 e2e / Java 46+ / vitest 38。报告：`docs/reviews/压测报告_v0.3.md`、`docs/reviews/性能基线_v0.3.md`、`docs/reviews/2026-09-30-监控告警证据-T101.md`。**当前在跑栈 = 容器化全栈（--profile app）+ monitoring + loadtest**；切回宿主开发模式先 `cd deploy && docker compose --profile app --profile monitoring --profile loadtest down`（保留底座）再 `scripts/start-all.cmd`。
