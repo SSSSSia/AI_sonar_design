@@ -1,7 +1,16 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Card, Table, Tag, Typography } from 'antd'
+import {
+  Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
+} from 'antd'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { KbStatus } from '../api/kb'
 import { probeGet } from '../api/client'
+import { errText } from '../api/client'
+import {
+  createUser, deleteUser, listUsers, patchUser, resetUserPassword, setUserRoles, type ManagedUser,
+} from '../api/auth'
+import { useAuthStore } from '../stores/authStore'
 
 /** 服务探测：经网关调用各服务真实接口（5s 短超时，P0-2），200 即视为可达（含 DB/MQ 链路）。 */
 function useProbe() {
@@ -21,13 +30,178 @@ function useProbe() {
 const DOT: Record<string, string> = { up: '#2b8a3e', down: '#c92a2a', checking: '#d1d5db' }
 const TXT: Record<string, string> = { up: '可达', down: '不可达', checking: '检测中…' }
 
-/** 系统管理基础（T4.4）：真实探测 + KB 现状；无后端支撑的能力如实「待接」（A-16）。 */
+const ROLE_OPTIONS = ['admin', 'designer', 'reviewer', 'viewer'].map((r) => ({ value: r, label: r }))
+const ROLE_COLOR: Record<string, string> = { admin: 'gold', designer: 'blue', reviewer: 'green', viewer: 'default' }
+
+/** 用户管理（T11.2）：auth /api/v1/auth/users（admin-only），创建/启停/重置密码/角色分配/删除。 */
+function UserManagement() {
+  const me = useAuthStore((s) => s.username)
+  const [messageApi, contextHolder] = message.useMessage()
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editing, setEditing] = useState<ManagedUser | null>(null)
+  const [pwdOpen, setPwdOpen] = useState<ManagedUser | null>(null)
+  const [createForm] = Form.useForm()
+  const [roleForm] = Form.useForm()
+  const [pwdForm] = Form.useForm()
+  const users = useQuery({
+    queryKey: ['auth-users'],
+    queryFn: listUsers,
+    refetchInterval: 60_000,
+  })
+
+  const run = async (action: () => Promise<unknown>, okMsg: string) => {
+    try {
+      await action()
+      messageApi.success(okMsg)
+      await users.refetch()
+      return true
+    } catch (e) {
+      messageApi.error(errText(e))
+      return false
+    }
+  }
+
+  const columns = [
+    { title: '用户名', dataIndex: 'username', width: 140 },
+    { title: '显示名', dataIndex: 'displayName', width: 140, render: (v: string | null) => v || '—' },
+    {
+      title: '角色', dataIndex: 'roles', width: 220,
+      render: (roles: string[]) => (
+        <Space size={4} wrap>
+          {roles.map((r) => <Tag key={r} color={ROLE_COLOR[r] ?? 'default'}>{r}</Tag>)}
+        </Space>
+      ),
+    },
+    {
+      title: '状态', dataIndex: 'status', width: 90,
+      render: (s: string) => <Tag color={s === 'active' ? 'success' : 'default'}>{s === 'active' ? '启用' : '禁用'}</Tag>,
+    },
+    { title: '邮箱', dataIndex: 'email', render: (v: string | null) => v || '—' },
+    {
+      title: '操作', key: 'ops', width: 300,
+      render: (_: unknown, u: ManagedUser) => {
+        const isSelf = u.username === me
+        return (
+          <Space size={4}>
+            <Button type="link" size="small" onClick={() => { setEditing(u); roleForm.setFieldsValue({ roles: u.roles }) }}>
+              角色分配
+            </Button>
+            <Button type="link" size="small" onClick={() => setPwdOpen(u)}>重置密码</Button>
+            {u.status === 'active' ? (
+              <Popconfirm title={`停用 ${u.username}？`} okButtonProps={{ danger: true }}
+                disabled={isSelf}
+                onConfirm={() => void run(() => patchUser(u.id, { status: 'disabled' }), '已停用')}>
+                <Button type="link" size="small" danger disabled={isSelf}>停用</Button>
+              </Popconfirm>
+            ) : (
+              <Button type="link" size="small"
+                onClick={() => void run(() => patchUser(u.id, { status: 'active' }), '已启用')}>启用</Button>
+            )}
+            <Popconfirm title={`删除 ${u.username}？该操作不可恢复。`} okButtonProps={{ danger: true }}
+              disabled={isSelf}
+              onConfirm={() => void run(() => deleteUser(u.id), '已删除')}>
+              <Button type="link" size="small" danger disabled={isSelf}>删除</Button>
+            </Popconfirm>
+          </Space>
+        )
+      },
+    },
+  ]
+
+  return (
+    <Card
+      title="用户与角色管理"
+      extra={
+        <Space>
+          <Button icon={<ReloadOutlined />} size="small" onClick={() => void users.refetch()}>刷新</Button>
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建用户</Button>
+        </Space>
+      }
+      styles={{ body: { padding: 0 } }}
+    >
+      {contextHolder}
+      <Table
+        rowKey="id" size="small" pagination={false} loading={users.isLoading}
+        dataSource={users.data ?? []} columns={columns}
+      />
+      <div style={{ padding: '8px 16px' }}>
+        <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+          角色语义：admin=全部权限（含本页）· designer=项目/会话/KB 读 + 建模 · reviewer=审阅关裁决 · viewer=只读。知识库写操作自 T11.2 起仅 admin。
+        </Typography.Text>
+      </div>
+
+      <Modal
+        title="新建用户" open={createOpen} onCancel={() => setCreateOpen(false)} okText="创建"
+        onOk={async () => {
+          const values = await createForm.validateFields()
+          const ok = await run(() => createUser({
+            username: values.username, password: values.password,
+            displayName: values.displayName, email: values.email, roles: values.roles ?? ['designer'],
+          }), '用户已创建')
+          if (ok) { setCreateOpen(false); createForm.resetFields() }
+        }}
+      >
+        <Form form={createForm} layout="vertical" initialValues={{ roles: ['designer'] }}>
+          <Form.Item name="username" label="用户名" rules={[
+            { required: true }, { pattern: /^[a-zA-Z0-9_-]{3,32}$/, message: '3-32 位字母/数字/下划线/中划线' },
+          ]}>
+            <Input placeholder="如 zhang_san" />
+          </Form.Item>
+          <Form.Item name="displayName" label="显示名">
+            <Input />
+          </Form.Item>
+          <Form.Item name="email" label="邮箱">
+            <Input />
+          </Form.Item>
+          <Form.Item name="password" label="初始密码" rules={[{ required: true }, { min: 6, message: '至少 6 位' }]}>
+            <Input.Password />
+          </Form.Item>
+          <Form.Item name="roles" label="角色" rules={[{ required: true }]}>
+            <Select mode="multiple" options={ROLE_OPTIONS} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`角色分配：${editing?.username ?? ''}`} open={!!editing} onCancel={() => setEditing(null)} okText="保存"
+        onOk={async () => {
+          const values = await roleForm.validateFields()
+          const ok = await run(() => setUserRoles(editing!.id, values.roles), '角色已更新')
+          if (ok) setEditing(null)
+        }}
+      >
+        <Form form={roleForm} layout="vertical">
+          <Form.Item name="roles" label="角色（替换式：保存后以所选为准）" rules={[{ required: true }]}>
+            <Select mode="multiple" options={ROLE_OPTIONS} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`重置密码：${pwdOpen?.username ?? ''}`} open={!!pwdOpen} onCancel={() => setPwdOpen(null)} okText="重置"
+        onOk={async () => {
+          const values = await pwdForm.validateFields()
+          const ok = await run(() => resetUserPassword(pwdOpen!.id, values.newPassword), '密码已重置')
+          if (ok) { setPwdOpen(null); pwdForm.resetFields() }
+        }}
+      >
+        <Form form={pwdForm} layout="vertical">
+          <Form.Item name="newPassword" label="新密码" rules={[{ required: true }, { min: 6, message: '至少 6 位' }]}>
+            <Input.Password />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Card>
+  )
+}
+
+/** 系统管理基础（T4.4 → T11.2 升级）：真实探测 + KB 现状 + 用户管理；日志检索仍如实「待接」（A-16）。 */
 export default function AdminPage() {
   const probe = useProbe()
   const kb = (probe.kb ?? {}) as KbStatus
 
   const rows = [
-    { key: 'auth', name: 'auth（登录/自省）', via: 'GET /api/v1/auth/me' },
+    { key: 'auth', name: 'auth（登录/自省/用户管理）', via: 'GET /api/v1/auth/me' },
     { key: 'workflow', name: 'workflow（会话/审阅/状态机）', via: 'GET /api/v1/workflow/sessions' },
     { key: 'biz', name: 'biz（项目域）', via: 'GET /api/v1/projects' },
     { key: 'pyengine', name: 'py-engine（A1–A5 / KB / CAD）', via: 'GET /api/v1/kb/status' },
@@ -46,7 +220,7 @@ export default function AdminPage() {
         />
         <div style={{ padding: '8px 16px' }}>
           <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
-            gateway / notify / worker 等基础设施容器健康以 deploy 编排健康检查为准；日志检索与备份恢复能力后端未建，如实「待接」。
+            gateway / notify / worker 等基础设施容器健康以 deploy 编排健康检查为准；日志检索后端未建，如实「待接」；备份恢复脚本随 T11.7 交付（deploy/backup）。
           </Typography.Text>
         </div>
       </Card>
@@ -76,26 +250,11 @@ export default function AdminPage() {
         />
         <Alert
           type="info" showIcon style={{ marginTop: 10 }}
-          message="本页数字一律来自后端真实接口（A-16）；日志中心、备份恢复、用户管理 API 就绪后自动升级为可操作界面。"
+          message="本页数字一律来自后端真实接口（A-16）；日志中心未建属如实待接，备份恢复脚本随 T11.7 交付（deploy/backup）。"
         />
       </Card>
 
-      <Card title="运维基础" styles={{ body: { padding: 0 } }}>
-        <Table
-          rowKey="k" size="small" pagination={false}
-          dataSource={[
-            { k: '指标总览', s: '可用', d: '本页服务可达性 + 知识库现状（来源真实接口）' },
-            { k: '日志检索', s: '待接', d: '后端日志中心未建；工作台可下载单会话执行记录' },
-            { k: '备份恢复', s: '待接', d: 'PG/Neo4j/MinIO 备份策略属阶段 5 发布事项' },
-            { k: '用户管理', s: '待接', d: 'auth 服务暂无用户管理 API；账号经 SQL 维护' },
-          ].map((r) => ({ ...r, key: r.k }))}
-          columns={[
-            { title: '能力', dataIndex: 'k', width: 140 },
-            { title: '状态', dataIndex: 's', width: 90, render: (v) => <Tag color={v === '可用' ? 'success' : 'default'}>{v}</Tag> },
-            { title: '说明', dataIndex: 'd', render: (v) => <span style={{ fontSize: 12, color: '#57606a' }}>{v}</span> },
-          ]}
-        />
-      </Card>
+      <UserManagement />
     </div>
   )
 }

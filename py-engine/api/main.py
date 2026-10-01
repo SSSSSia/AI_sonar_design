@@ -15,7 +15,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -28,6 +28,7 @@ from app_config import (
     WORKFLOW_BASE_URL,
 )
 from api.kb import router as kb_router
+from api.authz import require_admin, require_user
 from api.cad import router as cad_router
 from api.cad_agent import router as cad_agent_router
 from api.logs import router as logs_router
@@ -201,7 +202,7 @@ def debug_always_fail(req: FailRequest) -> dict[str, Any]:
 
 
 @app.get("/llm/provider")
-def llm_provider() -> dict[str, Any]:
+def llm_provider(user: str = Depends(require_user)) -> dict[str, Any]:
     try:
         return active_provider().redacted()
     except RuntimeError as exc:
@@ -209,7 +210,7 @@ def llm_provider() -> dict[str, Any]:
 
 
 @app.post("/llm/provider/reload")
-def llm_provider_reload() -> dict[str, str]:
+def llm_provider_reload(user: str = Depends(require_admin)) -> dict[str, str]:
     reload_providers()
     return {"status": "reloaded"}
 

@@ -123,6 +123,11 @@ export async function post<T>(url: string, data?: unknown): Promise<T> {
   return (await http.post<T>(url, data)).data
 }
 
+/** PUT（T11.2 用户管理 PATCH 语义沿用 Spring 风格 PUT/JSON body）。 */
+export async function put<T>(url: string, data?: unknown): Promise<T> {
+  return (await http.put<T>(url, data)).data
+}
+
 export async function patch<T>(url: string, data?: unknown): Promise<T> {
   return (await http.patch<T>(url, data)).data
 }

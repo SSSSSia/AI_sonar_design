@@ -41,7 +41,7 @@ def kb_cache_status() -> dict[str, Any]:
 def upload_document(
     file: UploadFile = File(...),
     base_id: str | None = None,
-    uploaded_by: str = Depends(require_writer),
+    uploaded_by: str = Depends(require_admin),
 ) -> dict:
     """上传即建档（§6 ①）→ MinIO 原文件桶 → 同步解析（带位置信息，§6 ②）。
 
@@ -134,7 +134,7 @@ def get_document(doc_id: str) -> dict:
 
 
 @router.delete("/documents/{doc_id}")
-def delete_document(doc_id: str, user: str = Depends(require_writer)) -> dict:
+def delete_document(doc_id: str, user: str = Depends(require_admin)) -> dict:
     """删除文档并同步清理（§6 ⑦）：MinIO 原件 + chunks/extractions（级联）+ 向量/图谱挂载点 + 归属行。"""
     from storage import object_store
 
@@ -186,7 +186,7 @@ class BaseCreate(BaseModel):
 
 
 @router.post("/bases")
-def create_base(req: BaseCreate, user: str = Depends(require_writer)) -> dict:
+def create_base(req: BaseCreate, user: str = Depends(require_admin)) -> dict:
     name = (req.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="知识库名称不能为空")
@@ -214,7 +214,7 @@ class BasePatch(BaseModel):
 
 
 @router.patch("/bases/{base_id}")
-def update_base(base_id: str, req: BasePatch, user: str = Depends(require_writer)) -> dict:
+def update_base(base_id: str, req: BasePatch, user: str = Depends(require_admin)) -> dict:
     if req.name is not None and not req.name.strip():
         raise HTTPException(status_code=400, detail="知识库名称不能为空")
     try:
@@ -248,7 +248,7 @@ class BaseDocsRequest(BaseModel):
 
 
 @router.post("/bases/{base_id}/docs")
-def add_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(require_writer)) -> dict:
+def add_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(require_admin)) -> dict:
     if kb_store.get_base(base_id) is None:
         raise HTTPException(status_code=404, detail=f"知识库不存在: {base_id}")
     if not req.doc_ids:
@@ -261,7 +261,7 @@ def add_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(requir
 
 
 @router.delete("/bases/{base_id}/docs")
-def remove_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(require_writer)) -> dict:
+def remove_base_docs(base_id: str, req: BaseDocsRequest, user: str = Depends(require_admin)) -> dict:
     if kb_store.get_base(base_id) is None:
         raise HTTPException(status_code=404, detail=f"知识库不存在: {base_id}")
     if not req.doc_ids:
@@ -283,7 +283,7 @@ class ChunkRequest(BaseModel):
 
 @router.post("/documents/{doc_id}/chunk")
 def chunk_document(doc_id: str, req: ChunkRequest | None = None,
-                   user: str = Depends(require_writer)) -> dict:
+                   user: str = Depends(require_admin)) -> dict:
     """解析单元 → 可配置分块（§6 ③，章节优先/重叠可调）→ kb_chunks。"""
     import app_config
     from kb.chunker import chunk_units
@@ -310,7 +310,7 @@ class ExtractRequest(BaseModel):
 
 @router.post("/documents/{doc_id}/extract")
 def extract_document(doc_id: str, req: ExtractRequest | None = None,
-                     user: str = Depends(require_writer)) -> dict:
+                     user: str = Depends(require_admin)) -> dict:
     """LLM 本体抽取（§6 ④）——**异步任务**（大文档 chunk 多、LLM 耗时长，同步必超时）。
 
     返回 task_id；结果（pending）落 kb_extractions，经预览 API 人工确认后才入图。
@@ -354,7 +354,7 @@ class ExtractionDecision(BaseModel):
 
 @router.patch("/extractions/{extraction_id}")
 def decide_extraction(extraction_id: int, req: ExtractionDecision,
-                      user: str = Depends(require_writer)) -> dict:
+                      user: str = Depends(require_admin)) -> dict:
     """人工裁决抽取条目（§6 ④）：confirmed 才有资格进图谱层。"""
     try:
         row = kb_store.set_extraction_status(extraction_id, req.status)
@@ -370,7 +370,7 @@ class BuildRequest(BaseModel):
 
 
 @router.post("/build")
-def trigger_build(req: BuildRequest | None = None, user: str = Depends(require_writer)) -> dict:
+def trigger_build(req: BuildRequest | None = None, user: str = Depends(require_admin)) -> dict:
     """触发异步索引构建（§6 ⑤）：进度经任务状态 + 文档 build_detail 可查。"""
     from worker.tasks import kb_build_task
 
@@ -410,7 +410,7 @@ class RegistryRow(BaseModel):
 
 @router.post("/registry/{kind}")
 def create_registry_row(kind: str, req: RegistryRow,
-                        user: str = Depends(require_writer)) -> dict:
+                        user: str = Depends(require_admin)) -> dict:
     from solver import standards
 
     if kind not in ("formulas", "constraints", "standards"):
@@ -427,7 +427,7 @@ def create_registry_row(kind: str, req: RegistryRow,
 
 @router.patch("/registry/{kind}/{row_id}")
 def update_registry_row(kind: str, row_id: int, req: RegistryRow,
-                        user: str = Depends(require_writer)) -> dict:
+                        user: str = Depends(require_admin)) -> dict:
     from solver import standards
 
     if kind not in ("formulas", "constraints", "standards"):
@@ -445,7 +445,7 @@ def update_registry_row(kind: str, row_id: int, req: RegistryRow,
 
 
 @router.delete("/registry/{kind}/{row_id}")
-def delete_registry_row(kind: str, row_id: int, user: str = Depends(require_writer)) -> dict:
+def delete_registry_row(kind: str, row_id: int, user: str = Depends(require_admin)) -> dict:
     from solver import standards
 
     if kind not in ("formulas", "constraints", "standards"):

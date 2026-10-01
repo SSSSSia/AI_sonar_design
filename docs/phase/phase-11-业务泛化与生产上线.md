@@ -101,13 +101,13 @@
   - [x] Java 测试：NotificationApiTest 8 用例（落库接线/角色扇出/过程类不落库/降级 200 广播、401/503/清理 scope）+ NotifyIntegrationTest 9 用例回归，notify 17 全绿
   - [x] 容器栈真实链路验证：V14 已应用（dev PG 手动 + biz 下轮启动 Flyway 幂等）；内网发 review_request → admin 落库、designer（无审阅角色）无行、task_progress 不落库；重发同信封内容不同时间戳=新事件新行（唯一键拦同信封重试）；alert 带 Bearer 落库全员（admin+designer 各一行、服务端标题「系统告警 firing（1 条）」）；单删/清空按用户隔离（admin 清空后 designer 行仍在）
 
-### T11.2 细粒度 RBAC + 用户管理 ⬜
+### T11.2 细粒度 RBAC + 用户管理 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] auth 用户管理 API（admin-only：列表/创建/启停/重置密码/角色分配）+ AdminPage 用户管理页接通（替换「待接」行）
-  - [ ] 三条硬规则：审阅关裁决权测试固化；py-engine KB 写端点收紧 admin；管理面 require_admin 全覆盖核验
-  - [ ] `authz.py` 空角色放行漏洞修复（无角色头 → 403）+ 既有调用方适配
-  - [ ] py 单测 + Java 测试 + vitest；designer 角色实测越权 403 证据
+  - [x] auth 用户管理 API（admin-only，Bearer 二次验签：列表/创建 BCrypt/启停/重置密码/角色替换/删除 + 护栏：不能停用删除自己、不能动最后一个 active admin）+ AdminPage「用户与角色管理」卡接通（替换「待接」行）
+  - [x] 三条硬规则：①审阅关裁决权 = `hasAnyRole('admin','reviewer')`（workflow 既有，新增 ReviewControllerRbacTest 注解反射守护；「本人项目」成员级数据权限因无 project_members 模型，角色级先落、如实记录留后续）②KB 写权限 = admin：py-engine kb.py **13 个写端点** require_writer→require_admin（designer 不再可写知识库）③系统管理门禁 = admin：`/llm/provider/reload`（原无鉴权）→ require_admin、`/llm/provider` → require_user
+  - [x] `authz.py` 空角色放行漏洞修复（无角色头 → 403；旧语义「角色头缺失即放行」是审查确认的越权漏洞，gateway 对合法 JWT 恒注入角色头故正常流量不受影响）
+  - [x] py 单测 6 新用例（test_t112_rbac.py，全量 302 passed 无回归）+ Java auth 11 用例（新 UserControllerTest）+ workflow RbacTest；容器栈真实生命周期验证：创建 reviewer→登录→列表 403→停用→登录 403→重置密码+启用+升 admin→登录 200→删除
 
 ### T11.3 E1 CAD→文档反向回写 ⬜
 
@@ -177,6 +177,7 @@
 | 任务 | 实测证据 | 时间 |
 |---|---|---|
 | T11.1 通知持久化 | Java notify 17 用例全绿（新 NotificationApiTest 8）；vitest 41 passed（新 3）；容器栈真实验证：review_request 角色扇出（designer 无行）/ alert 全员扇出 + 服务端标题 / task_progress 不落库 / 单删清空按用户隔离 / 503 降级；gateway 路由 + 统一响应包实测 200 | 2026-10-01 |
+| T11.2 RBAC+用户管理 | py 302 passed（新 6）；auth UserControllerTest 11 用例；workflow RbacTest 注解守护；容器栈真实生命周期：designer 访问用户列表 403 / user-qa 创建→停用→登录 403→重置密码→升 admin→删除全链 200/403 符合预期 | 2026-10-01 |
 
 ## 6. 决策记录
 
