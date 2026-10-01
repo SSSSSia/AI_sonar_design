@@ -152,3 +152,28 @@ def delete_session_artifacts(sid: str, user: str = Depends(require_user)) -> dic
     total = sum(v for v in per_bucket.values() if v > 0)
     logger.info("会话 %s CAD 产物清理完成：%s", sid, per_bucket)
     return {"session_id": sid, "minio_objects_removed": total, "per_bucket": per_bucket}
+
+
+@router.get("/sessions/{sid}/export/docx")
+def export_docx(sid: str, user: str = Depends(require_user)) -> Response:
+    """军标格式 Word 导出（T11.5，P2-11）：IR2 三章渲染（设计文档/参数表+溯源/校验结论）。"""
+    import urllib.parse
+
+    from docgen.export_docx import export_session_docx
+
+    ir2 = ir_store.get_latest_snapshot(sid, "IR2")
+    if ir2 is None:
+        raise HTTPException(status_code=404, detail="IR2 尚未生成，无可导出的方案文档")
+    ir2_version = ir_store.get_latest_version(sid, "IR2")
+    ir3 = ir_store.get_latest_snapshot(sid, "IR3")
+    ir4 = ir_store.get_latest_snapshot(sid, "IR4")
+    title = ir_store.get_session_title(sid)
+    session = {"id": sid, "title": title, **(ir_store.get_session(sid) or {})}
+    data = export_session_docx(session, ir2, ir3, ir4, ir2_version)
+    filename = f"设计方案_{title or sid}_IR2v{ir2_version}.docx"
+    quoted = urllib.parse.quote(filename)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )

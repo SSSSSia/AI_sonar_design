@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { App, Alert, Button, Card, Input, Modal, Radio, Select, Table, Tag, Tooltip, Typography } from 'antd'
+import { App, Alert, Button, Card, Input, Modal, Radio, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
-import { ApiError } from '../../api/client'
+import { ApiError, getBlob } from '../../api/client'
 import { listBases, type KbBase } from '../../api/kb'
 import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
@@ -102,11 +102,38 @@ export function ReportTab({
     }
   }
 
+  // T11.5 军标格式 Word 导出（P2-11）：IR2 三章渲染，docx 二进制下载
+  const [exporting, setExporting] = useState(false)
+  async function exportDocx() {
+    setExporting(true)
+    try {
+      const { blob, disposition } = await getBlob(`/cad/sessions/${sessionId}/export/docx`)
+      const m = /filename\*=UTF-8''([^;]+)/.exec(disposition ?? '')
+      const filename = m ? decodeURIComponent(m[1]) : `设计方案_${sessionId}.docx`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success('已导出 Word 文档（内置模板；正式军标模板待授权后替换）')
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : '导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card
         title={<>IR4 合规校验报告 {ir4Version ? <Typography.Text code style={{ fontSize: 12 }}>v{ir4Version}</Typography.Text> : null}</>}
-        extra={ir4 ? <Tag color={ir4.overall === 'fail' ? 'error' : 'success'}>{ir4.overall === 'fail' ? '总体结论 fail' : '总体结论 pass'}</Tag> : null}
+        extra={
+          <Space size={8}>
+            {ir4 ? <Tag color={ir4.overall === 'fail' ? 'error' : 'success'}>{ir4.overall === 'fail' ? '总体结论 fail' : '总体结论 pass'}</Tag> : null}
+            <Button size="small" loading={exporting} onClick={() => void exportDocx()}>导出 Word</Button>
+          </Space>
+        }
       >
         {!ir4 ? (
           <Typography.Text type="secondary">IR4 尚未生成</Typography.Text>

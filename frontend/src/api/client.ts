@@ -114,6 +114,15 @@ export async function get<T>(url: string, params?: Record<string, unknown>): Pro
   return (await http.get<T>(url, { params })).data
 }
 
+/** 二进制下载（T11.5 docx 导出等；blob 无 code 字段，响应拦截器原样放行）。 */
+export async function getBlob(url: string): Promise<{ blob: Blob; disposition: string | null }> {
+  const resp = await http.get(url, { responseType: 'blob' })
+  return {
+    blob: resp.data as Blob,
+    disposition: (resp.headers['content-disposition'] as string | undefined) ?? null,
+  }
+}
+
 /** 服务可达性探测专用：短超时（审查 P0-2），失败即如实标「不可达」，不悬挂 30s。 */
 export async function probeGet<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   return (await http.get<T>(url, { params, timeout: 5_000 })).data

@@ -124,6 +124,14 @@ def get_session(session_id: str) -> Optional[dict[str, Any]]:
     return {"id": str(row[0]), "pipeline_status": row[1], "current_stage": row[2]}
 
 
+def get_session_title(session_id: str) -> Optional[str]:
+    """会话标题（docgen 封面等展示用）。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT title FROM design_sessions WHERE id = %s", (session_id,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
 def mark_invalidated(session_id: str, ir_types: list[str]) -> list[str]:
     """定向失效（T11.3 E1）：只标 invalidated_at 生命周期元数据，内容不可变（A-12）。
 

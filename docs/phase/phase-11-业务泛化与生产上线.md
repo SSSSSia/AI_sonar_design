@@ -125,12 +125,12 @@
   - [x] 前端 RegistryTab「批量导入」（军标页签）：上传 → dry_run 预览（行数+问题清单）→ 确认入库 → reset_cache 热生效
   - [x] 25 条可机读演示条目批量入库验证（`deploy/seed/demo_standards_batch.csv`，【演示】+ confidence=low + **enabled=停用**——不干扰现网 A4 核对，真实 GJB 授权后经此入口规模化录入并启用）；容器栈实测：dry_run 预览 25 行 0 问题 → 导入 25 → 重导幂等（25 updated/0 inserted）
 
-### T11.5 军标格式 Word 导出 ⬜
+### T11.5 军标格式 Word 导出 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] `docgen/export_docx.py` 三章渲染（参数表含来源分类列 / 溯源依据 / 校验结论含 CSR 与 issue 分级）+ 封面修订记录
-  - [ ] `GET /cad/sessions/{sid}/export/docx` 下载 API + 前端 ReportTab 导出按钮
-  - [ ] 单测：导出文件 python-docx 可重开、章节标题/表格行数与快照数据一致；内置模板（非授权军标模板）如实标注
+  - [x] `docgen/export_docx.py`：封面 → 设计文档正文（IR2.design_document Markdown 轻量渲染：标题/表格/段落）→ 参数表（7 列含来源分类中文化）→ 溯源依据（source_type 四分类分组 + derivation）→ 校验结论（overall/CSR/issue 分级表）；DOCX_TEMPLATE_PATH 覆挂点预留
+  - [x] `GET /cad/sessions/{sid}/export/docx`（RFC 5987 中文文件名）+ 前端 ReportTab「导出 Word」按钮（getBlob 下载）
+  - [x] 单测 4 例（重开断言章节/表格行数/CSR/中文化/素材缺失如实标注）；容器栈真实验证：真实会话（基线 round-2）导出 42KB，四章齐、参数表 20 行、总体结论/CSR=100.0 如实渲染；内置模板（非授权军标模板）如实标注
 
 ### T11.6 vLLM 切换就绪 + 脱敏代理 ⬜
 
@@ -180,6 +180,7 @@
 | T11.2 RBAC+用户管理 | py 302 passed（新 6）；auth UserControllerTest 11 用例；workflow RbacTest 注解守护；容器栈真实生命周期：designer 访问用户列表 403 / user-qa 创建→停用→登录 403→重置密码→升 admin→删除全链 200/403 符合预期 | 2026-10-01 |
 | T11.3 E1 反向回写 | py 312 passed（新 10）；e2e 全闭环 39s 一次通过（真实 STEP 100→120mm：提案→确认→IR2 v2→A4 重算→自动重挂 gate2→批准→completed）；P2-2 随此定案 | 2026-10-01 |
 | T11.4 军标批量录入 | py 320 passed（新 8）；容器栈实测 25 条批量导入（dry_run→导入→重导幂等）+ 熔断误杀返修（单连接 SAVEPOINT 重构） | 2026-10-01 |
+| T11.5 Word 导出 | 单测 4 例全绿；容器栈真实会话导出 42KB——四章齐/参数表 20 行/总体结论与 CSR 如实渲染（python-docx 重开断言） | 2026-10-01 |
 
 ## 6. 决策记录
 
