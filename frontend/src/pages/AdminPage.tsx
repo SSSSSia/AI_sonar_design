@@ -220,7 +220,7 @@ export default function AdminPage() {
         />
         <div style={{ padding: '8px 16px' }}>
           <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
-            gateway / notify / worker 等基础设施容器健康以 deploy 编排健康检查为准；日志检索后端未建，如实「待接」；备份恢复脚本随 T11.7 交付（deploy/backup）。
+            gateway / notify / worker 等基础设施容器健康以 deploy 编排健康检查为准；日志检索后端未建，如实「待接」；备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。
           </Typography.Text>
         </div>
       </Card>
@@ -250,7 +250,7 @@ export default function AdminPage() {
         />
         <Alert
           type="info" showIcon style={{ marginTop: 10 }}
-          message="本页数字一律来自后端真实接口（A-16）；日志中心未建属如实待接，备份恢复脚本随 T11.7 交付（deploy/backup）。"
+          message="本页数字一律来自后端真实接口（A-16）；日志中心未建属如实待接，备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。"
         />
       </Card>
 

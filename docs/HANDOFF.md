@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-10-01 · ZCode，阶段 11（v0.4）执行中，见入口 7；当前在跑栈 = 容器化全栈 + 监控）
+## 当前状态（最后更新：2026-10-01 · ZCode，v0.4.0 阶段 11 已收官 tag 待用户复核；当前在跑栈 = 容器化全栈 + 监控）
 
 | 项 | 状态 |
 |---|---|
@@ -53,7 +53,7 @@
 
 6. **阶段 10（生产就绪与 M4 验收，PHASE-010）已于 2026-10-01 全任务收官，tag v0.3.0 已推送**（v0.2.0 人工验收由用户明示豁免后直跑）：T10.1 监控告警（compose `--profile monitoring`：prometheus/alertmanager/grafana/postgres-exporter + RabbitMQ 原生 prometheus 插件；py 指标双通道 API /metrics + worker :9101；Java 五服务 actuator；4 条核心告警触发证据入 `docs/reviews/evidence/`；AM→notify 桥接 Bearer 信任）；T10.2 50 并发×30min 压测全过（错误率 0.015%/轮询 P95 7ms/5xx=0/返工闭环 83 次 0 失败；限流校准 WF 150/450、PY 100/300——并修复 T9.4 compose RL_* 漏绑定）；T10.3 性能重基线（真 LLM 4 轮中位 554.5s≈9.2min 达成 NFR ≤15min；检索 P95 1.3s；T10.4 未触发关账）；压测/基线途中返修五项：py 镜像缺 contracts/、broker 心跳被 solo 长任务阻塞（broker_heartbeat=0）、闸门重投卡死（幂等+自愈）、供应商切换失效（查询失败/确认空双语义）、presigned URL 容器化不可达（公开端点独立签名 client region 固定）。全量回归绿：py 296 单测 / 四条 e2e / Java 46+ / vitest 38。报告：`docs/reviews/压测报告_v0.3.md`、`docs/reviews/性能基线_v0.3.md`、`docs/reviews/2026-09-30-监控告警证据-T101.md`。**当前在跑栈 = 容器化全栈（--profile app）+ monitoring + loadtest**；切回宿主开发模式先 `cd deploy && docker compose --profile app --profile monitoring --profile loadtest down`（保留底座）再 `scripts/start-all.cmd`。（2026-10-01 补记：原第 6 项误置于文末「工作约定速记」之后，随阶段 11 步骤 0 移回编号列表；roadmap 阶段 9/10 总览行、T10.5 任务行与 phase-9 T9.7 标题三处回填遗漏同 commit 修正。）
 
-7. **阶段 11（业务泛化与生产上线，[PHASE-011](phase/phase-11-业务泛化与生产上线.md)）2026-10-01 启动，执行中**：任务书已编制（T11.1–T11.8 各带 DoD）。执行顺序：T11.1 通知持久化 → T11.2 细粒度 RBAC + auth 用户管理 API → T11.3 E1 CAD→文档反向回写 → T11.4 军标批量录入 → T11.5 军标格式 Word 导出 → T11.6 vLLM 切换就绪 + 脱敏代理 → T11.7 容灾备份 → T11.8 收官 tag v0.4.0。**已确认口径**（用户 2026-10-01）：vLLM = 切换就绪（脱敏代理+mock 验证+操作手册，真实服务待硬件）；容灾 = 备份恢复落地 + ADR-005 双活方案文档（不实施流复制）；真实 GJB 全量核对待授权文本（本期交付批量录入能力）。
+7. **阶段 11（业务泛化与生产上线，[PHASE-011](phase/phase-11-业务泛化与生产上线.md)）已于 2026-10-01 全任务收官，tag v0.4.0**：T11.1 通知持久化（biz V14 扇出落库 + 查询已读 API + 前端登录拉取合并；alert 契约补记）、T11.2 RBAC（auth 用户管理 API + AdminPage 用户管理页 + 三条硬规则 + **authz 空角色越权漏洞修复** + KB 写收紧 admin）、T11.3 E1 反向回写（diff 提案→确认回写 IR2 value+derivation 原地同步→IR4/IR5 定向失效→A4 重算→自动重挂 gate2 复审闭环，零 Java 改动；P2-2 定案）、T11.4 军标批量录入（batch upsert 单连接 SAVEPOINT + xlsx/csv 导入 + 前端批量入口；25 条验证；**真实 GJB 待授权**）、T11.5 Word 导出（docgen 三章渲染 + 真实会话验证）、T11.6 vLLM 切换就绪（**LLM 前置出站脱敏默认开** + 供应商失败转移 + docs/ops/vLLM切换手册.md；真实 vLLM 待硬件）、T11.7 容灾备份（backup.sh/restore.sh --drill + GraphML 快照 1473 节点 + 演练证据 docs/reviews/2026-10-01-容灾恢复演练-T117.md + [ADR-005](adr/ADR-005-容灾与双活路线.md)）。全量回归绿：py 332 / e2e 5 条（含 e1）/ Java 71 / vitest 41。M5 口径：生产部署✅（单机）/ 全量军标核对◐（待授权）/ 用户可用✅。**当前在跑栈 = 容器化全栈（--profile app）+ monitoring + loadtest**；切回宿主开发模式先 `cd deploy && docker compose --profile app --profile monitoring --profile loadtest down`（保留底座）再 `scripts/start-all.cmd`。后续入口（v0.5/生产落地）：真实 vLLM 部署（按手册）、真实 GJB 录入（按批量入口）、双活实施（按 ADR-005）、日志检索（AdminPage 仍待接）、阶段 1–4/6/8 人工验收（用户豁免连发后建议补走查清单见 PHASE-011 §5 附录 A 自检⑤）。
 
 ## 待验证 / 待决事项
 

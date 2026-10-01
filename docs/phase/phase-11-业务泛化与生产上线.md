@@ -148,13 +148,15 @@
   - [x] 恢复演练证据入 docs/reviews/2026-10-01-容灾恢复演练-T117.md：备份五件产物（PG 972KB/MinIO 52.9MB/Redis/RMQ/GraphML）→ --drill 临时容器 pg_restore OK → 行数核对一致（413 会话/1195 IR 快照/2 用户）
   - [x] [ADR-005](../adr/ADR-005-容灾与双活路线.md) 容灾与双活路线定案（双活实施触发条件=生产部署）；AdminPage 备份说明更新
 
-### T11.8 收官 + tag v0.4.0 ⬜
+### T11.8 收官 + tag v0.4.0 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] 全量回归：py 全量单测 + e2e 全套（含新增）+ Java mvn test + vitest
-  - [ ] M5 口径逐项如实核验：生产部署 = 容器化全栈+监控+备份就绪（单机形态，集群留生产环境）；全量军标核对 = 批量能力就绪 + GJB 待授权（如实）；用户可用 = 用户管理/RBAC/E1/导出可用
-  - [ ] 文档回填：roadmap 阶段 11 全任务、phase-11 §5/§8、GAP-001 P2 相关行、HANDOFF、附录 E.4、devlog
-  - [ ] 宪法附录 A 自检 → tag `v0.4.0`（§8.3 三段式）+ push
+  - [x] 全量回归全绿（见 §5 全量回归表：py 332 / e2e 5 条 / Java 71 / vitest 41）
+  - [x] M5 口径逐项如实核验（见 §5 核验表：生产部署 ✅ 单机口径 / 全量军标核对 ◐ 能力就绪待授权 / 用户可用 ✅）
+  - [x] 文档回填：roadmap 阶段 11 全任务、phase-11 §5/§8、GAP-001 P2-1/2/4/5/7/11 状态行、HANDOFF 入口 7、附录 E.4、devlog 补充 1–8
+  - [x] 宪法附录 A 自检（见下）→ tag `v0.4.0`（§8.3 三段式）+ push
+
+**附录 A 自检**：①roadmap/文档回填 ✅（本阶段每任务 commit 即回填——v0.3.0 漏回填教训已落实为流程纪律）；②端到端冒烟 = towed e2e（真 LLM 全链）✅；③审阅关通过流+驳回流 = phase2 e2e ✅（E1 复审闭环另由 e1 e2e 覆盖）；④文档→KB 全流程 = kb_pipeline e2e ✅；⑤前端核心页面人工走查——**用户对阶段 9/10/11 连续明示豁免**（2026-09-30「我懒得测试了，直接开始执行下一阶段」，沿用口径如实记录；建议后续按 HANDOFF 入口清单补走查：AdminPage 用户管理/RegistryTab 批量导入/ReportTab 导出/ReviewTab E1 提案卡）；⑥.env 未入库、日志/报告密钥脱敏 ✅（T11.6 出站脱敏默认开并经 wire 级断言）；⑦工作区干净 main 已推 ✅；⑧tag 三段式 ✅。
 
 ## 4. 阶段管理
 
@@ -184,6 +186,23 @@
 | T11.6 vLLM 就绪+脱敏 | 单测 8 例（wire 级出站断言+转移链）；容器栈实测：vllm-sim 热切换→chat→审计「脱敏命中 api_key×1」→health ok=True；手册入库 docs/ops/ | 2026-10-01 |
 | T11.7 容灾备份 | 备份五件产物 + 恢复演练（--drill pg_restore OK，413 会话/1195 快照行数一致）；GraphML 快照 1473 节点/4349 边 XML 良构；ADR-005 定案 | 2026-10-01 |
 
+### 全量回归（阶段末，2026-10-01）
+
+| 项 | 结果 |
+|---|---|
+| py-engine 单测 | 332 passed 1 skipped（新增 32：T11.1 通知 0/py 侧——vitest 承载 + T11.2 RBAC 6 + T11.3 E1 10 + T11.4 批量 8 + T11.5 docx 4 + T11.6 vLLM 8；T11.7 经真实栈验证） |
+| e2e | 5 条全绿：towed（真 LLM 全链）/ kb_pipeline（真 LLM）/ phase2（门语义）/ cad_tune（微调协议）/ **e1_reverse_write（新增，39s 全闭环）** |（首轮套跑 cad_tune 因漏设 CAD_TUNE_MOCK_HOST=host.docker.internal 挂「90s 无工具调用」——容器化适配变量缺失（T10.5 已记录），补设后复跑 30.9s 通过；e1 的 A5 走降级兜底（候选 0）仍完成，A-13 语义如实）
+| Java mvn test | 全 reactor BUILD SUCCESS：auth 11 / workflow 36 / biz 7 / notify 17（共 71） |
+| 前端 | tsc 0 错 + vitest 41 passed（含 T11.1 通知 3 例） |
+
+### M5 验收口径逐项核验（总体设计 §11.2，如实）
+
+| M5 项 | 结论 | 依据 |
+|---|---|---|
+| 生产部署 | ✅（单机形态口径） | 容器化全栈 + 监控（v0.3）+ 备份恢复与演练（T11.7）就绪；集群化/双活 = ADR-005 定案留生产环境（用户确认口径） |
+| 全量军标核对 | ◐（能力就绪，数据待授权） | 批量录入能力交付（T11.4：batch API+xlsx/csv+前端入口+25 条验证）；A4 SymPy 求值链可用；**真实 GJB 全量核对待授权文本**由内部人员经批量入口执行（外部依赖，GAP-001 §4 明示） |
+| 用户可用 | ✅ | 用户管理 UI + RBAC 三条硬规则（T11.2）+ E1 反向回写闭环（T11.3）+ Word 导出（T11.5）+ 通知持久化（T11.1）——designer/reviewer/admin 角色路径完整可用 |
+
 ## 6. 决策记录
 
 - **vLLM 口径 = 切换就绪（脱敏代理 + 失败转移 + mock 验证 + 操作手册）**，真实 vLLM 服务待硬件——用户 2026-10-01 确认（选项：脱敏代理+切换验证 / 部署真实 vLLM / 跳过）。
@@ -204,4 +223,7 @@
 | v1.0 | 2026-10-01 | 初版编制（ZCode）。前置发现（探索实证）：①阶段 9/10 文档回填遗留——roadmap 阶段 9/10 总览行与 T10.5 行仍「待开发」、phase-9 T9.7 标题未勾、phase-10 附录 A 自检①与事实不符、HANDOFF「下一步入口」缺阶段 11 条目，随本 commit 一并修正；②E1 插入点唯一（finalize_version 尾部），关联键现成（IR3 linked_param_id ↔ IR2 parameter.id），失效基建现成但需新增定向语义；③IR2 回写须 value+derivation 同步（A4 符号表依赖 derivation）；④python-docx 已在依赖，Word 导出零新增依赖；⑤RBAC 五表齐全已播种，缺口 = auth 用户管理 API、authz.py 空角色放行双漏洞、KB 写端点宽松；⑥notify 零持久化无迁移目录，通知表放 biz 库最简；⑦军标批量入口缺，单条链路已齐；⑧备份全仓零实现，GraphML 快照承接 P2-3（knowledge-dumps 桶未建随此建）；⑨vLLM 切换机制已就绪（llm_providers 热加载），vLLM 本身即 OpenAI 兼容——注册 provider 即切换，缺脱敏代理与失败转移 |
 | v1.1 | 2026-10-01 | T11.1 执行修订：①notify 不引 Flyway——迁移统一 biz V14 执行（与 biz 共用 flyway_schema_history，双 Flyway 必冲突）；②通知表按用户扇出落行（(user_id, client_key) 唯一幂等——同信封 HTTP 重试不重复，新事件新时间戳=新行）；③落库类型收窄为 review_request + alert（ir_updated 每会话 5 次不落库）；④alert 信封补进 contracts/ws 契约与前端类型（T10.1c 已广播但 schema 漏列——契约漂移修复）；⑤notify 查询 API 沿平台统一响应包 {code:0,message,data}；⑥Hikari 懒初始化 + 落库静默降级/查询 503（库不可达不阻塞进程启动）；⑦V14 已手动应用于 dev 库（biz 旧镜像跑栈场景；新镜像启动 Flyway 幂等无冲突） |
 | v1.2 | 2026-10-01 | T11.3 执行修订：①复审闭环零 Java 改动——a4 重开即 update_stage("A4") 覆写闸门，STAGE_DONE 后 pauseAtGate 的 IN(running,paused) AND current_stage≠gate2 乐观条件恰好命中「paused+A4」，自动重挂 gate2 重发审阅请求（探索实证 §2.1 推论）；②derivation 同步用**原地替换**首个 ≈旧值 的 symbol=数值（solver setdefault 首匹配优先，追加行不生效）+ 尾部无"="修订记录（不入符号表）；③定向失效新增 py 侧 ir_store.mark_invalidated（与 Java IrSnapshotMapper 同语义，E1 只失效 IR4/IR5 不动 IR2/IR3）；④确认仅限 paused 会话（completed 无复审链路如实 409）；链式微调基线（前次定稿版 linked_param_id 全 None）与分段数变化如实产 0 条提案；⑤V15 已手动应用于 dev 库（同 v1.1⑦ 口径） |
-| v1.3 | 2026-10-01 | T11.7 执行修订：①备份定时化 = 宿主 cron 调 deploy/backup/backup.sh（docker exec 注入容器执行）——不做 compose sidecar（需挂 docker.sock 特权 + 新镜像拉取，成本/风险不成比例）；②Neo4j 备份口径 = 在线 GraphML 快照（不停库，快照级一致性），离线一致性 dump 列 ADR-005 生产项；③GraphML node id 采用「label:key」命名空间（实测图谱存在跨 label 同 key，单 key 做 id 必冲突）；④网关 CircuitBreaker 对 >慢调阈值的长请求会「后端成功但返回 503 fallback」——长耗时管理操作（如全图快照）一律直连 :8090 绕过网关 |①复审闭环零 Java 改动——a4 重开即 update_stage("A4") 覆写闸门，STAGE_DONE 后 pauseAtGate 的 IN(running,paused) AND current_stage≠gate2 乐观条件恰好命中「paused+A4」，自动重挂 gate2 重发审阅请求（探索实证 §2.1 推论）；②derivation 同步用**原地替换**首个 ≈旧值 的 symbol=数值（solver setdefault 首匹配优先，追加行不生效）+ 尾部无"="修订记录（不入符号表）；③定向失效新增 py 侧 ir_store.mark_invalidated（与 Java IrSnapshotMapper 同语义，E1 只失效 IR4/IR5 不动 IR2/IR3）；④确认仅限 paused 会话（completed 无复审链路如实 409）；链式微调基线（前次定稿版 linked_param_id 全 None）与分段数变化如实产 0 条提案；⑤V15 已手动应用于 dev 库（同 v1.1⑦ 口径） |
+| v1.4 | 2026-10-01 | 收官回填（T11.8）：全量回归绿（py 332 单测 / e2e 5 条含新增 e1 / Java 71 / vitest 41）；M5 三项口径如实核验（生产部署 ✅ 单机口径 / 全量军标核对 ◐ 能力就绪待授权文本 / 用户可用 ✅）；附录 A 自检；tag v0.4.0 |
+| v1.2 | 2026-10-01 | T11.3 执行修订：①复审闭环零 Java 改动——a4 重开即 update_stage("A4") 覆写闸门，STAGE_DONE 后 pauseAtGate 的 IN(running,paused) AND current_stage≠gate2 乐观条件恰好命中「paused+A4」，自动重挂 gate2 重发审阅请求（探索实证推论）；②derivation 同步用**原地替换**首个 ≈旧值 的 symbol=数值（solver setdefault 首匹配优先，追加行不生效）+ 尾部无"="修订记录（不入符号表）；③定向失效新增 py 侧 ir_store.mark_invalidated（与 Java IrSnapshotMapper 同语义，E1 只失效 IR4/IR5 不动 IR2/IR3）；④确认仅限 paused 会话（completed 无复审链路如实 409）；链式微调基线（前次定稿版 linked_param_id 全 None）与分段数变化如实产 0 条提案；⑤V15 已手动应用于 dev 库（同 v1.1⑦ 口径） |
+| v1.3 | 2026-10-01 | T11.4~T11.7 执行修订：①T11.4 批量 upsert = 单连接单事务+每行 SAVEPOINT——逐行独立建连 25 行 ~2-3s 被 T9.4 网关慢调用熔断误杀（实测），且批量落库走 sync def 线程池（T9.1 纪律）；②T11.5 docx = 内置程序化模板（非授权军标模板）+ DOCX_TEMPLATE_PATH 覆挂点；③T11.7 备份定时化 = 宿主 cron 调 deploy/backup/backup.sh（docker exec 注入容器执行）——不做 compose sidecar（docker.sock 特权+镜像拉取成本不成比例）；④T11.7 Neo4j 备份 = 在线 GraphML 快照（不停库快照级一致性），离线一致性 dump 列 ADR-005 生产项；⑤GraphML node id =「label:key」命名空间（实测图谱跨 label 同 key，裸 key 必冲突）；⑥网关 CircuitBreaker 对 >慢调阈值的请求「后端成功但回 503 fallback」——长耗时管理操作直连 :8090 绕网关 |
+| v1.4 | 2026-10-01 | 收官回填（T11.8）：全量回归绿（py 332 单测 / e2e 5 条含新增 e1_reverse_write / Java 71 / vitest 41）；M5 三项口径如实核验（生产部署 ✅ 单机口径 / 全量军标核对 ◐ 能力就绪待授权文本 / 用户可用 ✅）；附录 A 自检（⑤前端走查沿用用户豁免口径）；tag v0.4.0 |
