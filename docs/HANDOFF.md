@@ -17,7 +17,7 @@
 
 ---
 
-## 当前状态（最后更新：2026-10-01 · ZCode，v0.3.0 阶段 10 已收官 tag 待用户复核；当前在跑栈 = 容器化全栈 + 监控）
+## 当前状态（最后更新：2026-10-01 · ZCode，阶段 11（v0.4）执行中，见入口 7；当前在跑栈 = 容器化全栈 + 监控）
 
 | 项 | 状态 |
 |---|---|
@@ -50,6 +50,10 @@
 4. **设计-实现对照与优化路线（2026-09-30 新增）**：`docs/设计实现对照与优化路线.md`（GAP-001）——按桌面三份方案文档（已迁移至 `docs/reference/`，其中《设计方案》《系统实施方案》2026-09-30 补入，三份文末均已附纯增量增补）逐章对照实现现状，并维护 v0.2+ 优化补齐清单（P0：uvicorn 挂死根因/CSR 落地/军标首批条目；P1：限流熔断/容器化/监控/压测/性能重基线/L1 缓存；P2：E1 反向回写等 12 项）。**后续 v0.2/v0.3 迭代已按宪法 §7.1 编制阶段开发文档并登记 roadmap**：[PHASE-009](phase/phase-9-稳定性与核心承诺补强.md)（v0.2：T9.1 挂死根因 → T9.2 CSR/T9.3 军标并行 → T9.4 限流熔断 → T9.5 容器化 → T9.6 L1 缓存 → T9.7 收官 tag v0.2）与 [PHASE-010](phase/phase-10-生产就绪与M4验收.md)（v0.3：监控告警/50 并发压测/性能重基线 → M4 验收 tag v0.3）；阶段 11（v0.4）仅 roadmap 总览占位，任务分解待启动时编制。完成项随代码同 commit 回填状态。
 
 5. **阶段 9（稳定性与核心承诺补强，PHASE-009）已于 2026-09-30 全任务收官，待人工验收**：T9.1 挂死（线程池耗尽根因机制复现 + 线程池扩容 + 长轮询 async 化 + /healthz 事件循环心跳 503 探针）、T9.2 CSR（IR4 可空 csr + ReportTab 数值卡，口径 tooltip）、T9.3 军标激活（V12 expr 列 + SymPy 安全求值 + 6 条 DEMO 演示条目【待真实 GJB 授权后经军标页签替换】+ 完整管理表单）、T9.4 限流/熔断/429 结构化降级 + 前端幂等 GET 指数退避、T9.5 三镜像容器化（`deploy/docker/*.Dockerfile` + compose `--profile app`，README 双轨）、T9.6 L1 三层缓存（缓存键含供应商标识——e2e 可重复性教训）。全量回归绿（单测 281 / 四条 e2e / Java 46 / vitest 38），证据见 [PHASE-009](phase/phase-9-稳定性与核心承诺补强.md) §5。**人工验收清单**：①前端走查 ReportTab CSR 卡与军标页签新表单；②「另目录干净克隆 → compose --profile app up」目标机器复走；③确认后打 tag v0.2。之后进入阶段 10（PHASE-010，监控/压测/性能重基线/M4 验收）。**2026-09-30 补记**：用户明示「我懒得测试了，直接开始执行下一阶段」——v0.2.0 人工验收豁免（见 PHASE-009 §5 补记），阶段 10 已启动。
+
+6. **阶段 10（生产就绪与 M4 验收，PHASE-010）已于 2026-10-01 全任务收官，tag v0.3.0 已推送**（v0.2.0 人工验收由用户明示豁免后直跑）：T10.1 监控告警（compose `--profile monitoring`：prometheus/alertmanager/grafana/postgres-exporter + RabbitMQ 原生 prometheus 插件；py 指标双通道 API /metrics + worker :9101；Java 五服务 actuator；4 条核心告警触发证据入 `docs/reviews/evidence/`；AM→notify 桥接 Bearer 信任）；T10.2 50 并发×30min 压测全过（错误率 0.015%/轮询 P95 7ms/5xx=0/返工闭环 83 次 0 失败；限流校准 WF 150/450、PY 100/300——并修复 T9.4 compose RL_* 漏绑定）；T10.3 性能重基线（真 LLM 4 轮中位 554.5s≈9.2min 达成 NFR ≤15min；检索 P95 1.3s；T10.4 未触发关账）；压测/基线途中返修五项：py 镜像缺 contracts/、broker 心跳被 solo 长任务阻塞（broker_heartbeat=0）、闸门重投卡死（幂等+自愈）、供应商切换失效（查询失败/确认空双语义）、presigned URL 容器化不可达（公开端点独立签名 client region 固定）。全量回归绿：py 296 单测 / 四条 e2e / Java 46+ / vitest 38。报告：`docs/reviews/压测报告_v0.3.md`、`docs/reviews/性能基线_v0.3.md`、`docs/reviews/2026-09-30-监控告警证据-T101.md`。**当前在跑栈 = 容器化全栈（--profile app）+ monitoring + loadtest**；切回宿主开发模式先 `cd deploy && docker compose --profile app --profile monitoring --profile loadtest down`（保留底座）再 `scripts/start-all.cmd`。（2026-10-01 补记：原第 6 项误置于文末「工作约定速记」之后，随阶段 11 步骤 0 移回编号列表；roadmap 阶段 9/10 总览行、T10.5 任务行与 phase-9 T9.7 标题三处回填遗漏同 commit 修正。）
+
+7. **阶段 11（业务泛化与生产上线，[PHASE-011](phase/phase-11-业务泛化与生产上线.md)）2026-10-01 启动，执行中**：任务书已编制（T11.1–T11.8 各带 DoD）。执行顺序：T11.1 通知持久化 → T11.2 细粒度 RBAC + auth 用户管理 API → T11.3 E1 CAD→文档反向回写 → T11.4 军标批量录入 → T11.5 军标格式 Word 导出 → T11.6 vLLM 切换就绪 + 脱敏代理 → T11.7 容灾备份 → T11.8 收官 tag v0.4.0。**已确认口径**（用户 2026-10-01）：vLLM = 切换就绪（脱敏代理+mock 验证+操作手册，真实服务待硬件）；容灾 = 备份恢复落地 + ADR-005 双活方案文档（不实施流复制）；真实 GJB 全量核对待授权文本（本期交付批量录入能力）。
 
 ## 待验证 / 待决事项
 
@@ -112,4 +116,3 @@
 - UI 先 mockup 确认再写码；蓝色仅交互语义；中性生产力美学。
 - 密钥只存 `.env`（已 gitignore）；提交/日志/文档中不得出现真实 Key。
 
-6. **阶段 10（生产就绪与 M4 验收，PHASE-010）已于 2026-10-01 全任务收官**（v0.2.0 人工验收由用户明示豁免后直跑）：T10.1 监控告警（compose `--profile monitoring`：prometheus/alertmanager/grafana/postgres-exporter + RabbitMQ 原生 prometheus 插件；py 指标双通道 API /metrics + worker :9101；Java 五服务 actuator；4 条核心告警触发证据入 `docs/reviews/evidence/`；AM→notify 桥接 Bearer 信任）；T10.2 50 并发×30min 压测全过（错误率 0.015%/轮询 P95 7ms/5xx=0/返工闭环 83 次 0 失败；限流校准 WF 150/450、PY 100/300——并修复 T9.4 compose RL_* 漏绑定）；T10.3 性能重基线（真 LLM 4 轮中位 554.5s≈9.2min 达成 NFR ≤15min；检索 P95 1.3s；T10.4 未触发关账）；压测/基线途中返修五项：py 镜像缺 contracts/、broker 心跳被 solo 长任务阻塞（broker_heartbeat=0）、闸门重投卡死（幂等+自愈）、供应商切换失效（查询失败/确认空双语义）、presigned URL 容器化不可达（公开端点独立签名 client region 固定）。全量回归绿：py 296 单测 / 四条 e2e / Java 46+ / vitest 38。报告：`docs/reviews/压测报告_v0.3.md`、`docs/reviews/性能基线_v0.3.md`、`docs/reviews/2026-09-30-监控告警证据-T101.md`。**当前在跑栈 = 容器化全栈（--profile app）+ monitoring + loadtest**；切回宿主开发模式先 `cd deploy && docker compose --profile app --profile monitoring --profile loadtest down`（保留底座）再 `scripts/start-all.cmd`。

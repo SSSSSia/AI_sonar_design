@@ -1,0 +1,197 @@
+# 阶段 11 开发文档 · 业务泛化与生产上线（v0.4）
+
+| 项 | 内容 |
+|---|---|
+| 文档编号 | PHASE-011 |
+| 版本 | v1.0（2026-10-01，编制；依据 GAP-001 §3 P2 / §4 v0.4 行） |
+| 关联 | [GAP-001](../设计实现对照与优化路线.md) §3 P2（P2-1/2/3/4/5/7/11）/§4、总体设计方案 §5.2（军标格式导出）/§5.18（通知中心）/§9.3（脱敏代理）/§11.2（M5）、附录 C 权限矩阵、[ADR-004](../adr/ADR-004-CAD交互微调集成路线.md)（E1 预留）、[PHASE-010](phase-10-生产就绪与M4验收.md)（前置）、roadmap 阶段 11 |
+| 阶段目标 | 业务泛化五项（E1 CAD→文档反向回写、军标规模化录入与格式导出、细粒度 RBAC、通知持久化）+ 生产化两项（vLLM 切换就绪与 LLM 前置脱敏代理、容灾备份），对标 M5 中可软件交付部分，收官打 tag `v0.4.0` |
+| 验收形态 | e2e（含 E1 新链路）+ 单测 + 操作手册 + 备份恢复演练证据 + 文档回填 |
+
+---
+
+## 1. 阶段定位与边界
+
+### 1.1 为什么有这个阶段
+
+总体设计 §11.2 的 **M5「业务泛化」**（生产部署、全量军标核对、用户可用）是本阶段验收锚点。两项**外部依赖**在编制时即明示（GAP-001 §4 末行），处理口径经用户 2026-10-01 确认：
+
+1. **昇腾 910C + vLLM 硬件未到位** → 本期交付「切换就绪」：LLM 前置脱敏代理（设计 §9.3 纵深防御，纯软件）+ 供应商失败转移 + OpenAI 兼容 mock 验证切换链路 + 切换操作手册；真实 vLLM 服务待硬件按手册接入。
+2. **军标标准文本授权未到位** → 本期交付「规模化录入能力」：批量 API + xlsx/csv 导入 + 批量验证数据；真实 GJB 全量核对待授权后由内部人员经批量入口完成。
+
+### 1.2 本期范围（做）
+
+| 任务 | 对应 GAP-001 |
+|---|---|
+| T11.1 通知持久化（notify 库表 + 查询已读 API + 前端登录拉取） | P2-4 |
+| T11.2 细粒度 RBAC（三条硬规则）+ auth 用户管理 API | P2-5 + P2-7（用户管理部分） |
+| T11.3 E1 CAD→文档反向回写（diff 提案→人工确认→IR2 新版本→下游失效→gate2 复审） | P2-1（+ P2-2 处置） |
+| T11.4 军标批量录入（batch upsert + xlsx/csv 导入 + 批量验证） | 军标规模化（§4 v0.4 行） |
+| T11.5 军标格式 Word 导出（IR2/IR3/IR4 三章渲染） | P2-11 |
+| T11.6 vLLM 切换就绪（脱敏代理 + 失败转移 + 切换验证 + 操作手册） | vLLM 私有化切换（§2.6） |
+| T11.7 容灾备份（备份/恢复脚本 + 定时 + GraphML 快照 + 恢复演练 + ADR-005） | P2-7（备份恢复）+ P2-3（knowledge-dumps）+ 双活方案 |
+| T11.8 收官：全量回归 + M5 口径核验 + 文档回填 + tag v0.4.0 | — |
+
+### 1.3 非目标（明确不做）
+
+- 真实 vLLM 服务部署与昇腾适配（硬件到位后按 T11.6 手册执行）；
+- 真实 GJB 标准文本全量录入与核对（授权到位后经 T11.4 批量入口执行）；
+- 双活实施（PG 流复制、Neo4j causal cluster、MinIO 站点复制）——本期出 [ADR-005](../adr/) 方案文档定案，实施留生产环境；
+- PDF 导出（docx 先行；PDF 可后续由 docx 转换，如实记录）；
+- ELK 日志中心、前端 bundle 分割、P2-8/9/10/12 等未列入 v0.4 范围的 P2 项（日常迭代）。
+
+## 2. 设计要点
+
+### 2.1 E1 CAD→文档反向回写（T11.3）
+
+- **插入点唯一**：`cad_agent/service.py:finalize_version`（:258-353）尾部——微调定稿当前只追加 IR3（`linked_param_id` 一律 None）+ WS 通知，零回写（ADR-004 D8：偏差交 gate2 裁决）。
+- **diff 提案**：基线 IR3（tune.baseline_ir_version，A3 产出、`linked_param_id` 有值）vs 新 IR3 实测 geometry，对**长度/直径类可自动映射项**（`feature.linked_param_id` ↔ IR2 `parameter.id`，经 `linked_dim` 对应 bbox 维度）生成变更提案：`param_id / 旧值 / 新实测值 / 偏差% / 状态`；匹配逻辑复用 `a3_cad/geometry_link.py` 的粗匹配思路。
+- **人工确认后回写**：IR2 追加新版本——`value` 与 `derivation` **必须同步**（A4 符号表来自 derivation 的"符号=数值"行，`solver/standards.py:117`，只改 value 会导致军标/公式复算用旧值）；`design_document` 追加修订记录段（何参数因何微调由何值改为何值，留痕）。
+- **下游衔接**：IR4/IR5 **定向失效**（新增 markInvalidated 定向语义，不动既有"驳回整批"）→ 重派 `a4_task` → STAGE_DONE(a4) → gate2 复审（复用现有状态机幂等，沿用 T10.5 修复的防重/自愈语义）→ 审阅关②人工裁决。
+- **P2-2 处置**：`parameter_schemes` 表（建成但零引用）随本任务二选一定案——作 E1 提案存储或迁移注释声明"预留，IR2 快照为权威"，消除表-实现歧义。
+
+### 2.2 细粒度 RBAC（T11.2）
+
+- 现状：五表齐全已播种（4 角色 8 权限点）、JWT 带 roles、gateway 注 `X-User-Id/X-User-Roles`、biz/workflow 已有 `@PreAuthorize`。缺口：auth 无用户管理 API（AdminPage「待接」）；**py-engine `authz.py` 空角色集放行**（require_writer/require_admin 双漏洞）；KB 写端点用 require_writer（admin/designer）而非 admin。
+- **三条硬规则**（GAP-001 P2-5）：①审阅关裁决权 = `hasAnyRole('admin','reviewer')`（workflow 已有，补测试固化；「本人项目」成员级数据权限因无 project_members 模型，**角色级先落 + 如实记录**成员级留后续）；②知识库写权限 = admin（py-engine registry/文档写端点收紧）；③系统管理页门禁 = admin（py-engine 管理面 require_admin 全覆盖核验 + 前端已有路由守卫）。
+- **authz.py 修复**：无角色头 → 403（gateway 恒注入角色头，空角色 = 异常请求；放行语义废弃）。
+- **auth 用户管理 API**（admin-only）：列表 / 创建（BCrypt）/ 启停 / 重置密码 / 角色分配；AdminPage 用户管理页接通。
+
+### 2.3 通知持久化（T11.1）
+
+- 现状：notify 纯内存 WS 广播（零持久化、无 db/migration）；前端 localStorage 过渡态（刷新仍在、换端即失）；告警桥接（T10.1c）也只广播。
+- **方案**：biz 库 V14 `notifications` 表（`user_id` 可空 = 广播、`session_id`、`type`、`title`、`payload jsonb`、`read_at`、`created_at`）；notify 模块加 datasource（复用 biz 库，避免动 PG init 脚本）；InternalPublish/InternalAlert 广播同时落库；查询/已读 API 挂 notify，经 gateway 新路由 `/api/v1/notifications/**`（信任头鉴权）；前端 notifyStore 登录后拉取与 WS 实时流合并、已读调 API、未读徽标用服务端未读数。
+
+### 2.4 军标批量录入（T11.4）
+
+- 单条 CRUD/前端表单已齐（PHASE-009 T9.3），批量入口缺。批量 API 按 `code` upsert（冲突策略：更新已有行字段 + 报告差异清单）；xlsx/csv 导入复用 `kb/parsers.py` 解析思路（列头 → 字段白名单校验，`expr` 列留空 = 仅登记提示性核对）。
+- 前端 RegistryTab 批量入口：上传/粘贴 → 预览（逐行校验结果）→ 确认入库；入库后 `standards.reset_cache()` 热生效。
+
+### 2.5 军标格式 Word 导出（T11.5）
+
+- `python-docx>=1.1` 已在 requirements（现仅用于解析输入），导出方向零成本起步。素材 = IR2（design_document + parameters）/ IR3（geometry_summary + features）/ IR4（issues + csr）快照，`ir_store` 可取。
+- 结构按设计 §5.2 排版约定：封面（项目/会话/版本/日期）→ 设计文档正文（IR2.design_document）→ **参数表**（id/名称/数值/单位/来源分类/溯源）→ **溯源依据**（source_type 分组 + trace 反查指引）→ **校验结论**（overall/CSR/issue 分级明细）。
+- **如实标注**：内置程序化模板（标题层级/表格样式/中文字体），非授权军标正式模板；格式如有出入以用户提供的正式模板替换（预留 template 覆挂点）。
+
+### 2.6 vLLM 切换就绪 + 脱敏代理（T11.6）
+
+- **脱敏代理**（设计 §9.3 纵深防御，宪法 §10 红线扩展到 LLM 出站内容）：`llm/sanitize.py` 在 chat() 出站前对消息内容做键值脱敏——模式：API key/token/密码赋值形、内网地址与连接串、`.env` 键名值对；命中记审计日志（脱敏后的位置与类别，不记原值）；`SANITIZE_LLM_CONTENT` 开关默认开，关闭需显式 env。
+- **失败转移**：chat() 重试链升级——当前供应商重试耗尽后自动切换 priority 次高 enabled 供应商再试（可配置 `LLM_FAILOVER=1` 默认开）；`GET /llm/provider` 暴露各 provider 最近健康状态（来自调用结果）。
+- **切换验证**：e2e 用 OpenAI 兼容 mock 模拟 vLLM endpoint——注册 provider（base_url 指向 mock）→ 热切换生效 → 出站内容经脱敏断言 → 主 provider 故障自动转移次选。
+- **操作手册** `docs/ops/vLLM切换手册.md`：通用 GPU 与昇腾两形态（vLLM 起 OpenAI 兼容服务 → `POST /kb/llm-providers` 注册 → TTL 内自动生效），含回退步骤。
+
+### 2.7 容灾备份（T11.7）
+
+- `deploy/backup/`：`backup.sh`（pg_dump auth/biz/workflow 库 + neo4j-admin dump + MinIO `mc mirror` 数据桶 + redis BGSAVE 拷贝 + rabbitmq definitions 导出）、`restore.sh`（逆序恢复）、README（RPO/保留策略/恢复步骤）。
+- 定时执行：compose `--profile backup` 侧car（cron 镜像挂 backup 脚本与备份目录，默认每日 02:00，`BACKUP_CRON` 可调）。
+- **GraphML 快照**（承接 P2-3）：Neo4j 全图导出 GraphML 落 MinIO `knowledge-dumps` 桶（桶随此创建）——py-engine admin 端点触发 + 备份脚本调用；`docs/reference` 桌面原文不动。
+- **恢复演练**（A-16 落档）：干净目录执行 restore → PG/MinIO/Neo4j 数据可读、会话页面可打开，证据入 `docs/reviews/`。
+- **ADR-005**：容灾与双活路线（PG 流复制 / Neo4j causal cluster / MinIO 纠删与站点复制的选型与触发条件=生产部署）。
+
+## 3. 任务分解（T11.1–T11.8）
+
+> 执行顺序：T11.1 → T11.2 → T11.3 → T11.4 → T11.5 → T11.6 → T11.7 → T11.8（T11.4/T11.5 可并行于 T11.3 之后；每任务独立 commit）。
+
+### T11.1 通知持久化 ⬜
+
+- **DoD**：
+  - [ ] biz V14 `notifications` 表迁移 + notify 模块 datasource/Flyway 接入（广播即落库，含 alert 类型）
+  - [ ] 查询/已读 API（列表分页 + 未读数 + 单条已读 + 全部已读）经 gateway `/api/v1/notifications/**` 路由可达，信任头鉴权
+  - [ ] 前端 notifyStore 登录后拉取 + WS 实时流合并、已读/全部已读调 API、未读徽标服务端口径；vitest 用例
+  - [ ] Java 集成测试（落库/查询/已读/白名单外类型拒绝）
+
+### T11.2 细粒度 RBAC + 用户管理 ⬜
+
+- **DoD**：
+  - [ ] auth 用户管理 API（admin-only：列表/创建/启停/重置密码/角色分配）+ AdminPage 用户管理页接通（替换「待接」行）
+  - [ ] 三条硬规则：审阅关裁决权测试固化；py-engine KB 写端点收紧 admin；管理面 require_admin 全覆盖核验
+  - [ ] `authz.py` 空角色放行漏洞修复（无角色头 → 403）+ 既有调用方适配
+  - [ ] py 单测 + Java 测试 + vitest；designer 角色实测越权 403 证据
+
+### T11.3 E1 CAD→文档反向回写 ⬜
+
+- **DoD**：
+  - [ ] finalize_version 尾部 diff 提案生成（仅长度/直径联动项）+ biz V15 提案表（P2-2 parameter_schemes 一并定案）
+  - [ ] 提案查询/确认回写 API：IR2 新版本（value+derivation 同步 + design_document 修订段）→ IR4/IR5 定向失效 → a4_task 重派 → gate2 复审
+  - [ ] 前端提案确认卡片（diff 表：旧值/新实测/偏差%，确认/忽略）
+  - [ ] e2e `test_e1_reverse_write_e2e.py` 全闭环（定稿→提案→确认→IR2 v2→IR4 复算→gate2 复批）+ 单测（diff 匹配/derivation 同步/定向失效）
+  - [ ] A-16 抽查：无联动参数的微调不产提案；derivation 未同步时军标复算用新值（回归 standards.check_param）
+
+### T11.4 军标批量录入 ⬜
+
+- **DoD**：
+  - [ ] `POST /kb/registry/standards/batch`（code upsert + 差异清单）+ xlsx/csv 导入解析（字段白名单校验）
+  - [ ] 前端 RegistryTab 批量入口（上传/粘贴 → 预览校验 → 确认入库 → reset_cache 热生效）
+  - [ ] ≥20 条可机读条目批量入库验证（demo/公开条目，【演示】标注口径与 T9.3 一致）；真实 GJB 待授权如实记录
+
+### T11.5 军标格式 Word 导出 ⬜
+
+- **DoD**：
+  - [ ] `docgen/export_docx.py` 三章渲染（参数表含来源分类列 / 溯源依据 / 校验结论含 CSR 与 issue 分级）+ 封面修订记录
+  - [ ] `GET /cad/sessions/{sid}/export/docx` 下载 API + 前端 ReportTab 导出按钮
+  - [ ] 单测：导出文件 python-docx 可重开、章节标题/表格行数与快照数据一致；内置模板（非授权军标模板）如实标注
+
+### T11.6 vLLM 切换就绪 + 脱敏代理 ⬜
+
+- **DoD**：
+  - [ ] `llm/sanitize.py` 出站键值脱敏（默认开、命中审计、显式 env 才可关）
+  - [ ] 失败转移：主 provider 耗尽自动切 priority 次高 + provider 健康状态暴露
+  - [ ] e2e 切换验证：mock vLLM 注册→热切换→脱敏断言→故障转移断言
+  - [ ] `docs/ops/vLLM切换手册.md`（通用 GPU/昇腾两形态 + 回退步骤；真实 vLLM 待硬件如实记录）
+
+### T11.7 容灾备份 ⬜
+
+- **DoD**：
+  - [ ] `deploy/backup/` backup.sh/restore.sh/README（四库 + Neo4j + MinIO + Redis + RabbitMQ definitions；RPO/保留策略）
+  - [ ] compose `--profile backup` 定时 sidecar（BACKUP_CRON 可调）+ GraphML 快照落 knowledge-dumps 桶（P2-3 承接）
+  - [ ] 恢复演练证据入 docs/reviews/（干净目录恢复后数据可读、会话可打开）
+  - [ ] ADR-005 容灾与双活路线（方案定案，实施触发条件=生产部署）；AdminPage 备份行状态更新
+
+### T11.8 收官 + tag v0.4.0 ⬜
+
+- **DoD**：
+  - [ ] 全量回归：py 全量单测 + e2e 全套（含新增）+ Java mvn test + vitest
+  - [ ] M5 口径逐项如实核验：生产部署 = 容器化全栈+监控+备份就绪（单机形态，集群留生产环境）；全量军标核对 = 批量能力就绪 + GJB 待授权（如实）；用户可用 = 用户管理/RBAC/E1/导出可用
+  - [ ] 文档回填：roadmap 阶段 11 全任务、phase-11 §5/§8、GAP-001 P2 相关行、HANDOFF、附录 E.4、devlog
+  - [ ] 宪法附录 A 自检 → tag `v0.4.0`（§8.3 三段式）+ push
+
+## 4. 阶段管理
+
+### 4.1 风险与对策
+
+| 风险 | 对策 |
+|---|---|
+| E1 改动波及审阅关状态机（T10.5 刚修复幂等） | 定向失效与重派严格复用既有语义；e2e 全量回归含 phase2/cad_tune 两条门语义链路 |
+| RBAC 收紧破坏既有 e2e/前端流 | 收紧点逐一过回归；前端对 403 统一提示；designer 账号实测越权路径 |
+| 通知落库写放大（WS 高频 task_progress） | 落库限 review_request/ir_updated/alert 等关键类型，task_progress 等过程类仍仅广播（口径写进代码注释与文档） |
+| 备份脚本误操作损伤在跑栈 | 备份只读（dump/mirror）；restore 演练在独立目录/临时容器进行；先演练后收官 |
+| 军标导出格式与正式模板出入 | 如实标注内置模板；预留模板覆挂点，待用户提供正式模板替换 |
+
+### 4.2 验收流程（阶段末）
+
+全量回归绿 → 各任务 DoD 证据齐 → M5 三项口径逐项核验（如实）→ 文档回填 → 附录 A 自检 → tag v0.4.0。
+
+## 5. 验收记录
+
+| 任务 | 实测证据 | 时间 |
+|---|---|---|
+| （随任务完成逐行登记） | | |
+
+## 6. 决策记录
+
+- **vLLM 口径 = 切换就绪（脱敏代理 + 失败转移 + mock 验证 + 操作手册）**，真实 vLLM 服务待硬件——用户 2026-10-01 确认（选项：脱敏代理+切换验证 / 部署真实 vLLM / 跳过）。
+- **容灾口径 = 备份恢复落地 + ADR-005 双活方案文档**，流复制等双活不实施——用户 2026-10-01 确认。
+- **通知表放 biz 库**（V14，notify 模块加 datasource 指向 biz 库）：避免改 PG init 脚本触发底座卷重置；notify 与 biz 共库不同表，边界以表名前缀与访问层隔离。
+- **E1 提案存储 = biz V15 新表**（cad_tune_param_proposals）；P2-2 parameter_schemes 随 T11.3 定案（倾向：迁移注释声明"预留，IR2 快照为权威"，表结构不匹配提案语义则以新表承载）。
+- **通知落库类型口径**：review_request / ir_updated / alert 等关键类信封落库；task_progress / log 等高频过程类仅广播（写放大与表膨胀控制）。
+- **Word 导出先行 docx**，PDF 后置（可由 docx 转换）；内置程序化模板 + 覆挂点，非授权军标正式模板（A-16 如实标注）。
+
+## 7. 演进路线（承诺项，非本期范围）
+
+- v0.5+（生产环境落地时）：真实 vLLM 昇腾部署（按 T11.6 手册）、真实 GJB 全量录入与核对（按 T11.4 批量入口）、双活实施（按 ADR-005）、ELK 日志中心、成员级项目数据权限、P2-8/9/10/12、PDF 导出。
+
+## 8. 修订记录
+
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| v1.0 | 2026-10-01 | 初版编制（ZCode）。前置发现（探索实证）：①阶段 9/10 文档回填遗留——roadmap 阶段 9/10 总览行与 T10.5 行仍「待开发」、phase-9 T9.7 标题未勾、phase-10 附录 A 自检①与事实不符、HANDOFF「下一步入口」缺阶段 11 条目，随本 commit 一并修正；②E1 插入点唯一（finalize_version 尾部），关联键现成（IR3 linked_param_id ↔ IR2 parameter.id），失效基建现成但需新增定向语义；③IR2 回写须 value+derivation 同步（A4 符号表依赖 derivation）；④python-docx 已在依赖，Word 导出零新增依赖；⑤RBAC 五表齐全已播种，缺口 = auth 用户管理 API、authz.py 空角色放行双漏洞、KB 写端点宽松；⑥notify 零持久化无迁移目录，通知表放 biz 库最简；⑦军标批量入口缺，单条链路已齐；⑧备份全仓零实现，GraphML 快照承接 P2-3（knowledge-dumps 桶未建随此建）；⑨vLLM 切换机制已就绪（llm_providers 热加载），vLLM 本身即 OpenAI 兼容——注册 provider 即切换，缺脱敏代理与失败转移 |

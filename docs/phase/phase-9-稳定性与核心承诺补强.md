@@ -188,7 +188,7 @@ compose 扩展（`deploy/docker-compose.yml` 追加 app 服务组）：frontend 
   - [x] KB 变更后 `cache:kb:*` 清空实测（真 Redis 单测：只清 kb 层不动 llm 层；kb_store 13 方法挂钩验证）
   - [x] `/api/v1/kb/status` 实测暴露三层计数与 redis_available；`LLM_CACHE_ENABLED` 开关生效（默认开）
 
-### T9.7 收官 ⬜ 待开发
+### T9.7 收官 ✅ 已完成（2026-09-30，tag v0.2.0；标题 2026-10-01 补记回填）
 
 - **要点**：四条 e2e + py 单测 + Java 测试全量回归；roadmap/GAP-001/HANDOFF 状态回填；按宪法附录 A 发布检查清单打 tag `v0.2`；devlog 补充记录。
 
