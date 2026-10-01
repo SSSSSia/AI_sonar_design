@@ -57,3 +57,6 @@ java-platform/workflow/workflow-run.log
 gateway.log
 py-engine.log
 workflow-run.log
+
+# 容灾备份产物（T11.7，deploy/backup/backup.sh 输出）
+backups/
