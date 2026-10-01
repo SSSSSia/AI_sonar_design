@@ -107,6 +107,33 @@ class _ProviderStore:
                 self._cached_at = time.time()
             return self._providers[0] if self._providers else _MISSING
 
+    def chain(self) -> list:
+        """按优先级排序的全部可用供应商（T11.6 失败转移链，首元素 = active）。"""
+        with self._lock:
+            return list(self._providers)
+
+
+_PROVIDER_HEALTH: dict = {}
+_HEALTH_LOCK = threading.Lock()
+
+
+def _record_health(name: str, ok: bool, error: str | None = None) -> None:
+    """供应商最近一次调用结果（T11.6：/llm/provider 健康可见）。"""
+    import time as _time
+
+    with _HEALTH_LOCK:
+        _PROVIDER_HEALTH[name] = {
+            "ok": ok,
+            "last_error": (error or "")[:200] if not ok else None,
+            "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        }
+
+
+def provider_health() -> list:
+    """各供应商最近健康态（管理面展示）。"""
+    with _HEALTH_LOCK:
+        return [{"name": name, **info} for name, info in _PROVIDER_HEALTH.items()]
+
 
 class _MissingProvider:
     def __str__(self) -> str:
@@ -146,9 +173,16 @@ class LlmAdapter:
     """
 
     def chat(self, messages: list[dict[str, str]], timeout_s: int | None = None, **kwargs: Any) -> str:
-        """timeout_s：单次调用超时覆盖（默认用供应商配置）；其余 kwargs 透传请求体。"""
+        """timeout_s：单次调用超时覆盖（默认用供应商配置）；其余 kwargs 透传请求体。
+
+        T11.6：出站消息先经 llm/sanitize 键值脱敏（默认开——密钥/token/密码/连接串）；
+        供应商失败转移——主供应商重试耗尽后按优先级次高继续（LLM_FAILOVER 缺省开）。
+        """
         from app_config import LLM_CACHE_ENABLED
+        from llm.sanitize import sanitize_messages
         from storage import cache
+
+        messages, _hits = sanitize_messages(messages)  # 出站脱敏（缓存键随之基于脱敏后内容）
 
         cache_key: str | None = None
         if LLM_CACHE_ENABLED:
@@ -166,9 +200,25 @@ class LlmAdapter:
                 if cached is not None:
                     return cached
 
+        chain: list = []
+        if _FAILOVER_ENABLED:
+            chain = [p for p in _store.chain() if not isinstance(p, _MissingProvider)]
+        if not chain:
+            chain = [active_provider()]
+        last_exc: Exception | None = None
+        for provider in chain:
+            outcome = self._chat_single(provider, messages, timeout_s, cache_key, kwargs)
+            if isinstance(outcome, str):
+                return outcome
+            last_exc = outcome
+        raise RuntimeError(f"LLM 调用在全部 {len(chain)} 家供应商（含各自重试）后仍失败") from last_exc
+
+    def _chat_single(self, provider, messages, timeout_s, cache_key, kwargs):
+        """单供应商调用（含 LLM_MAX_RETRIES 重试）。成功返回 str；最终失败返回最后异常。"""
+        from storage import cache
+
         last_exc: Exception | None = None
         for attempt in range(1, LLM_MAX_RETRIES + 1):
-            provider = active_provider()
             t0 = time.perf_counter()
             try:
                 chunks: list[str] = []
@@ -199,6 +249,7 @@ class LlmAdapter:
                             chunks.append(content)
                 result = "".join(chunks)
                 _observe_llm_call(provider.name, time.perf_counter() - t0, True)
+                _record_health(provider.name, True)
                 if cache_key and result:
                     cache.set_str(cache_key, result, cache.TTL_LLM_S)
                 return result
@@ -209,7 +260,8 @@ class LlmAdapter:
                     "LLM 调用失败(第 %s/%s 次, provider=%s): %s",
                     attempt, LLM_MAX_RETRIES, provider.name, exc,
                 )
-        raise RuntimeError(f"LLM 调用在 {LLM_MAX_RETRIES} 次重试后仍失败") from last_exc
+        _record_health(provider.name, False, str(last_exc) if last_exc else "unknown")
+        return last_exc
 
 
 def _observe_llm_call(provider_name: str, duration_s: float, ok: bool) -> None:
@@ -221,5 +273,13 @@ def _observe_llm_call(provider_name: str, duration_s: float, ok: bool) -> None:
     except Exception:
         pass  # 指标故障不影响调用主链路
 
+
+def _env_flag(name: str, default: str) -> bool:
+    import os
+
+    return os.environ.get(name, default).strip().lower() not in ("0", "false", "no")
+
+
+_FAILOVER_ENABLED = _env_flag("LLM_FAILOVER", "1")
 
 llm_adapter = LlmAdapter()

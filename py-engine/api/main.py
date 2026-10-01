@@ -204,9 +204,13 @@ def debug_always_fail(req: FailRequest) -> dict[str, Any]:
 @app.get("/llm/provider")
 def llm_provider(user: str = Depends(require_user)) -> dict[str, Any]:
     try:
-        return active_provider().redacted()
+        active = active_provider().redacted()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # T11.6：附各供应商最近健康态（失败转移链可视化）
+    from llm.adapter import provider_health
+
+    return {**active, "health": provider_health()}
 
 
 @app.post("/llm/provider/reload")

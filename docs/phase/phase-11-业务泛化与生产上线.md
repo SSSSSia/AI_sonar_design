@@ -132,13 +132,13 @@
   - [x] `GET /cad/sessions/{sid}/export/docx`（RFC 5987 中文文件名）+ 前端 ReportTab「导出 Word」按钮（getBlob 下载）
   - [x] 单测 4 例（重开断言章节/表格行数/CSR/中文化/素材缺失如实标注）；容器栈真实验证：真实会话（基线 round-2）导出 42KB，四章齐、参数表 20 行、总体结论/CSR=100.0 如实渲染；内置模板（非授权军标模板）如实标注
 
-### T11.6 vLLM 切换就绪 + 脱敏代理 ⬜
+### T11.6 vLLM 切换就绪 + 脱敏代理 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] `llm/sanitize.py` 出站键值脱敏（默认开、命中审计、显式 env 才可关）
-  - [ ] 失败转移：主 provider 耗尽自动切 priority 次高 + provider 健康状态暴露
-  - [ ] e2e 切换验证：mock vLLM 注册→热切换→脱敏断言→故障转移断言
-  - [ ] `docs/ops/vLLM切换手册.md`（通用 GPU/昇腾两形态 + 回退步骤；真实 vLLM 待硬件如实记录）
+  - [x] `llm/sanitize.py` 出站键值脱敏（sk- key/Bearer/password/带凭据连接串/.env 密钥行七类模式；默认开 `SANITIZE_LLM_CONTENT=1` 显式 0 才可关；审计日志只记类别与次数不记原值）；接入 chat() 入口——缓存键随之基于脱敏后内容
+  - [x] 失败转移：主 provider 重试耗尽自动切 priority 次高（`LLM_FAILOVER` 缺省开）+ `_record_health` 健康态经 `GET /llm/provider` 的 health[] 暴露（进程内口径如实注明）
+  - [x] 验证：单测 8 例（七类模式/正常文本零命中/开关语义/wire 级出站断言——httpx 打桩捕获请求体不含原始密钥且 [REDACTED] 在场/转移链 3 次调用 2+1/关闭转移仅主供应商/健康记录）；容器栈实测：注册 vllm-sim（OpenAI 兼容 mock）→ 热切换 active → 容器内真实 chat → 审计日志「脱敏命中 api_key×1」→ 健康态 ok=True → 删除回退
+  - [x] `docs/ops/vLLM切换手册.md`（通用 GPU/昇腾 vllm-ascend 两形态 + 注册/回退/验收清单；真实 vLLM 待硬件如实记录）
 
 ### T11.7 容灾备份 ⬜
 
@@ -181,6 +181,7 @@
 | T11.3 E1 反向回写 | py 312 passed（新 10）；e2e 全闭环 39s 一次通过（真实 STEP 100→120mm：提案→确认→IR2 v2→A4 重算→自动重挂 gate2→批准→completed）；P2-2 随此定案 | 2026-10-01 |
 | T11.4 军标批量录入 | py 320 passed（新 8）；容器栈实测 25 条批量导入（dry_run→导入→重导幂等）+ 熔断误杀返修（单连接 SAVEPOINT 重构） | 2026-10-01 |
 | T11.5 Word 导出 | 单测 4 例全绿；容器栈真实会话导出 42KB——四章齐/参数表 20 行/总体结论与 CSR 如实渲染（python-docx 重开断言） | 2026-10-01 |
+| T11.6 vLLM 就绪+脱敏 | 单测 8 例（wire 级出站断言+转移链）；容器栈实测：vllm-sim 热切换→chat→审计「脱敏命中 api_key×1」→health ok=True；手册入库 docs/ops/ | 2026-10-01 |
 
 ## 6. 决策记录
 
