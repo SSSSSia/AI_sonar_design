@@ -118,12 +118,12 @@
   - [x] e2e `test_e1_reverse_write_e2e.py` 全闭环（39s：真实 STEP 100→120mm → 提案 1 条 → 确认 → IR2 v2 derivation 同步断言 → 自动重挂 gate2 → 批准 → A5 → completed → 提案终态 applied）
   - [x] A-16 抽查：单测覆盖无联动基线/分段变化/噪声阈不产提案；derivation 未同步时符号表用旧值的风险以原地替换消除（parse_inputs_from_derivation 回读断言）
 
-### T11.4 军标批量录入 ⬜
+### T11.4 军标批量录入 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] `POST /kb/registry/standards/batch`（code upsert + 差异清单）+ xlsx/csv 导入解析（字段白名单校验）
-  - [ ] 前端 RegistryTab 批量入口（上传/粘贴 → 预览校验 → 确认入库 → reset_cache 热生效）
-  - [ ] ≥20 条可机读条目批量入库验证（demo/公开条目，【演示】标注口径与 T9.3 一致）；真实 GJB 待授权如实记录
+  - [x] `POST /kb/registry/{kind}/batch`（500 行/批上限；冲突键 upsert + 逐行错误清单）+ `POST /registry/{kind}/import`（xlsx/csv 解析，utf-8-sig/GBK 兼容，enabled 中英布尔归一，dry_run 预览不入库）；批量 upsert = **单连接单事务 + 每行 SAVEPOINT**（实测教训：每行独立连接 25 行 ~2-3s 被网关慢调用熔断误杀）
+  - [x] 前端 RegistryTab「批量导入」（军标页签）：上传 → dry_run 预览（行数+问题清单）→ 确认入库 → reset_cache 热生效
+  - [x] 25 条可机读演示条目批量入库验证（`deploy/seed/demo_standards_batch.csv`，【演示】+ confidence=low + **enabled=停用**——不干扰现网 A4 核对，真实 GJB 授权后经此入口规模化录入并启用）；容器栈实测：dry_run 预览 25 行 0 问题 → 导入 25 → 重导幂等（25 updated/0 inserted）
 
 ### T11.5 军标格式 Word 导出 ⬜
 
@@ -179,6 +179,7 @@
 | T11.1 通知持久化 | Java notify 17 用例全绿（新 NotificationApiTest 8）；vitest 41 passed（新 3）；容器栈真实验证：review_request 角色扇出（designer 无行）/ alert 全员扇出 + 服务端标题 / task_progress 不落库 / 单删清空按用户隔离 / 503 降级；gateway 路由 + 统一响应包实测 200 | 2026-10-01 |
 | T11.2 RBAC+用户管理 | py 302 passed（新 6）；auth UserControllerTest 11 用例；workflow RbacTest 注解守护；容器栈真实生命周期：designer 访问用户列表 403 / user-qa 创建→停用→登录 403→重置密码→升 admin→删除全链 200/403 符合预期 | 2026-10-01 |
 | T11.3 E1 反向回写 | py 312 passed（新 10）；e2e 全闭环 39s 一次通过（真实 STEP 100→120mm：提案→确认→IR2 v2→A4 重算→自动重挂 gate2→批准→completed）；P2-2 随此定案 | 2026-10-01 |
+| T11.4 军标批量录入 | py 320 passed（新 8）；容器栈实测 25 条批量导入（dry_run→导入→重导幂等）+ 熔断误杀返修（单连接 SAVEPOINT 重构） | 2026-10-01 |
 
 ## 6. 决策记录
 

@@ -1,0 +1,26 @@
+code,name,applies_to,requirement,expr,confidence,enabled
+DEMO-BATCH-001,【演示】换能器外径,外径,换能器外径不得超过上限,outer_diameter <= 325,low,停用
+DEMO-BATCH-002,【演示】阵元间距,间距,阵元间距不低于半波长,element_spacing >= 0.5,low,停用
+DEMO-BATCH-003,【演示】工作频段下限,频段,工作频率下限核对,f0 >= 150,low,停用
+DEMO-BATCH-004,【演示】工作频段上限,频段,工作频率上限核对,f0 <= 1500,low,停用
+DEMO-BATCH-005,【演示】拖缆长度,缆长,拖缆长度上限,tow_length <= 300,low,停用
+DEMO-BATCH-006,【演示】接收灵敏度,灵敏度,接收灵敏度下限,value >= -201,low,停用
+DEMO-BATCH-007,【演示】阵元数,阵元数,阵元数上限,n <= 128,low,停用
+DEMO-BATCH-008,【演示】耐压壳厚,壁厚,耐压壳最薄处厚度,wall_thickness >= 3,low,停用
+DEMO-BATCH-009,【演示】声纳罩透声率,透声率,透声率下限,transmission >= 0.85,low,停用
+DEMO-BATCH-010,【演示】缆径,缆径,拖缆直径范围,cable_diameter <= 30,low,停用
+DEMO-BATCH-011,【演示】展开深度,深度,拖体展开深度上限,depth <= 600,low,停用
+DEMO-BATCH-012,【演示】声源级,声源级,发射声源级下限,source_level >= 190,low,停用
+DEMO-BATCH-013,【演示】旁瓣抑制,旁瓣,旁瓣级抑制量,sidelobe <= -25,low,停用
+DEMO-BATCH-014,【演示】波束宽度,波束,水平波束宽度范围,beam_width <= 30,low,停用
+DEMO-BATCH-015,【演示】重量,重量,湿端重量上限,wet_weight <= 500,low,停用
+DEMO-BATCH-016,【演示】拖曳速度,航速,额定拖曳速度范围,towing_speed <= 12,low,停用
+DEMO-BATCH-017,【演示】存储温度,温度,存储温度上限,storage_temp <= 55,low,停用
+DEMO-BATCH-018,【演示】防护等级,防护,湿端防护等级下限,protection >= 67,low,停用
+DEMO-BATCH-019,【演示】绝缘电阻,绝缘,绝缘电阻下限,insulation >= 100,low,停用
+DEMO-BATCH-020,【演示】接地电阻,接地,接地电阻上限,ground_resistance <= 5,low,停用
+DEMO-BATCH-021,【演示】电源纹波,纹波,电源纹波上限,ripple <= 50,low,停用
+DEMO-BATCH-022,【演示】连续工作时长,时长,连续工作时间下限,continuous_hours >= 24,low,停用
+DEMO-BATCH-023,【演示】平均无故障时间,MTBF,MTBF 下限,mtbf >= 2000,low,停用
+DEMO-BATCH-024,【演示】振动量级,振动,振动量级上限,vibration <= 5,low,停用
+DEMO-BATCH-025,【演示】冲击量级,冲击,抗冲击量级下限,shock >= 15,low,停用

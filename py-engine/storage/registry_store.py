@@ -168,3 +168,58 @@ def delete_provider(name: str) -> bool:
     with _connect() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM llm_providers WHERE name = %s RETURNING name", (name,))
         return cur.fetchone() is not None
+
+
+def _prepare_patch(kind: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """字段白名单过滤 + confidence 校验 + symbols 序列化（create_row/batch_upsert 共用）。"""
+    allowed = WRITABLE[kind]
+    patch = {k: v for k, v in fields.items() if k in allowed}
+    if "confidence" in patch:
+        patch["confidence"] = _validate_confidence(patch["confidence"])
+    if not patch:
+        raise ValueError("无可写字段")
+    if "symbols" in patch and isinstance(patch["symbols"], (list, dict)):
+        patch["symbols"] = json.dumps(patch["symbols"], ensure_ascii=False)
+    return patch
+
+
+def batch_upsert(kind: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """批量 upsert（T11.4 军标规模化录入）：按冲突键（formulas=key / constraints=name /
+    standards=code）逐行 upsert。**单连接单事务 + 每行 SAVEPOINT**——25 行批量全程一次
+    建连（每行独立连接会被网关慢调用熔断误杀，T11.4 实测教训），单行失败回滚自身不
+    影响整批，errors 如实带行号（A-16）。返回 {inserted, updated, errors, total}。"""
+    if kind not in TABLES:
+        raise ValueError(f"未知 registry kind: {kind}")
+    conflict_key = "key" if kind == "formulas" else "name" if kind == "constraints" else "code"
+    table = TABLES[kind]
+    existing: set[str] = set()
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT {conflict_key} FROM {table}")
+        for r in cur.fetchall():
+            if r[conflict_key] is not None:
+                existing.add(str(r[conflict_key]))
+        inserted = updated = 0
+        errors: list[dict[str, Any]] = []
+        for i, fields in enumerate(rows):
+            key_value = str(fields.get(conflict_key) or "")
+            try:
+                patch = _prepare_patch(kind, fields)
+                cols = ", ".join(patch)
+                marks = ", ".join(f"%({k})s" for k in patch)
+                sql = (
+                    f"INSERT INTO {table} ({cols}) VALUES ({marks}) "
+                    f"ON CONFLICT ({conflict_key}) DO UPDATE SET "
+                    + ", ".join(f"{k} = EXCLUDED.{k}" for k in patch if k != conflict_key)
+                    + ", updated_at = now() RETURNING *"
+                )
+                with conn.transaction():  # 嵌套事务 = SAVEPOINT：单行失败只回滚该行
+                    cur.execute(sql, patch)
+                if key_value in existing:
+                    updated += 1
+                else:
+                    inserted += 1
+                    existing.add(key_value)
+            except Exception as exc:  # 逐行容错：错误如实带行号（A-16）
+                errors.append({"row": i + 1, "key": key_value, "error": str(exc)[:300]})
+        conn.commit()
+    return {"total": len(rows), "inserted": inserted, "updated": updated, "errors": errors}

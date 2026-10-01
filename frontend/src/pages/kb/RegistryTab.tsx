@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip } from 'antd'
+import { App, Alert, Button, Card, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Upload } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  createRegistryRow, deleteRegistryRow, listRegistry, updateRegistryRow,
+  createRegistryRow, deleteRegistryRow, importRegistryFile, listRegistry, updateRegistryRow,
   type RegistryKind, type RegistryRow,
 } from '../../api/kb'
 import { QueryEmpty } from '../../components/QueryEmpty'
@@ -43,6 +43,11 @@ export function RegistryTab() {
   const [newName, setNewName] = useState('')
   const [newExpr, setNewExpr] = useState('')
   const [stdForm, setStdForm] = useState<StdFormState>(STD_FORM_EMPTY)
+  // T11.4 批量导入：xlsx/csv 上传 → dry_run 预览（问题如实带行号）→ 确认落库
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<{ rows: Record<string, unknown>[]; problems: { row: number; error: string }[] } | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const rowsQuery = useQuery({ queryKey: ['kb-registry', kind], queryFn: () => listRegistry(kind) })
   const rows: RegistryRow[] = rowsQuery.data?.rows ?? []
@@ -205,7 +210,10 @@ export function RegistryTab() {
       }
       extra={
         kind === 'standards' ? (
-          <Button type="primary" onClick={openStdNew}>＋ 新增军标条目</Button>
+          <Space>
+            <Button onClick={() => { setImportOpen(true); setPreview(null); setImportFile(null) }}>批量导入</Button>
+            <Button type="primary" onClick={openStdNew}>＋ 新增军标条目</Button>
+          </Space>
         ) : (
           <Button type="primary" onClick={() => setAdding(true)}>＋ 新增条目</Button>
         )
@@ -282,6 +290,63 @@ export function RegistryTab() {
               { value: 'low', label: '可信度 low（演示/待核）' },
             ]}
           />
+        </Space>
+      </Modal>
+
+      <Modal
+        title={`批量导入（${KIND_TAB.find((k) => k.value === kind)?.label ?? kind}）`}
+        open={importOpen}
+        onCancel={() => setImportOpen(false)}
+        width={680}
+        footer={[
+          <Button key="cancel" onClick={() => setImportOpen(false)}>关闭</Button>,
+          <Button key="do" type="primary" loading={importing} disabled={!preview || (preview?.problems.length ?? 0) > 0}
+            onClick={async () => {
+              if (!importFile) return
+              setImporting(true)
+              try {
+                const r = await importRegistryFile(kind, importFile, false)
+                message.success(`导入完成：新增 ${r.inserted ?? 0}，更新 ${r.updated ?? 0}，失败 ${(r.errors ?? []).length}`)
+                if ((r.errors ?? []).length > 0) {
+                  message.warning(r.errors!.slice(0, 3).map((e) => `第${e.row}行: ${e.error}`).join('；'))
+                }
+                setImportOpen(false)
+                void queryClient.invalidateQueries({ queryKey: ['kb-registry', kind] })
+              } catch (e) { message.error(errText(e, 200)) } finally { setImporting(false) }
+            }}>
+            {preview ? `确认导入（${preview.rows.length} 行）` : '先上传文件预览'}
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: '100%', marginTop: 12 }} size={12}>
+          <Alert type="info" showIcon
+            message="上传 xlsx / csv（首行为列头，直接用字段名：code / name / applies_to / requirement / expr / confidence / enabled；enabled 支持 是/否/启用/停用/true/false）。按编号（code）upsert：已存在则更新，新增则插入。真实 GJB 标准文本经授权后由此入口规模化录入。" />
+          <Upload.Dragger
+            maxCount={1}
+            accept=".xlsx,.csv"
+            beforeUpload={(f) => {
+              setImportFile(f); setPreview(null)
+              importRegistryFile(kind, f, true)
+                .then((r) => setPreview({ rows: r.rows, problems: r.problems }))
+                .catch((e) => message.error(errText(e, 200)))
+              return false
+            }}
+            onRemove={() => { setImportFile(null); setPreview(null) }}
+            fileList={importFile ? [{ uid: '1', name: importFile.name } as never] : []}
+          >
+            <p className="ant-upload-text" style={{ fontSize: 13 }}>点击或拖拽 xlsx / csv 到此区域</p>
+            <p className="ant-upload-hint" style={{ fontSize: 12 }}>单批上限 500 行；预览通过后点「确认导入」</p>
+          </Upload.Dragger>
+          {preview && (
+            <Alert
+              type={(preview.problems.length ?? 0) > 0 ? 'warning' : 'success'}
+              showIcon
+              message={`解析 ${preview.rows.length} 行，问题 ${preview.problems.length} 个`}
+              description={(preview.problems.length ?? 0) > 0
+                ? preview.problems.slice(0, 5).map((p) => `第${p.row}行: ${p.error}`).join('；')
+                : '校验通过，可确认导入'}
+            />
+          )}
         </Space>
       </Modal>
     </Card>

@@ -199,3 +199,31 @@ export interface KbStatus {
 export function getKbStatus() {
   return get<KbStatus>('/kb/status')
 }
+
+// ---- 批量录入（T11.4 军标规模化：batch upsert + xlsx/csv 导入，admin） ----
+export interface BatchResult {
+  total: number
+  inserted: number
+  updated: number
+  errors: { row: number; key?: string; error: string }[]
+  dry_run?: boolean
+}
+
+export interface ImportPreview {
+  rows: Record<string, unknown>[]
+  problems: { row: number; error: string }[]
+  dry_run: boolean
+}
+
+export function batchRegistryRows(kind: RegistryKind, rows: Record<string, unknown>[]) {
+  return post<BatchResult>(`/kb/registry/${kind}/batch`, { rows })
+}
+
+export async function importRegistryFile(kind: RegistryKind, file: File, dryRun: boolean) {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await http.post<ImportPreview & BatchResult>(
+    `/kb/registry/${kind}/import`, form,
+    { params: { dry_run: dryRun }, headers: { 'Content-Type': 'multipart/form-data' } })
+  return resp.data
+}

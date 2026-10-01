@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from api.authz import require_user, require_writer, require_admin
@@ -442,6 +442,123 @@ def update_registry_row(kind: str, row_id: int, req: RegistryRow,
         raise HTTPException(status_code=404, detail=f"条目不存在: {row_id}")
     standards.reset_cache()
     return {"row": row}
+
+
+class BatchRows(BaseModel):
+    rows: list[dict]
+
+
+@router.post("/registry/{kind}/batch")
+def batch_registry_rows(kind: str, req: BatchRows,
+                        user: str = Depends(require_admin)) -> dict:
+    """批量 upsert（T11.4 军标规模化录入）：按冲突键逐行 upsert，单行失败不回滚整批。
+    上限 500 行/批（防误传全量轰炸；更大规模分批）。"""
+    if kind not in ("formulas", "constraints", "standards"):
+        raise HTTPException(status_code=404, detail=f"未知资产库: {kind}")
+    if not req.rows:
+        raise HTTPException(status_code=400, detail="rows 不能为空")
+    if len(req.rows) > 500:
+        raise HTTPException(status_code=400, detail=f"单批上限 500 行（当前 {len(req.rows)}），请分批")
+    from solver import standards
+    from storage import registry_store
+
+    result = registry_store.batch_upsert(kind, req.rows)
+    standards.reset_cache()
+    return result
+
+
+def _parse_batch_file(filename: str, data: bytes) -> list[dict]:
+    """xlsx/csv → 字段行（T11.4）。首行为列头（=字段白名单名）；csv 兼容 utf-8-sig/GBK
+    （Windows Excel 导出常见）。enabled 布尔做中英文惯用形态归一。"""
+    import csv as _csv
+    import io as _io
+
+    lower = (filename or "").lower()
+    if lower.endswith(".xlsx"):
+        import openpyxl
+
+        wb = openpyxl.load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.worksheets[0]
+        rows = [list(r) for r in ws.iter_rows(values_only=True)]
+        wb.close()
+    elif lower.endswith(".csv"):
+        text = None
+        for enc in ("utf-8-sig", "gbk"):
+            try:
+                text = data.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            raise ValueError("CSV 编码无法识别（仅支持 UTF-8/GBK）")
+        rows = list(_csv.reader(_io.StringIO(text)))
+    else:
+        raise ValueError("仅支持 .xlsx / .csv")
+    rows = [r for r in rows if any(str(c).strip() for c in r if c is not None)]
+    if len(rows) < 2:
+        raise ValueError("文件至少需要表头行 + 1 行数据")
+    headers = [str(c).strip() for c in rows[0]]
+    truthy = {"true", "1", "是", "启用", "y", "yes"}
+    falsy = {"false", "0", "否", "停用", "n", "no"}
+    out: list[dict] = []
+    for r in rows[1:]:
+        fields: dict = {}
+        for h, v in zip(headers, r):
+            if v is None or str(v).strip() == "":
+                continue
+            v = str(v).strip()
+            if h == "enabled":
+                lv = v.lower()
+                if lv in truthy:
+                    v = True
+                elif lv in falsy:
+                    v = False
+                else:
+                    raise ValueError(f"enabled 值无法识别: {v}")
+            fields[h] = v
+        if fields:
+            out.append(fields)
+    return out
+
+
+@router.post("/registry/{kind}/import")
+def import_registry_rows(kind: str, file: UploadFile = File(...),
+                         dry_run: bool = Query(default=False),
+                         user: str = Depends(require_admin)) -> dict:
+    """批量导入（T11.4）：上传 xlsx/csv，首行列头映射字段白名单。dry_run=true 只解析校验
+    不入库（前端预览），确认后 dry_run=false 落库。真实 GJB 授权文本到位后经此入口规模化录入。"""
+    if kind not in ("formulas", "constraints", "standards"):
+        raise HTTPException(status_code=404, detail=f"未知资产库: {kind}")
+    # sync def + 同步读：批量落库是阻塞 IO，必须走线程池（T9.1 纪律——async 路由内禁同步阻塞）
+    data = file.file.read()
+    try:
+        rows = _parse_batch_file(file.filename or "", data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if len(rows) > 500:
+        raise HTTPException(status_code=400, detail=f"单批上限 500 行（当前 {len(rows)}），请分批")
+    if dry_run:
+        # 预览：只做字段白名单过滤与 confidence 值校验，不触库
+        from storage import registry_store as rs
+
+        checked = []
+        problems = []
+        allowed = rs.WRITABLE[kind]
+        for i, r in enumerate(rows, 2):  # Excel 行号：首行表头
+            patch = {k: v for k, v in r.items() if k in allowed}
+            if "confidence" in patch and patch["confidence"] not in ("high", "medium", "low"):
+                problems.append({"row": i, "error": f"confidence 非法: {patch['confidence']}"})
+            if not patch:
+                problems.append({"row": i, "error": "无有效字段"})
+            checked.append(patch)
+        return {"rows": checked, "problems": problems, "dry_run": True}
+    from solver import standards
+    from storage import registry_store
+
+    result = registry_store.batch_upsert(kind, rows)
+    standards.reset_cache()
+    result["dry_run"] = False
+    return result
 
 
 @router.delete("/registry/{kind}/{row_id}")
