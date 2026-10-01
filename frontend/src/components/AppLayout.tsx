@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Avatar, Badge, Button, Drawer, Dropdown, Empty, Grid, Layout, List, Menu, Popover, Space, Tag, Tooltip, Typography,
@@ -11,7 +11,12 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useAuthStore } from '../stores/authStore'
 import { checkNavGuard } from '../lib/navGuard'
-import { useNotifyStore } from '../stores/notifyStore'
+import { useNotifyStore, type AppNotification } from '../stores/notifyStore'
+import { gateLabel } from '../lib/stageLabel'
+import {
+  clearNotifications, deleteNotification, listNotifications, markAllNotificationsRead, markNotificationRead,
+} from '../api/notifications'
+import type { ServerNotification } from '../api/notifications'
 
 dayjs.extend(relativeTime)
 
@@ -97,8 +102,33 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
   )
 }
 
+/** 服务端通知行 → 本地展示模型（T11.1）；review_request 无服务端标题时沿用 gate 派生。 */
+function toAppNotification(row: ServerNotification): AppNotification {
+  const p = (row.payload ?? {}) as Record<string, unknown>
+  let title = row.title ?? ''
+  let meta: string | undefined
+  if (row.type === 'review_request') {
+    title = title || `${gateLabel(String(p.gate ?? ''))} 待裁决`
+    meta = typeof p.summary === 'string' ? p.summary : undefined
+  } else if (row.type === 'alert') {
+    title = title || `系统告警 ${String(p.status ?? '')}`.trim()
+    meta = Array.isArray(p.summaries) ? p.summaries.join('；') : undefined
+  }
+  return {
+    id: row.id,
+    key: row.client_key,
+    kind: (row.type as AppNotification['kind']) ?? 'info',
+    title,
+    meta,
+    sessionId: row.session_id || undefined,
+    time: Date.parse(row.created_at ?? '') || 0,
+    read: row.read,
+  }
+}
+
 function NotificationBell() {
   const navigate = useNavigate()
+  const token = useAuthStore((s) => s.token)
   const items = useNotifyStore((s) => s.items)
   const markRead = useNotifyStore((s) => s.markRead)
   const markAllRead = useNotifyStore((s) => s.markAllRead)
@@ -107,6 +137,20 @@ function NotificationBell() {
   const clearAll = useNotifyStore((s) => s.clearAll)
   const [allOpen, setAllOpen] = useState(false)
   const unread = items.filter((i) => !i.read).length
+
+  // T11.1：登录后拉取服务端通知（事实源），与 WS 实时项按 key 合并；失败静默（WS 仍在）
+  useEffect(() => {
+    if (!token) return
+    let alive = true
+    listNotifications(50)
+      .then((resp) => {
+        if (alive) useNotifyStore.getState().hydrate(resp.items.map(toAppNotification))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [token])
 
   // 列表项（通知中心与「全部通知」抽屉共用）：点击直达会话，悬停显示删除
   const renderItem = (item: (typeof items)[number], inDrawer: boolean) => (
@@ -119,12 +163,17 @@ function NotificationBell() {
         <Button
           key="del" type="text" size="small" aria-label="删除该通知"
           icon={<DeleteOutlined style={{ color: '#c92a2a' }} />}
-          onClick={(e) => { e.stopPropagation(); remove(item.id) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            remove(item.id)
+            void deleteNotification(item.id).catch(() => {})
+          }}
         />,
       ]}
       onClick={() => {
         if (!item.sessionId) return
         markRead(item.id)
+        void markNotificationRead(item.id).catch(() => {})
         if (inDrawer) setAllOpen(false)
         navigate(`/sessions/${item.sessionId}`)
       }}
@@ -132,7 +181,12 @@ function NotificationBell() {
       <List.Item.Meta
         title={
           <span style={{ fontSize: inDrawer ? 13.5 : 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {!item.read && <span aria-hidden style={{ width: 6, height: 6, borderRadius: 3, background: '#2563eb', flex: 'none' }} />}
+            {!item.read && (
+              <span aria-hidden style={{
+                width: 6, height: 6, borderRadius: 3, flex: 'none',
+                background: item.kind === 'alert' ? '#c92a2a' : '#2563eb',
+              }} />
+            )}
             {item.title}
           </span>
         }
@@ -146,16 +200,25 @@ function NotificationBell() {
     </List.Item>
   )
 
-  // 管理动作条（popover 头部与抽屉 extra 共用）
+  // 管理动作条（popover 头部与抽屉 extra 共用）：状态更新与持久化并行，失败不影响本地视图
   const manageBar = (inDrawer: boolean) => (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      {unread > 0 && <Button type="link" size="small" onClick={markAllRead}>全部已读</Button>}
+      {unread > 0 && (
+        <Button type="link" size="small" onClick={() => {
+          markAllRead()
+          void markAllNotificationsRead().catch(() => {})
+        }}>全部已读</Button>
+      )}
       {items.some((i) => i.read) && (
-        <Button type="link" size="small" onClick={clearRead}>清除已读</Button>
+        <Button type="link" size="small" onClick={() => {
+          clearRead()
+          void clearNotifications('read').catch(() => {})
+        }}>清除已读</Button>
       )}
       {items.length > 0 && (
         <Button type="link" size="small" danger onClick={() => {
           clearAll()
+          void clearNotifications('all').catch(() => {})
           if (inDrawer) setAllOpen(false)
         }}>清空</Button>
       )}
@@ -206,7 +269,7 @@ function NotificationBell() {
           <List size="small" dataSource={items} renderItem={(item) => renderItem(item, true)} />
         )}
         <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 12 }}>
-          通知存本机浏览器（后端无通知表，如实说明）：清除后不可恢复；历史裁决记录不受影响，可在各会话「审阅与参数」页签查看。
+          通知已持久化到服务端（T11.1，按用户隔离）：刷新/换设备登录后仍在；待裁决类仅推送给审阅角色；删除/清空同步生效。历史裁决记录不受影响，可在各会话「审阅与参数」页签查看。
         </Typography.Text>
       </Drawer>
     </>

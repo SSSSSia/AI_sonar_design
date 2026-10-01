@@ -29,13 +29,24 @@ export function useSessionSockets(sids: string[]) {
           if (m.type === 'task_progress') {
             useProgressStore.getState().upsert(m.session_id, m.payload)
           } else if (m.type === 'review_request') {
+            // key 与服务端 client_key 同构（T11.1）：登录拉取合并时按 key 去重
             useNotifyStore.getState().add({
               kind: 'review_request',
               title: `${GATE_LABEL[m.payload.gate] ?? m.payload.gate} 待裁决`,
               meta: m.payload.summary,
               sessionId: m.session_id,
+              key: `${m.session_id}|review_request|${m.timestamp}`,
             })
             void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+          } else if (m.type === 'alert') {
+            // 系统告警（T10.1c 桥接信封，T11.1 起落库；实时项同样进通知中心）
+            const summaries: string[] = Array.isArray(m.payload.summaries) ? m.payload.summaries : []
+            useNotifyStore.getState().add({
+              kind: 'alert',
+              title: `系统告警 ${m.payload.status ?? ''}`.trim(),
+              meta: summaries.join('；') || undefined,
+              key: `|alert|${m.timestamp}`,
+            })
           } else if (m.type === 'ir_updated') {
             void queryClient.invalidateQueries({ queryKey: ['ir', m.session_id] })
             void queryClient.invalidateQueries({ queryKey: ['session', m.session_id] })

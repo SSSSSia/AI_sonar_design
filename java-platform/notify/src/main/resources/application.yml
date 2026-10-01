@@ -4,6 +4,19 @@ server:
 spring:
   application:
     name: sonarcad-notify
+  # T11.1 通知持久化：与 auth/biz/workflow 共用同一 sonarcad 库（迁移由 biz Flyway V14 执行，
+  # notify 不启 flyway）。库不可达时落库静默降级（推送是增强而非权威），查询接口报 503。
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:sonarcad}?stringtype=unspecified
+    username: ${POSTGRES_USER:sonarcad}
+    password: ${POSTGRES_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+  # Hikari 懒初始化：库暂不可达不阻塞进程启动（落库/查询失败按降级路径走）
+  datasource.hikari.initialization-fail-timeout: -1
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
 
 # 与 gateway 共享同一 JWT 密钥（HS512）：WS 建连时校验 ?token= 的签名与有效期
 jwt:

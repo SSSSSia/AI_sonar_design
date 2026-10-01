@@ -107,6 +107,17 @@ spring:
               args:
                 name: pyEngine
                 fallbackUri: forward:/fallback/py-engine
+        # T11.1 通知持久化（P2-4）：登录拉取/已读/清理，notify 服务（须在 biz 兜底路由之前）
+        - id: notify-api
+          uri: http://${NOTIFY_HOST:localhost}:8084
+          predicates:
+            - Path=/api/v1/notifications/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_NOTIFY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_NOTIFY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:

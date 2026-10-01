@@ -1,5 +1,6 @@
 package com.sonarcad.notify.web;
 
+import com.sonarcad.notify.store.NotificationService;
 import com.sonarcad.notify.ws.SessionWebSocketHandler;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,9 +28,11 @@ import java.util.Map;
 public class InternalAlertController {
 
     private final SessionWebSocketHandler handler;
+    private final NotificationService notifications;
 
-    public InternalAlertController(SessionWebSocketHandler handler) {
+    public InternalAlertController(SessionWebSocketHandler handler, NotificationService notifications) {
         this.handler = handler;
+        this.notifications = notifications;
     }
 
     /** 开发默认信任 token（AM 0.27 webhook 无法注入自定义头，改 Bearer；上线必改，同 admin/admin123 纪律）。 */
@@ -66,6 +69,7 @@ public class InternalAlertController {
                         "count", alerts.size(),
                         "summaries", summaries
                 ));
+        notifications.persistEnvelope(envelope);
         int delivered = handler.broadcastAll(envelope);
         return ResponseEntity.ok(Map.of(
                 "accepted", true, "subscribers", delivered, "alerts", alerts.size()));

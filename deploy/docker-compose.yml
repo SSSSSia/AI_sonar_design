@@ -281,6 +281,7 @@ services:
       PY_ENGINE_HOST: py-api
       PY_ENGINE_BASE_URL: http://py-api:8090
       NOTIFY_BASE_URL: http://notify:8084
+      NOTIFY_HOST: notify
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}

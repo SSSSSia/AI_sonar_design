@@ -42,6 +42,13 @@ export interface CadTuneUpdatedPayload {
   ir_version?: string
 }
 
+/** 系统告警（T10.1c Alertmanager 桥接信封，T11.1 契约补记——原 schema 漏列此 type，前端此前按未知 type 忽略） */
+export interface AlertPayload {
+  status: string
+  count: number
+  summaries?: string[]
+}
+
 interface Envelope<T> {
   session_id: string
   task_id?: string
@@ -56,3 +63,4 @@ export type WsMessage =
   | ({ type: 'review_request' } & Envelope<ReviewRequestPayload>)
   | ({ type: 'ir_updated' } & Envelope<IrUpdatedPayload>)
   | ({ type: 'cad_tune_updated' } & Envelope<CadTuneUpdatedPayload>)
+  | ({ type: 'alert' } & Envelope<AlertPayload>)

@@ -1,5 +1,6 @@
 package com.sonarcad.notify.web;
 
+import com.sonarcad.notify.store.NotificationService;
 import com.sonarcad.notify.ws.SessionWebSocketHandler;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,7 @@ import java.util.Set;
 /**
  * 内部发布端点：workflow / py-engine 把符合 contracts/ws schema 的信封推到会话频道。
  * 信任边界：仅内网服务可调（要求 X-User-Id 信任头，与平台其他内部调用一致）；无独立鉴权体系。
+ * T11.1：关键信封（review_request 等）在广播前落库——落库失败只记 warn，不影响广播。
  */
 @RestController
 @RequestMapping("/internal/sessions/{sid}/messages")
@@ -26,9 +28,11 @@ public class InternalPublishController {
     private static final Set<String> ALLOWED_TYPES = Set.of("task_progress", "log", "review_request", "ir_updated");
 
     private final SessionWebSocketHandler handler;
+    private final NotificationService notifications;
 
-    public InternalPublishController(SessionWebSocketHandler handler) {
+    public InternalPublishController(SessionWebSocketHandler handler, NotificationService notifications) {
         this.handler = handler;
+        this.notifications = notifications;
     }
 
     @PostMapping
@@ -49,6 +53,7 @@ public class InternalPublishController {
         }
         envelope.put("session_id", sid);
         envelope.putIfAbsent("timestamp", OffsetDateTime.now(ZoneOffset.UTC).toString());
+        notifications.persistEnvelope(envelope);
         int delivered = handler.broadcast(sid, envelope);
         return ResponseEntity.ok(Map.of("accepted", true, "subscribers", delivered));
     }

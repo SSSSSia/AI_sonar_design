@@ -33,6 +33,18 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- T11.1（PHASE-011）通知持久化：notifications 表迁移由 biz 模块 Flyway 统一执行（V14），
+             notify 只做运行期读写——不引 flyway，避免与 biz 共库时双 flyway_schema_history 冲突。 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <version>3.5.7</version>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 
     <build>

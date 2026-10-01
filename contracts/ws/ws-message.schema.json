@@ -8,8 +8,8 @@
   "required": ["type", "session_id", "timestamp", "payload"],
   "properties": {
     "type": {
-      "enum": ["task_progress", "log", "review_request", "ir_updated", "cad_tune_updated"],
-      "description": "消息类型：任务进度 / 日志 / 审阅请求通知 / IR 版本更新 / CAD 微调状态更新（T8.3，PHASE-008）"
+      "enum": ["task_progress", "log", "review_request", "ir_updated", "cad_tune_updated", "alert"],
+      "description": "消息类型：任务进度 / 日志 / 审阅请求通知 / IR 版本更新 / CAD 微调状态更新（T8.3，PHASE-008）/ 系统告警（T11.1 契约补记——T10.1c Alertmanager 桥接信封实际已在广播，此处补列）"
     },
     "session_id": { "type": "string", "description": "设计会话 ID" },
     "task_id": { "type": "string", "description": "关联任务 ID（task_progress/log 必带）" },
@@ -75,6 +75,20 @@
             "state": {
               "enum": ["awaiting_upload", "round_done", "version_ready", "finalized", "closed", "failed"],
               "description": "轮次待上传 / 问答轮完成 / 微调版本就绪（IR3 版本已追加）/ 会话定稿 / 会话放弃 / 轮次失败"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "count"],
+          "properties": {
+            "status": { "enum": ["firing", "resolved", "unknown"], "description": "Alertmanager 告警状态" },
+            "count": { "type": "integer", "minimum": 0, "description": "本组告警条数" },
+            "summaries": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "逐条摘要「alertname[severity] status instance」（InternalAlertController 转译）"
             }
           }
         }

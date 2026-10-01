@@ -92,13 +92,14 @@
 
 > 执行顺序：T11.1 → T11.2 → T11.3 → T11.4 → T11.5 → T11.6 → T11.7 → T11.8（T11.4/T11.5 可并行于 T11.3 之后；每任务独立 commit）。
 
-### T11.1 通知持久化 ⬜
+### T11.1 通知持久化 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] biz V14 `notifications` 表迁移 + notify 模块 datasource/Flyway 接入（广播即落库，含 alert 类型）
-  - [ ] 查询/已读 API（列表分页 + 未读数 + 单条已读 + 全部已读）经 gateway `/api/v1/notifications/**` 路由可达，信任头鉴权
-  - [ ] 前端 notifyStore 登录后拉取 + WS 实时流合并、已读/全部已读调 API、未读徽标服务端口径；vitest 用例
-  - [ ] Java 集成测试（落库/查询/已读/白名单外类型拒绝）
+  - [x] biz V14 `notifications` 表迁移 + notify 模块 datasource 接入（扇出落库，含 alert 类型；修订：**notify 不引 Flyway**——迁移由 biz 统一执行，避免共库双 flyway_schema_history 冲突，见 §8 v1.1）
+  - [x] 查询/已读 API（列表分页 + 未读数 + 单条已读 + 全部已读 + 删除/清理）经 gateway `/api/v1/notifications/**` 路由可达，信任头鉴权 + 平台统一响应包 {code:0,message,data}
+  - [x] 前端 notifyStore 登录后拉取（hydrate 按 client_key 幂等合并、WS 实时项去重）+ 已读/删除/清理同步调 API、未读徽标本地口径；vitest 3 新用例（共 41 passed）
+  - [x] Java 测试：NotificationApiTest 8 用例（落库接线/角色扇出/过程类不落库/降级 200 广播、401/503/清理 scope）+ NotifyIntegrationTest 9 用例回归，notify 17 全绿
+  - [x] 容器栈真实链路验证：V14 已应用（dev PG 手动 + biz 下轮启动 Flyway 幂等）；内网发 review_request → admin 落库、designer（无审阅角色）无行、task_progress 不落库；重发同信封内容不同时间戳=新事件新行（唯一键拦同信封重试）；alert 带 Bearer 落库全员（admin+designer 各一行、服务端标题「系统告警 firing（1 条）」）；单删/清空按用户隔离（admin 清空后 designer 行仍在）
 
 ### T11.2 细粒度 RBAC + 用户管理 ⬜
 
@@ -175,15 +176,15 @@
 
 | 任务 | 实测证据 | 时间 |
 |---|---|---|
-| （随任务完成逐行登记） | | |
+| T11.1 通知持久化 | Java notify 17 用例全绿（新 NotificationApiTest 8）；vitest 41 passed（新 3）；容器栈真实验证：review_request 角色扇出（designer 无行）/ alert 全员扇出 + 服务端标题 / task_progress 不落库 / 单删清空按用户隔离 / 503 降级；gateway 路由 + 统一响应包实测 200 | 2026-10-01 |
 
 ## 6. 决策记录
 
 - **vLLM 口径 = 切换就绪（脱敏代理 + 失败转移 + mock 验证 + 操作手册）**，真实 vLLM 服务待硬件——用户 2026-10-01 确认（选项：脱敏代理+切换验证 / 部署真实 vLLM / 跳过）。
 - **容灾口径 = 备份恢复落地 + ADR-005 双活方案文档**，流复制等双活不实施——用户 2026-10-01 确认。
-- **通知表放 biz 库**（V14，notify 模块加 datasource 指向 biz 库）：避免改 PG init 脚本触发底座卷重置；notify 与 biz 共库不同表，边界以表名前缀与访问层隔离。
+- **通知表放 biz 库**（V14，notify 模块加 datasource 指向同库）：避免改 PG init 脚本触发底座卷重置；notify 与 biz 共库不同表，边界以表名前缀与访问层隔离。**实施修订**：notify 不引 Flyway（迁移统一 biz 执行）；通知表按**用户扇出**落行（原计划 user_id 可空广播 + 独立已读表——扇出模型让已读/删除/清理天然按用户隔离，避免「A 已读把 B 的未读也清了」，用户量小扇出成本可忽略）。
 - **E1 提案存储 = biz V15 新表**（cad_tune_param_proposals）；P2-2 parameter_schemes 随 T11.3 定案（倾向：迁移注释声明"预留，IR2 快照为权威"，表结构不匹配提案语义则以新表承载）。
-- **通知落库类型口径**：review_request / ir_updated / alert 等关键类信封落库；task_progress / log 等高频过程类仅广播（写放大与表膨胀控制）。
+- **通知落库类型口径（实施修订）**：仅 review_request / alert 落库；task_progress / log 高频过程类照旧仅广播，**ir_updated 也不落库**（每会话 5 次更新，落库会淹没通知中心；原 §2.3/§6 草案列为关键类的口径据此收窄）。
 - **Word 导出先行 docx**，PDF 后置（可由 docx 转换）；内置程序化模板 + 覆挂点，非授权军标正式模板（A-16 如实标注）。
 
 ## 7. 演进路线（承诺项，非本期范围）
@@ -195,3 +196,4 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-10-01 | 初版编制（ZCode）。前置发现（探索实证）：①阶段 9/10 文档回填遗留——roadmap 阶段 9/10 总览行与 T10.5 行仍「待开发」、phase-9 T9.7 标题未勾、phase-10 附录 A 自检①与事实不符、HANDOFF「下一步入口」缺阶段 11 条目，随本 commit 一并修正；②E1 插入点唯一（finalize_version 尾部），关联键现成（IR3 linked_param_id ↔ IR2 parameter.id），失效基建现成但需新增定向语义；③IR2 回写须 value+derivation 同步（A4 符号表依赖 derivation）；④python-docx 已在依赖，Word 导出零新增依赖；⑤RBAC 五表齐全已播种，缺口 = auth 用户管理 API、authz.py 空角色放行双漏洞、KB 写端点宽松；⑥notify 零持久化无迁移目录，通知表放 biz 库最简；⑦军标批量入口缺，单条链路已齐；⑧备份全仓零实现，GraphML 快照承接 P2-3（knowledge-dumps 桶未建随此建）；⑨vLLM 切换机制已就绪（llm_providers 热加载），vLLM 本身即 OpenAI 兼容——注册 provider 即切换，缺脱敏代理与失败转移 |
+| v1.1 | 2026-10-01 | T11.1 执行修订：①notify 不引 Flyway——迁移统一 biz V14 执行（与 biz 共用 flyway_schema_history，双 Flyway 必冲突）；②通知表按用户扇出落行（(user_id, client_key) 唯一幂等——同信封 HTTP 重试不重复，新事件新时间戳=新行）；③落库类型收窄为 review_request + alert（ir_updated 每会话 5 次不落库）；④alert 信封补进 contracts/ws 契约与前端类型（T10.1c 已广播但 schema 漏列——契约漂移修复）；⑤notify 查询 API 沿平台统一响应包 {code:0,message,data}；⑥Hikari 懒初始化 + 落库静默降级/查询 503（库不可达不阻塞进程启动）；⑦V14 已手动应用于 dev 库（biz 旧镜像跑栈场景；新镜像启动 Flyway 幂等无冲突） |
