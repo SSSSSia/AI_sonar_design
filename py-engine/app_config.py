@@ -95,6 +95,7 @@ NEO4J_TIMEOUT_S = int(_env("NEO4J_TIMEOUT_S", "5"))
 
 # ---- 知识文档管线（T3.1–T3.3，宪法 §6）----
 BUCKET_KB_DOCS = "kb-docs"                                # 知识库原文件桶
+BUCKET_KNOWLEDGE_DUMPS = "knowledge-dumps"                # 知识图谱 GraphML 快照等治理产物（T11.7，P2-3 承接）
 KB_UPLOAD_MAX_BYTES = int(_env("KB_UPLOAD_MAX_BYTES", str(50 * 1024 * 1024)))  # 上传大小上限（§10.4）
 KB_CHUNK_SIZE = int(_env("KB_CHUNK_SIZE", "800"))         # 分块目标字符数（章节优先）
 KB_CHUNK_OVERLAP = int(_env("KB_CHUNK_OVERLAP", "150"))   # 分块重叠字符数（§6 ③ 可调）

@@ -140,13 +140,13 @@
   - [x] 验证：单测 8 例（七类模式/正常文本零命中/开关语义/wire 级出站断言——httpx 打桩捕获请求体不含原始密钥且 [REDACTED] 在场/转移链 3 次调用 2+1/关闭转移仅主供应商/健康记录）；容器栈实测：注册 vllm-sim（OpenAI 兼容 mock）→ 热切换 active → 容器内真实 chat → 审计日志「脱敏命中 api_key×1」→ 健康态 ok=True → 删除回退
   - [x] `docs/ops/vLLM切换手册.md`（通用 GPU/昇腾 vllm-ascend 两形态 + 注册/回退/验收清单；真实 vLLM 待硬件如实记录）
 
-### T11.7 容灾备份 ⬜
+### T11.7 容灾备份 ✅ 已完成（2026-10-01）
 
 - **DoD**：
-  - [ ] `deploy/backup/` backup.sh/restore.sh/README（四库 + Neo4j + MinIO + Redis + RabbitMQ definitions；RPO/保留策略）
-  - [ ] compose `--profile backup` 定时 sidecar（BACKUP_CRON 可调）+ GraphML 快照落 knowledge-dumps 桶（P2-3 承接）
-  - [ ] 恢复演练证据入 docs/reviews/（干净目录恢复后数据可读、会话可打开）
-  - [ ] ADR-005 容灾与双活路线（方案定案，实施触发条件=生产部署）；AdminPage 备份行状态更新
+  - [x] `deploy/backup/` backup.sh / restore.sh（含 --drill 零侵入演练模式）/ README（RPO/保留策略/Redis·RMQ 手工段）/ minio_snapshot 脚本（修订：备份走宿主脚本 + docker exec，**不做 sidecar**——避免挂 docker.sock 特权与额外镜像拉取，见 §8 v1.3）
+  - [x] GraphML 快照落 knowledge-dumps 桶（P2-3 承接；POST /kb/graph/snapshot——真实图 **1473 节点/4349 边** 1.07MB，XML 良构；node id=「label:key」命名空间——实测跨 label 同 key 返修）
+  - [x] 恢复演练证据入 docs/reviews/2026-10-01-容灾恢复演练-T117.md：备份五件产物（PG 972KB/MinIO 52.9MB/Redis/RMQ/GraphML）→ --drill 临时容器 pg_restore OK → 行数核对一致（413 会话/1195 IR 快照/2 用户）
+  - [x] [ADR-005](../adr/ADR-005-容灾与双活路线.md) 容灾与双活路线定案（双活实施触发条件=生产部署）；AdminPage 备份说明更新
 
 ### T11.8 收官 + tag v0.4.0 ⬜
 
@@ -182,6 +182,7 @@
 | T11.4 军标批量录入 | py 320 passed（新 8）；容器栈实测 25 条批量导入（dry_run→导入→重导幂等）+ 熔断误杀返修（单连接 SAVEPOINT 重构） | 2026-10-01 |
 | T11.5 Word 导出 | 单测 4 例全绿；容器栈真实会话导出 42KB——四章齐/参数表 20 行/总体结论与 CSR 如实渲染（python-docx 重开断言） | 2026-10-01 |
 | T11.6 vLLM 就绪+脱敏 | 单测 8 例（wire 级出站断言+转移链）；容器栈实测：vllm-sim 热切换→chat→审计「脱敏命中 api_key×1」→health ok=True；手册入库 docs/ops/ | 2026-10-01 |
+| T11.7 容灾备份 | 备份五件产物 + 恢复演练（--drill pg_restore OK，413 会话/1195 快照行数一致）；GraphML 快照 1473 节点/4349 边 XML 良构；ADR-005 定案 | 2026-10-01 |
 
 ## 6. 决策记录
 
@@ -203,3 +204,4 @@
 | v1.0 | 2026-10-01 | 初版编制（ZCode）。前置发现（探索实证）：①阶段 9/10 文档回填遗留——roadmap 阶段 9/10 总览行与 T10.5 行仍「待开发」、phase-9 T9.7 标题未勾、phase-10 附录 A 自检①与事实不符、HANDOFF「下一步入口」缺阶段 11 条目，随本 commit 一并修正；②E1 插入点唯一（finalize_version 尾部），关联键现成（IR3 linked_param_id ↔ IR2 parameter.id），失效基建现成但需新增定向语义；③IR2 回写须 value+derivation 同步（A4 符号表依赖 derivation）；④python-docx 已在依赖，Word 导出零新增依赖；⑤RBAC 五表齐全已播种，缺口 = auth 用户管理 API、authz.py 空角色放行双漏洞、KB 写端点宽松；⑥notify 零持久化无迁移目录，通知表放 biz 库最简；⑦军标批量入口缺，单条链路已齐；⑧备份全仓零实现，GraphML 快照承接 P2-3（knowledge-dumps 桶未建随此建）；⑨vLLM 切换机制已就绪（llm_providers 热加载），vLLM 本身即 OpenAI 兼容——注册 provider 即切换，缺脱敏代理与失败转移 |
 | v1.1 | 2026-10-01 | T11.1 执行修订：①notify 不引 Flyway——迁移统一 biz V14 执行（与 biz 共用 flyway_schema_history，双 Flyway 必冲突）；②通知表按用户扇出落行（(user_id, client_key) 唯一幂等——同信封 HTTP 重试不重复，新事件新时间戳=新行）；③落库类型收窄为 review_request + alert（ir_updated 每会话 5 次不落库）；④alert 信封补进 contracts/ws 契约与前端类型（T10.1c 已广播但 schema 漏列——契约漂移修复）；⑤notify 查询 API 沿平台统一响应包 {code:0,message,data}；⑥Hikari 懒初始化 + 落库静默降级/查询 503（库不可达不阻塞进程启动）；⑦V14 已手动应用于 dev 库（biz 旧镜像跑栈场景；新镜像启动 Flyway 幂等无冲突） |
 | v1.2 | 2026-10-01 | T11.3 执行修订：①复审闭环零 Java 改动——a4 重开即 update_stage("A4") 覆写闸门，STAGE_DONE 后 pauseAtGate 的 IN(running,paused) AND current_stage≠gate2 乐观条件恰好命中「paused+A4」，自动重挂 gate2 重发审阅请求（探索实证 §2.1 推论）；②derivation 同步用**原地替换**首个 ≈旧值 的 symbol=数值（solver setdefault 首匹配优先，追加行不生效）+ 尾部无"="修订记录（不入符号表）；③定向失效新增 py 侧 ir_store.mark_invalidated（与 Java IrSnapshotMapper 同语义，E1 只失效 IR4/IR5 不动 IR2/IR3）；④确认仅限 paused 会话（completed 无复审链路如实 409）；链式微调基线（前次定稿版 linked_param_id 全 None）与分段数变化如实产 0 条提案；⑤V15 已手动应用于 dev 库（同 v1.1⑦ 口径） |
+| v1.3 | 2026-10-01 | T11.7 执行修订：①备份定时化 = 宿主 cron 调 deploy/backup/backup.sh（docker exec 注入容器执行）——不做 compose sidecar（需挂 docker.sock 特权 + 新镜像拉取，成本/风险不成比例）；②Neo4j 备份口径 = 在线 GraphML 快照（不停库，快照级一致性），离线一致性 dump 列 ADR-005 生产项；③GraphML node id 采用「label:key」命名空间（实测图谱存在跨 label 同 key，单 key 做 id 必冲突）；④网关 CircuitBreaker 对 >慢调阈值的长请求会「后端成功但返回 503 fallback」——长耗时管理操作（如全图快照）一律直连 :8090 绕过网关 |①复审闭环零 Java 改动——a4 重开即 update_stage("A4") 覆写闸门，STAGE_DONE 后 pauseAtGate 的 IN(running,paused) AND current_stage≠gate2 乐观条件恰好命中「paused+A4」，自动重挂 gate2 重发审阅请求（探索实证 §2.1 推论）；②derivation 同步用**原地替换**首个 ≈旧值 的 symbol=数值（solver setdefault 首匹配优先，追加行不生效）+ 尾部无"="修订记录（不入符号表）；③定向失效新增 py 侧 ir_store.mark_invalidated（与 Java IrSnapshotMapper 同语义，E1 只失效 IR4/IR5 不动 IR2/IR3）；④确认仅限 paused 会话（completed 无复审链路如实 409）；链式微调基线（前次定稿版 linked_param_id 全 None）与分段数变化如实产 0 条提案；⑤V15 已手动应用于 dev 库（同 v1.1⑦ 口径） |

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -723,3 +724,24 @@ def resolve_ref(doc_id: str, location: str, user: str = Depends(require_user)) -
         "text": text,
         "bases": base_names,
     }
+
+
+@router.post("/graph/snapshot")
+def snapshot_graph(user: str = Depends(require_admin)) -> dict:
+    """GraphML 全图快照（T11.7，P2-3 承接）：Neo4j 在线导出 → MinIO knowledge-dumps 桶。
+
+    定时化由 deploy/backup/backup.sh 调用本端点；备份是快照语义，deprecated 节点同样入图。"""
+    from storage.neo4j_store import Neo4jStore, Neo4jStoreError
+    from storage import object_store
+    from app_config import BUCKET_KNOWLEDGE_DUMPS
+
+    try:
+        snap = Neo4jStore().graphml_snapshot()
+    except Neo4jStoreError as exc:
+        raise HTTPException(status_code=503, detail=f"GraphML 快照失败: {exc}") from exc
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    object_key = f"graphml/knowledge_{ts}.graphml"
+    ref = object_store.upload_bytes(snap["xml"].encode("utf-8"), BUCKET_KNOWLEDGE_DUMPS, object_key,
+                                    content_type="application/xml")
+    return {"bucket": ref["bucket"], "object_key": ref["object_key"],
+            "nodes": snap["nodes"], "edges": snap["edges"]}

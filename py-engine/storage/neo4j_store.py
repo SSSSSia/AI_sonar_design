@@ -325,3 +325,64 @@ class Neo4jStore:
             context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
         return {"key": f"{src_key}->{dst_key}", "label": src_label, "relation": rel_type, "deprecated": 0}
+
+    # ------------------------------------------------------------------
+    # GraphML 快照（T11.7，P2-3 承接）：在线全图导出，落 MinIO knowledge-dumps 桶
+    # ------------------------------------------------------------------
+    def graphml_snapshot(self) -> dict[str, Any]:
+        """全图导出为 GraphML 字符串（key 节点全量 + 其间关系）。
+
+        契约对齐 apoc.export.graphml 常规形态：节点用 labels 特殊键、关系用 label 键、
+        属性带 type 声明——yEd/Gephi 可直读，apoc.import.graphml 可回灌（回灌演练属
+        ADR-005 生产落地项，本期只承诺快照可导出可读）。备份是快照语义：deprecated
+        节点同样入快照（恢复后历史可查，A-12 精神）。"""
+        from xml.sax.saxutils import escape, quoteattr
+
+        with self._get_driver().session() as session:
+            nodes = session.run(
+                "MATCH (e) WHERE e.key IS NOT NULL "
+                "RETURN e.key AS key, labels(e)[0] AS label, e.name AS name, "
+                "e.source_doc AS source_doc, e.source_session AS source_session, "
+                "coalesce(e.deprecated, false) AS deprecated"
+            ).data()
+            edges = session.run(
+                "MATCH (a)-[r]->(b) WHERE a.key IS NOT NULL AND b.key IS NOT NULL "
+                "RETURN a.key AS source, labels(a)[0] AS slabel, b.key AS target, "
+                "labels(b)[0] AS tlabel, type(r) AS rel_type"
+            ).data()
+        # node id = 「label:key」命名空间（同 key 可跨 label 存在；同 (label,key) 重复才是真冲突）
+        if len({(n["label"], n["key"]) for n in nodes}) != len(nodes):
+            raise Neo4jStoreError("存在重复 (label,key)，GraphML 节点 id 冲突——先治理再快照")
+
+        def nid(label: Any, key: Any) -> str:
+            return f"{label}:{key}"
+
+        def node_xml(n: dict[str, Any]) -> str:
+            props = "".join(
+                f'<data key="k{key}">{escape("" if n[key] is None else str(n[key]))}</data>'
+                for key in ("key", "name", "source_doc", "source_session", "deprecated")
+            )
+            return (f'    <node id={quoteattr(nid(n["label"], n["key"]))}>'
+                    f'<data key="labels">{escape(str(n["label"]))}</data>{props}</node>')
+
+        body = "\n".join(node_xml(n) for n in nodes)
+        rels = "\n".join(
+            f'    <edge id="e{i}" source={quoteattr(nid(e["slabel"], e["source"]))} '
+            f'target={quoteattr(nid(e["tlabel"], e["target"]))}>'
+            f'<data key="label">{escape(str(e["rel_type"]))}</data></edge>'
+            for i, e in enumerate(edges)
+        )
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">\n'
+            '  <key id="labels" for="node" attr.name="labels" attr.type="string"/>\n'
+            '  <key id="label" for="edge" attr.name="label" attr.type="string"/>\n'
+            '  <key id="kkey" for="node" attr.name="key" attr.type="string"/>\n'
+            '  <key id="kname" for="node" attr.name="name" attr.type="string"/>\n'
+            '  <key id="ksd" for="node" attr.name="source_doc" attr.type="string"/>\n'
+            '  <key id="kss" for="node" attr.name="source_session" attr.type="string"/>\n'
+            '  <key id="kdep" for="node" attr.name="deprecated" attr.type="boolean"/>\n'
+            '  <graph id="knowledge" edgedefault="directed">\n'
+            f"{body}\n{rels}\n  </graph>\n</graphml>\n"
+        )
+        return {"xml": xml, "nodes": len(nodes), "edges": len(edges)}
