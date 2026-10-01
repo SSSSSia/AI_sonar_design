@@ -109,3 +109,38 @@ def update_stage(session_id: str, stage: str) -> None:
             "UPDATE design_sessions SET current_stage = %s, updated_at = now() WHERE id = %s",
             (stage, session_id),
         )
+
+
+def get_session(session_id: str) -> Optional[dict[str, Any]]:
+    """会话状态行（E1 提案回写校验 pipeline_status 用）。"""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, pipeline_status, current_stage FROM design_sessions WHERE id = %s",
+            (session_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"id": str(row[0]), "pipeline_status": row[1], "current_stage": row[2]}
+
+
+def mark_invalidated(session_id: str, ir_types: list[str]) -> list[str]:
+    """定向失效（T11.3 E1）：只标 invalidated_at 生命周期元数据，内容不可变（A-12）。
+
+    与 Java IrSnapshotMapper.markInvalidated 同语义的 py 侧入口（E1 确认回写在 py 发起，
+    只失效 IR4/IR5 下游，不动 IR2/IR3 本体——区别于审阅关驳回的整批失效）。返回实际失效的类型。
+    """
+    if not ir_types:
+        return []
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ir_snapshots SET invalidated_at = now() "
+            "WHERE session_id = %s AND invalidated_at IS NULL AND ir_type = ANY(%s) "
+            "RETURNING ir_type",
+            (session_id, ir_types),
+        )
+        rows = cur.fetchall()
+    invalidated = sorted({r[0] for r in rows})
+    if invalidated:
+        logger.info("IR 定向失效 session=%s types=%s（E1 回写）", session_id, invalidated)
+    return invalidated

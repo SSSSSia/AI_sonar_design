@@ -350,4 +350,32 @@ def finalize_version(tune: dict[str, Any], round_no: int,
     _notify_ir_updated(session_id, "IR3", version)
     _notify_tune(session_id, tune_id, "version_ready", round_no, version)
     logger.info("微调版本已定稿 session=%s tune=%s r%s → IR3 v%s", session_id, tune_id, round_no, version)
+    _generate_param_proposals(tune, round_no, ir3, version)
     return {"ir_version": version, "geometry_summary": summary, "step_ref": step_ref}
+
+
+def _generate_param_proposals(tune: dict[str, Any], round_no: int, new_ir3: dict[str, Any],
+                              ir3_version: int) -> None:
+    """E1（T11.3）：定稿后 diff 基线 IR3 生成参数变更提案（落 cad_tune_param_proposals）。
+
+    提案是增强而非权威：任何失败仅告警，不影响定稿主链路。无联动基线（链式微调）或
+    分段数变化时如实产 0 条（A-16）。
+    """
+    try:
+        from cad_agent.param_proposals import diff_proposals
+        from storage import ir_store as _ir_store, proposal_store
+
+        session_id = str(tune["design_session_id"])
+        baseline_version = int(tune["baseline_ir_version"])
+        baseline_ir3 = _ir_store.get_snapshot(session_id, "IR3", baseline_version)
+        ir2 = _ir_store.get_latest_snapshot(session_id, "IR2")
+        if baseline_ir3 is None or ir2 is None:
+            logger.info("E1 提案跳过：基线 IR3 v%s 或 IR2 缺失 session=%s", baseline_version, session_id)
+            return
+        found = diff_proposals(ir2, baseline_ir3, new_ir3)
+        stored = proposal_store.replace_round(session_id, str(tune["id"]), round_no,
+                                              ir3_version, baseline_version, found)
+        logger.info("E1 提案生成 session=%s tune=%s r%s：%d 条（落库 %d）",
+                    session_id, tune["id"], round_no, len(found), len(stored))
+    except Exception:  # noqa: BLE001 — 提案失败不阻断定稿
+        logger.exception("E1 参数提案生成失败（定稿不受影响）session=%s tune=%s", tune.get("design_session_id"), tune.get("id"))

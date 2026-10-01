@@ -286,3 +286,117 @@ def close_tune(tune_id: str, user: str = Depends(require_writer)) -> dict[str, A
 
 def _notify_cad(tune: dict[str, Any], state: str) -> None:
     service._notify_tune(str(tune["design_session_id"]), tune["id"], state)
+
+
+# ----------------------------------------------------------------------
+# E1 参数变更提案（T11.3，P2-1）：diff → 人工确认 → IR2 回写 → gate2 复审
+# ----------------------------------------------------------------------
+@router.get("/sessions/{sid}/param-proposals")
+def list_param_proposals(sid: str, status: Optional[str] = Query(default=None),
+                         user: str = Depends(require_user)) -> dict[str, Any]:
+    """会话的参数变更提案列表（E1）。status 过滤：proposed|applied|ignored。"""
+    from storage import proposal_store
+
+    try:
+        rows = proposal_store.list_for_session(sid, status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"proposals": rows}
+
+
+class ConfirmProposalsBody(BaseModel):
+    proposal_ids: list[str] = []  # 空 = 应用全部 proposed（前端「全部应用」）
+
+
+@router.post("/sessions/{sid}/param-proposals/confirm")
+def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
+                            user: str = Depends(require_writer)) -> dict[str, Any]:
+    """确认回写（E1 核心闭环）：IR2 追加新版本（value+derivation 同步+修订段）→
+    IR4/IR5 定向失效 → 重派 a4_task → STAGE_DONE 后自动重挂 gate2 复审（复用
+    pauseAtGate 乐观条件：paused+A4 ≠ gate2 命中更新）。仅 paused 会话可回写
+    （completed 无复审链路，如实 409）；全部提案已 applied 时视为重派重试（幂等）。"""
+    from storage import proposal_store
+    from cad_agent.param_proposals import apply_proposals
+
+    rows = proposal_store.list_for_session(sid, "proposed")
+    if body.proposal_ids:
+        wanted = set(body.proposal_ids)
+        rows = [r for r in rows if str(r["id"]) in wanted]
+        missing = wanted - {str(r["id"]) for r in rows}
+        if missing:
+            raise HTTPException(status_code=409,
+                                detail=f"提案不可应用（不存在或已处理）: {sorted(missing)[:3]}")
+    if not rows:
+        applied_rows = proposal_store.list_for_session(sid, "applied")
+        if applied_rows:
+            # 重试路径：提案已落地但 a4 重派未完成 → 仅重派
+            _redispatch_a4(sid)
+            return {"applied": 0, "ir2_version": applied_rows[0].get("applied_ir2_version"),
+                    "redispatched": True, "note": "提案已应用过，本次仅重派 A4（上轮派发可能失败）"}
+        raise HTTPException(status_code=400, detail="无可应用的提案")
+
+    session = _session_or_404(sid)
+    if session.get("pipeline_status") != "paused":
+        raise HTTPException(
+            status_code=409,
+            detail=f"会话状态为 {session.get('pipeline_status')}：提案回写需审阅关②暂停态（复审链路）；"
+                   "已完成会话的参数变更请走审阅关驳回返工")
+
+    ir2 = ir_store.get_latest_snapshot(sid, "IR2")
+    if ir2 is None:
+        raise HTTPException(status_code=404, detail="IR2 快照缺失，无法回写")
+    round_no = int(rows[0]["round_no"])
+    new_ir2 = apply_proposals(ir2, rows, round_no)
+    from ir_contract import validate_ir
+
+    try:
+        new_ir2 = validate_ir("IR2", new_ir2)
+    except Exception as exc:  # IrContractError 等
+        raise HTTPException(status_code=500, detail=f"回写后 IR2 未过契约校验: {exc}") from exc
+
+    ir2_version = ir_store.save_snapshot(sid, "IR2", new_ir2, created_by="e1_tune")
+    invalidated = ir_store.mark_invalidated(sid, ["IR4", "IR5"])
+    applied_ids = [str(r["id"]) for r in rows]
+    proposal_store.mark(applied_ids, "applied", user, applied_ir2_version=ir2_version)
+    try:
+        _redispatch_a4(sid)
+    except Exception as exc:
+        # 派发失败自愈：IR2/失效已落地，提案退回 proposed 供幂等重试（A-16 如实报状态）
+        proposal_store.rearm(sid, ir2_version)
+        logger.warning("E1 a4 重派失败 session=%s（提案已退回 proposed）: %s", sid, exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"IR2 v{ir2_version} 已回写、IR4/IR5 已失效，但 A4 重派失败（{exc}）；请重试确认") from exc
+    logger.info("E1 回写完成 session=%s: IR2 v%s, 失效=%s, 提案 %d 条, 重派 A4",
+                sid, ir2_version, invalidated, len(applied_ids))
+    return {"applied": len(applied_ids), "ir2_version": ir2_version,
+            "invalidated": invalidated, "redispatched": True}
+
+
+@router.post("/param-proposals/{proposal_id}/ignore")
+def ignore_param_proposal(proposal_id: str, user: str = Depends(require_writer)) -> dict[str, Any]:
+    """忽略提案（不回写）。"""
+    from storage import proposal_store
+
+    row = proposal_store.get(proposal_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"提案不存在: {proposal_id}")
+    if row["status"] != "proposed":
+        raise HTTPException(status_code=409, detail=f"提案已处理（{row['status']}）")
+    proposal_store.mark([proposal_id], "ignored", user)
+    return {"id": proposal_id, "status": "ignored"}
+
+
+def _session_or_404(sid: str) -> dict[str, Any]:
+    row = ir_store.get_session(sid)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"设计会话不存在: {sid}")
+    return row
+
+
+def _redispatch_a4(sid: str) -> None:
+    """重派 a4_task（E1 复审链）：与 kb_build 同款进程内 delay（celery_app 模块级 set_default）。
+    派发失败抛出由调用方转 503（IR2 已落库、提案已标 applied，幂等重试入口见 confirm）。"""
+    from worker.tasks import a4_task
+
+    a4_task.delay(sid)

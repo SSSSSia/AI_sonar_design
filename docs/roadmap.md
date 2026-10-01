@@ -145,7 +145,7 @@
 |---|---|---|
 | T11.1 | 通知持久化：notifications 表（biz V14）+ notify 扇出落库 + 查询/已读 API（gateway 新路由）+ 前端登录拉取合并 | ✅ 已完成（2026-10-01，容器栈真实链路验证） |
 | T11.2 | 细粒度 RBAC：auth 用户管理 API + 三条硬规则 + py-engine authz 空角色漏洞修复 + AdminPage 用户管理接通 | ✅ 已完成（2026-10-01，生命周期实测；KB 写收紧 admin、空角色放行漏洞修复） |
-| T11.3 | E1 CAD→文档反向回写：几何 diff 提案 + 确认回写 IR2（value+derivation 同步）+ IR4/IR5 定向失效 + gate2 复审闭环 | 待开发 |
+| T11.3 | E1 CAD→文档反向回写：几何 diff 提案 + 确认回写 IR2（value+derivation 同步）+ IR4/IR5 定向失效 + gate2 复审闭环 | ✅ 已完成（2026-10-01，e2e 全闭环 39s 一次通过；P2-2 随此定案） |
 | T11.4 | 军标批量录入：batch upsert API + xlsx/csv 导入 + 前端批量入口 + 批量验证数据 | 待开发 |
 | T11.5 | 军标格式 Word 导出：python-docx 三章渲染 + 下载 API + 前端入口 | 待开发 |
 | T11.6 | vLLM 切换就绪：LLM 前置脱敏代理 + 供应商失败转移 + mock 切换验证 + 操作手册 | 待开发 |

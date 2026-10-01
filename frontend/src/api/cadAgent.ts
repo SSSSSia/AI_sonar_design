@@ -50,3 +50,38 @@ export function listTunes(sid: string) {
 export function createTune(sid: string) {
   return post<TuneSession>(`/cad-agent/sessions/${sid}/tune`, {})
 }
+
+// ---- E1 参数变更提案（T11.3，P2-1）：微调定稿 diff → 人工确认回写 IR2 → gate2 复审 ----
+export interface ParamProposal {
+  id: string
+  session_id: string
+  tune_id: string
+  round_no: number
+  ir3_version: number
+  baseline_ir_version: number
+  param_id: string
+  param_name?: string | null
+  unit: string
+  old_value: number
+  new_value: number
+  delta_pct: number
+  dimension: number
+  status: 'proposed' | 'applied' | 'ignored'
+  applied_ir2_version?: number | null
+  created_at?: string
+  [k: string]: unknown
+}
+
+export function listParamProposals(sid: string, status?: 'proposed' | 'applied' | 'ignored') {
+  return get<{ proposals: ParamProposal[] }>(
+    `/cad-agent/sessions/${sid}/param-proposals`, status ? { status } : undefined)
+}
+
+export function confirmParamProposals(sid: string, proposal_ids: string[]) {
+  return post<{ applied: number; ir2_version: number; invalidated: string[]; redispatched: boolean }>(
+    `/cad-agent/sessions/${sid}/param-proposals/confirm`, { proposal_ids })
+}
+
+export function ignoreParamProposal(proposalId: string) {
+  return post<{ id: string; status: string }>(`/cad-agent/param-proposals/${proposalId}/ignore`, {})
+}

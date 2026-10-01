@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, App as AntdApp, Button, Card, Input, Modal, Radio, Space, Table, Tag, Typography,
 } from 'antd'
@@ -7,8 +7,9 @@ import type { ColumnsType } from 'antd/es/table'
 import {
   postReview, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
 } from '../../api/workflow'
+import type { ParamProposal } from '../../api/cadAgent'
 import { ApiError } from '../../api/client'
-import { listTunes } from '../../api/cadAgent'
+import { confirmParamProposals, ignoreParamProposal, listParamProposals, listTunes } from '../../api/cadAgent'
 import { summarizeTunes } from './tuneSummary'
 import { ParamTable, parseKbRef } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
@@ -18,6 +19,87 @@ import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ir1Degraded, normalizeMissingItems, gateLabel, stageLabel } from '../../lib/stageLabel'
 
 const GATE_TITLE: Record<string, string> = { gate1: '审阅关①（IR2 参数方案）', gate2: '审阅关②（IR3 + IR4）' }
+
+/** E1 参数变更提案卡（T11.3）：微调定稿实测几何 vs 登记参数的偏差，人工确认后回写 IR2
+ *  （value+derivation 同步）→ IR4/IR5 定向失效 → A4 重算 → 回审阅关②复审。 */
+function ProposalCard({ sessionId }: { sessionId: string }) {
+  const { message } = AntdApp.useApp()
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const proposalsQuery = useQuery({
+    queryKey: ['e1-proposals', sessionId],
+    queryFn: () => listParamProposals(sessionId),
+    refetchInterval: 30_000,
+  })
+  const proposals = proposalsQuery.data?.proposals ?? []
+  if (proposalsQuery.isLoading || proposals.length === 0) return null
+  const pending = proposals.filter((p) => p.status === 'proposed')
+
+  async function apply(ids: string[]) {
+    setBusy(true)
+    try {
+      const r = await confirmParamProposals(sessionId, ids)
+      message.success(`已回写 IR2 v${r.ir2_version}（${r.applied} 项参数），A4 重算后将回到审阅关②复审`)
+      void queryClient.invalidateQueries({ queryKey: ['ir', sessionId] })
+      void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+      void queryClient.invalidateQueries({ queryKey: ['e1-proposals', sessionId] })
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : 'E1 回写失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function ignore(id: string) {
+    setBusy(true)
+    try {
+      await ignoreParamProposal(id)
+      void queryClient.invalidateQueries({ queryKey: ['e1-proposals', sessionId] })
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : '操作失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const columns: ColumnsType<ParamProposal> = [
+    { title: '参数', dataIndex: 'param_name', width: 150, render: (v, r) => <span>{v}<Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>{r.param_id}</Typography.Text></span> },
+    { title: '轮次', dataIndex: 'round_no', width: 60, render: (v) => `r${v}` },
+    { title: '原登记值', width: 110, render: (_, r) => `${r.old_value} ${r.unit}` },
+    { title: '实测值', width: 110, render: (_, r) => <b style={{ color: '#c92a2a' }}>{r.new_value} {r.unit}</b> },
+    { title: '偏差', dataIndex: 'delta_pct', width: 80, render: (v) => <Tag color={v >= 20 ? 'red' : 'orange'}>+{v}%</Tag> },
+    { title: '状态', dataIndex: 'status', width: 90, render: (s) => s === 'proposed' ? <Tag color="gold">待确认</Tag> : s === 'applied' ? <Tag color="green">已回写</Tag> : <Tag>已忽略</Tag> },
+    {
+      title: '操作', key: 'ops', width: 130,
+      render: (_, r) => r.status === 'proposed' ? (
+        <Space size={4}>
+          <Button size="small" type="primary" ghost loading={busy} onClick={() => void apply([r.id])}>应用</Button>
+          <Button size="small" loading={busy} onClick={() => void ignore(r.id)}>忽略</Button>
+        </Space>
+      ) : r.status === 'applied' ? <Typography.Text type="secondary" style={{ fontSize: 11 }}>IR2 v{r.applied_ir2_version}</Typography.Text> : null,
+    },
+  ]
+
+  return (
+    <Card
+      size="small"
+      title="参数变更提案（E1 反向回写）"
+      extra={
+        pending.length > 0 && (
+          <Button size="small" type="primary" loading={busy} onClick={() => void apply(pending.map((p) => p.id))}>
+            全部应用（{pending.length}）
+          </Button>
+        )
+      }
+    >
+      <Alert
+        type="info" showIcon style={{ marginBottom: 10 }}
+        message="FreeCAD 微调实测几何与登记参数存在自动可映射的偏差（仅长度类联动项）。应用后 IR2 追加新版本并触发下游重算与审阅关②复审；忽略则维持原值。"
+      />
+      <Table rowKey="id" size="small" pagination={false} columns={columns} dataSource={proposals} />
+    </Card>
+  )
+}
 const REWORK_OPTIONS: Record<string, { value: string; label: string }[]> = {
   gate1: [
     { value: 'A2', label: 'A2 方案生成（默认）' },
@@ -215,6 +297,8 @@ export function ReviewTab({
       )}
 
       {ir3 && <Ir3Card ir3={ir3} params={params(ir2 ?? { design_document: '', parameters: [] })} />}
+
+      {gate === 'gate2' && <ProposalCard sessionId={sessionId} />}
 
       {gate && tuneSum.active && (
         <Alert
