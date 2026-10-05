@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import random
 import logging
 import threading
 import time
@@ -260,6 +261,17 @@ class LlmAdapter:
                     "LLM 调用失败(第 %s/%s 次, provider=%s): %s",
                     attempt, LLM_MAX_RETRIES, provider.name, exc,
                 )
+                # T12.1（P2-6）：退避分级——429/5xx/网络错误指数退避后重试；
+                # 其余 4xx（鉴权/参数类）重试无意义，直接失败进失败转移链。
+                if attempt < LLM_MAX_RETRIES and _should_backoff(exc):
+                    delay = min(LLM_BACKOFF_BASE_S * (2 ** (attempt - 1)) + random.uniform(0, LLM_BACKOFF_BASE_S * 0.2),
+                                LLM_BACKOFF_MAX_S)
+                    logger.info("LLM 退避 %.1fs 后重试（provider=%s）", delay, provider.name)
+                    time.sleep(delay)
+                    continue
+                if attempt < LLM_MAX_RETRIES:
+                    logger.info("LLM 客户端错误不退避重试（provider=%s）", provider.name)
+                break
         _record_health(provider.name, False, str(last_exc) if last_exc else "unknown")
         return last_exc
 
@@ -274,6 +286,16 @@ def _observe_llm_call(provider_name: str, duration_s: float, ok: bool) -> None:
         pass  # 指标故障不影响调用主链路
 
 
+def _should_backoff(exc: Exception) -> bool:
+    """T12.1（P2-6）：仅显式 4xx 客户端错误（401 鉴权/422 参数等，429 除外）不重试——
+    重试无意义且拖慢转移链；429/5xx/网络/未知错误一律指数退避后重试（保持既有
+    「transient 可重试」语义，P2-6 只新增节律）。"""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status == 429 or status >= 500
+    return True
+
+
 def _env_flag(name: str, default: str) -> bool:
     import os
 
@@ -281,5 +303,18 @@ def _env_flag(name: str, default: str) -> bool:
 
 
 _FAILOVER_ENABLED = _env_flag("LLM_FAILOVER", "1")
+
+
+def _env_float(name: str, default: str) -> float:
+    import os
+
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+LLM_BACKOFF_BASE_S = _env_float("LLM_BACKOFF_BASE_S", "2")
+LLM_BACKOFF_MAX_S = _env_float("LLM_BACKOFF_MAX_S", "30")
 
 llm_adapter = LlmAdapter()
