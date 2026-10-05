@@ -55,6 +55,8 @@
 
 7. **阶段 11（业务泛化与生产上线，[PHASE-011](phase/phase-11-业务泛化与生产上线.md)）已于 2026-10-01 全任务收官，tag v0.4.0**：T11.1 通知持久化（biz V14 扇出落库 + 查询已读 API + 前端登录拉取合并；alert 契约补记）、T11.2 RBAC（auth 用户管理 API + AdminPage 用户管理页 + 三条硬规则 + **authz 空角色越权漏洞修复** + KB 写收紧 admin）、T11.3 E1 反向回写（diff 提案→确认回写 IR2 value+derivation 原地同步→IR4/IR5 定向失效→A4 重算→自动重挂 gate2 复审闭环，零 Java 改动；P2-2 定案）、T11.4 军标批量录入（batch upsert 单连接 SAVEPOINT + xlsx/csv 导入 + 前端批量入口；25 条验证；**真实 GJB 待授权**）、T11.5 Word 导出（docgen 三章渲染 + 真实会话验证）、T11.6 vLLM 切换就绪（**LLM 前置出站脱敏默认开** + 供应商失败转移 + docs/ops/vLLM切换手册.md；真实 vLLM 待硬件）、T11.7 容灾备份（backup.sh/restore.sh --drill + GraphML 快照 1473 节点 + 演练证据 docs/reviews/2026-10-01-容灾恢复演练-T117.md + [ADR-005](adr/ADR-005-容灾与双活路线.md)）。全量回归绿：py 332 / e2e 5 条（含 e1）/ Java 71 / vitest 41。M5 口径：生产部署✅（单机）/ 全量军标核对◐（待授权）/ 用户可用✅。**当前在跑栈 = 容器化全栈（--profile app）+ monitoring + loadtest**；切回宿主开发模式先 `cd deploy && docker compose --profile app --profile monitoring --profile loadtest down`（保留底座）再 `scripts/start-all.cmd`。后续入口（v0.5/生产落地）：真实 vLLM 部署（按手册）、真实 GJB 录入（按批量入口）、双活实施（按 ADR-005）、日志检索（AdminPage 仍待接）、阶段 1–4/6/8 人工验收（用户豁免连发后建议补走查清单见 PHASE-011 §5 附录 A 自检⑤）。
 
+8. **阶段 12（二期收尾，[PHASE-012](phase/phase-12-二期收尾.md)）2026-10-01 启动，执行中**：认领 E1「参数双向联动」另一半（正向参数更新入口 + Origin Lock/Max Depth=3 变更抑制——总体设计 §5.6/§8.2 遗留承诺，phase-10 划 v0.4 未含，本阶段正式清账）+ P2-6/8/9/10/12 + 日志检索 + §10.5 第 5 告警 + 用户指南（M5 培训）。执行顺序 T12.1→T12.10，收官 tag v0.5.0。口径（用户 2026-10-01 确认）：完整版主轴；GraphRAG SDK 安装验证（包此前未装，自建 Neo4j 层一直承担）；PDF 继续后置。
+
 ## 待验证 / 待决事项
 
 - [x] T0.2：容器实机启动，9/9 healthy（2026-09-17）
