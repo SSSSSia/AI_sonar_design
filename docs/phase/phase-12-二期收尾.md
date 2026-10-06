@@ -97,11 +97,11 @@
   - [x] `_check_document` 三检查（降级横幅残留 / 正文参数 ID 引用一致性 / formula·standard 类 source_ref 缺失），全部 warning 级
   - [x] 单测 5 例（三检查各一 + warning 级不翻转 overall/CSR 口径 + 空正文）；A4 既有族回归 35 绿（P2-12 清账）
 
-### T12.5 日志检索 ⬜
+### T12.5 日志检索 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] log_store 跨会话查询（session/level/kind/关键字/时间窗+分页）+ `GET /logs/search`
-  - [ ] AdminPage「日志中心」卡（过滤+表格+详情）替换「待接」行；vitest
+  - [x] `log_store.search_logs`（session 前缀/level/kind/关键字 ILIKE/时间窗 + COUNT 分页）+ `GET /logs/search`（admin-only，跨会话遥测）
+  - [x] AdminPage「日志中心」卡（会话/级别/关键字过滤 + 分页表格 + 60s 刷新）；vitest 2 例（参数构造）；真库验证：error 级检索 total=6 命中、「待接」文案清账
 
 ### T12.6 bundle 分割 ⬜
 
@@ -157,6 +157,7 @@
 | T12.2 E1 正向联动 | 单测 5 例 + e2e 40.9s 全闭环（改参→重建模→复审→完成→链深留痕）；V16 手动应用 dev 库；执行期 Docker daemon 卡死一次（构建挂 50min+，`docker version` 超时）——重启 Docker Desktop 恢复，PG WAL 自动恢复数据完好（413 会话），见 devlog 2026-10-06 | 2026-10-06 |
 | T12.3 IR1 人工核对 | 单测 3 例（窗口守卫×4 态）；前端修订弹窗（Form.List 行级编辑）；tsc+vitest 绿 | 2026-10-06 |
 | T12.4 正文质检 | 单测 5 例 + A4 族 35 绿；warning 级口径验证（全中不翻转 overall/CSR） | 2026-10-06 |
+| T12.5 日志检索 | 真库检索验证（error total=6）+ vitest 2 例 + AdminPage 日志中心卡 | 2026-10-06 |
 
 ## 6. 决策记录
 

@@ -5,6 +5,7 @@ import {
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { KbStatus } from '../api/kb'
+import { searchLogs, type LogRow } from '../api/logs'
 import { probeGet } from '../api/client'
 import { errText } from '../api/client'
 import {
@@ -32,6 +33,52 @@ const TXT: Record<string, string> = { up: '可达', down: '不可达', checking:
 
 const ROLE_OPTIONS = ['admin', 'designer', 'reviewer', 'viewer'].map((r) => ({ value: r, label: r }))
 const ROLE_COLOR: Record<string, string> = { admin: 'gold', designer: 'blue', reviewer: 'green', viewer: 'default' }
+
+/** 日志中心（T12.5）：跨会话运行遥测检索（admin），/logs/search 过滤 + 分页。 */
+function LogCenter() {
+  const [sid, setSid] = useState('')
+  const [level, setLevel] = useState<string | undefined>(undefined)
+  const [keyword, setKeyword] = useState('')
+  const [page, setPage] = useState(0)
+  const PAGE = 50
+  const query = useQuery({
+    queryKey: ['log-center', sid, level, keyword, page],
+    queryFn: () => searchLogs({ session_id: sid || undefined, level, keyword: keyword || undefined, limit: PAGE, offset: page * PAGE }),
+    refetchInterval: 60_000,
+  })
+  const rows: LogRow[] = query.data?.logs ?? []
+  const total = query.data?.total ?? 0
+  const LEVEL_COLOR: Record<string, string> = { error: 'red', warn: 'orange', warning: 'orange', ok: 'green', info: 'blue', debug: 'default' }
+  return (
+    <Card
+      title="日志中心（跨会话运行遥测）"
+      extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>GET /api/v1/logs/search · 60s 刷新 · 共 {total} 条</Typography.Text>}
+      styles={{ body: { padding: 0 } }}
+    >
+      <div style={{ padding: '10px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Input allowClear placeholder="会话 ID（前缀）" style={{ width: 280 }} value={sid} onChange={(e) => { setSid(e.target.value); setPage(0) }} />
+        <Select allowClear placeholder="级别" style={{ width: 120 }} value={level}
+          onChange={(v) => { setLevel(v); setPage(0) }}
+          options={['error', 'warn', 'info', 'ok', 'debug'].map((l) => ({ value: l, label: l }))} />
+        <Input.Search allowClear placeholder="关键字（正文包含）" style={{ width: 260 }} enterButton
+          onSearch={(v) => { setKeyword(v); setPage(0) }} />
+      </div>
+      <Table
+        rowKey="id" size="small"
+        loading={query.isLoading}
+        dataSource={rows}
+        pagination={{ pageSize: PAGE, current: page + 1, total, showSizeChanger: false,
+          onChange: (p) => setPage(p - 1) }}
+        columns={[
+          { title: '时间', dataIndex: 'created_at', width: 170, render: (v: string) => (v ?? '').replace('T', ' ').slice(0, 19) },
+          { title: '会话', dataIndex: 'session_id', width: 200, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{(v ?? '').slice(0, 13)}</Typography.Text> },
+          { title: '级别', dataIndex: 'level', width: 80, render: (v: string) => <Tag color={LEVEL_COLOR[v] ?? 'default'}>{v}</Tag> },
+          { title: '内容', dataIndex: 'text', ellipsis: true, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
+        ]}
+      />
+    </Card>
+  )
+}
 
 /** 用户管理（T11.2）：auth /api/v1/auth/users（admin-only），创建/启停/重置密码/角色分配/删除。 */
 function UserManagement() {
@@ -253,6 +300,8 @@ export default function AdminPage() {
           message="本页数字一律来自后端真实接口（A-16）；日志中心未建属如实待接，备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。"
         />
       </Card>
+
+      <LogCenter />
 
       <UserManagement />
     </div>

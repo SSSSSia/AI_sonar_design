@@ -57,3 +57,39 @@ def stage_durations(session_id: str) -> list[dict[str, Any]]:
             (session_id,),
         )
         return [{k: _clean(v) for k, v in row.items()} for row in cur.fetchall()]
+
+
+def search_logs(session_id: str | None = None, level: str | None = None,
+                kind: str | None = None, keyword: str | None = None,
+                hours: int | None = None,
+                limit: int = 100, offset: int = 0) -> dict[str, Any]:
+    """跨会话日志检索（T12.5，AdminPage 日志中心）。全部过滤可选；
+    session_id 支持前缀匹配；keyword 走 text ILIKE；hours=近 N 小时窗。"""
+    conds: list[str] = []
+    args: list[Any] = []
+    if session_id:
+        conds.append("session_id::text LIKE %s")
+        args.append(f"{session_id.strip()}%")
+    if level:
+        conds.append("level = %s")
+        args.append(level)
+    if kind:
+        conds.append("kind = %s")
+        args.append(kind)
+    if keyword:
+        conds.append("text ILIKE %s")
+        args.append(f"%{keyword.strip()}%")
+    if hours:
+        conds.append("created_at > now() - (%s || ' hours')::interval")
+        args.append(str(int(hours)))
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) AS total FROM session_logs {where}", tuple(args))
+        total = int(cur.fetchone()["total"])
+        cur.execute(
+            f"SELECT id, session_id, level, text, kind, created_at FROM session_logs {where} "
+            "ORDER BY id DESC LIMIT %s OFFSET %s",
+            tuple(args + [limit, offset]),
+        )
+        rows = [{k: _clean(v) for k, v in r.items()} for r in cur.fetchall()]
+    return {"logs": rows, "total": total, "limit": limit, "offset": offset}

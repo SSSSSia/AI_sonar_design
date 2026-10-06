@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.authz import require_user
+from api.authz import require_admin, require_user
 from storage import log_store
 
 router = APIRouter(prefix="/logs", tags=["logs"])
@@ -23,3 +23,21 @@ def get_session_logs(sid: str, after_id: int = Query(default=0, ge=0),
                      user: str = Depends(require_user)) -> dict[str, Any]:
     """按会话回放日志（id 升序；after_id 供增量拉取）。"""
     return {"logs": log_store.list_logs(sid, after_id=after_id, limit=limit)}
+
+
+@router.get("/search")
+def search_logs(session_id: str | None = None, level: str | None = None,
+                kind: str | None = None, keyword: str | None = None,
+                hours: int | None = None, limit: int = 100, offset: int = 0,
+                user: str = Depends(require_admin)) -> dict:
+    """跨会话日志检索（T12.5）：AdminPage 日志中心数据源，admin-only（跨会话运行遥测）。"""
+    if limit > 500:
+        limit = 500
+    from storage import log_store
+
+    try:
+        return log_store.search_logs(session_id=session_id, level=level, kind=kind,
+                                     keyword=keyword, hours=hours,
+                                     limit=limit, offset=max(0, offset))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"日志检索失败: {exc}") from exc
