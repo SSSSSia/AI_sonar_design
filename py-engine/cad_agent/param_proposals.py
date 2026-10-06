@@ -162,3 +162,30 @@ def apply_proposals(ir2: dict[str, Any], applied: list[dict[str, Any]], round_no
             + "\n".join(lines))
     new_ir2["design_document"] = doc
     return new_ir2
+
+
+def apply_forward_update(ir2: dict[str, Any], param_id: str, new_value: float,
+                         reason: str | None) -> dict[str, Any]:
+    """E1 正向更新（T12.2）：改 IR2 单参数 value + derivation 原地同步 + design_document 修订段。
+
+    与反向回写共用符号表同步纪律（sync_derivation）；深拷贝不改旧快照（A-12）。"""
+    import copy
+
+    new_ir2 = copy.deepcopy(ir2)
+    param = next((p for p in new_ir2.get("parameters") or [] if str(p.get("id")) == str(param_id)), None)
+    if param is None:
+        raise KeyError(f"参数不存在: {param_id}")
+    old_value = _num(param.get("value"))
+    note = f"E1 正向更新（{reason or '人工修订'}）"
+    param["value"] = new_value
+    param["derivation"] = sync_derivation(str(param.get("derivation") or ""),
+                                          float(old_value), float(new_value), note)
+    doc = str(new_ir2.get("design_document") or "")
+    unit = str(param.get("unit") or "")
+    doc += (f"\n\n## 修订记录（E1 正向参数更新）\n\n"
+            f"- 参数：{param.get('name')}（{param_id}）\n"
+            f"- 变更：{_fmt(float(old_value))} → {_fmt(float(new_value))} {unit}\n"
+            f"- 理由：{reason or '—'}\n"
+            f"- 后续：CAD 将按新参数重新建模（A3 重算），经审阅关②复审")
+    new_ir2["design_document"] = doc
+    return new_ir2

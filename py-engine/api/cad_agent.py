@@ -358,6 +358,19 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
     invalidated = ir_store.mark_invalidated(sid, ["IR4", "IR5"])
     applied_ids = [str(r["id"]) for r in rows]
     proposal_store.mark(applied_ids, "applied", user, applied_ir2_version=ir2_version)
+    # T12.2：反向确认也计入传播链（origin=reverse_confirm，depth 顺延，不设上限检查——
+    # 反向 confirm 不重派 A3，几何即真相，链在此自然终止）
+    from storage import param_update_store
+
+    for r in rows:
+        try:
+            param_update_store.record(sid, str(r["param_id"]), float(r["old_value"]),
+                                      float(r["new_value"]), str(r.get("unit") or "mm"),
+                                      f"反向提案确认（r{r['round_no']} 微调）",
+                                      param_update_store.current_depth(sid) + 1,
+                                      ir2_version, user, origin="reverse_confirm")
+        except Exception:  # 链记录失败不阻断确认主链路
+            logger.warning("E1 反向确认链深记录失败 session=%s", sid, exc_info=True)
     try:
         _redispatch_a4(sid)
     except Exception as exc:
@@ -400,3 +413,77 @@ def _redispatch_a4(sid: str) -> None:
     from worker.tasks import a4_task
 
     a4_task.delay(sid)
+
+
+# ----------------------------------------------------------------------
+# E1 正向参数更新（T12.2）：文档→CAD（总体设计 §5.6/§8.2 认领）
+# ----------------------------------------------------------------------
+class ParamUpdateBody(BaseModel):
+    value: float
+    reason: Optional[str] = None
+
+
+@router.post("/sessions/{sid}/parameters/{pid}/update")
+def update_parameter(sid: str, pid: str, body: ParamUpdateBody,
+                     user: str = Depends(require_writer)) -> dict[str, Any]:
+    """E1 正向联动：修改 IR2 参数 → A3 重新建模 → gate2 复审（局部回环，不回 A1/A2）。
+
+    变更抑制（系统实施方案 Origin Lock/Max Depth=3 的务实落地）：
+    ①仅 paused@gate2 可发起（单飞行窗口，串行化）；②传播深度 >3 拒绝；③A3 重算后
+    几何若仍与参数有偏差，反向提案照常生成但挂起待人工确认（确认制=回写拦截器）。"""
+    from storage import param_update_store
+    from cad_agent.param_proposals import apply_forward_update
+
+    session = _session_or_404(sid)
+    if not (session.get("pipeline_status") == "paused" and session.get("current_stage") == "gate2"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"会话状态为 {session.get('pipeline_status')}@{session.get('current_stage')}："
+                   "正向参数更新仅可在审阅关②暂停态发起（gate1 前改需求走 IR1 修订，"
+                   "已完成会话走审阅关驳回返工）")
+    if body.value <= 0:
+        raise HTTPException(status_code=400, detail="参数值必须为正数")
+
+    ir2 = ir_store.get_latest_snapshot(sid, "IR2")
+    if ir2 is None:
+        raise HTTPException(status_code=404, detail="IR2 快照缺失")
+    param = next((p for p in ir2.get("parameters") or [] if str(p.get("id")) == str(pid)), None)
+    if param is None:
+        raise HTTPException(status_code=404, detail=f"参数不存在: {pid}")
+
+    try:
+        depth = param_update_store.next_depth_or_raise(sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    old_value = param.get("value")
+    new_ir2 = apply_forward_update(ir2, pid, body.value, body.reason)
+    from ir_contract import validate_ir
+
+    try:
+        new_ir2 = validate_ir("IR2", new_ir2)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"更新后 IR2 未过契约校验: {exc}") from exc
+
+    ir2_version = ir_store.save_snapshot(sid, "IR2", new_ir2, created_by="e1_forward")
+    invalidated = ir_store.mark_invalidated(sid, ["IR3", "IR4", "IR5"])
+    param_update_store.record(sid, pid,
+                              float(old_value) if isinstance(old_value, (int, float)) else None,
+                              float(body.value), str(param.get("unit") or ""), body.reason,
+                              depth, ir2_version, user)
+    try:
+        from worker.tasks import a3_task
+
+        a3_task.delay(sid)
+    except Exception as exc:
+        logger.warning("E1 正向更新 a3 重派失败 session=%s: %s", sid, exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"IR2 v{ir2_version} 已回写、IR3/IR4/IR5 已失效，但 A3 重派失败（{exc}）；"
+                   "请稍后以相同参数值重试（将追加新版本，历史留痕）") from exc
+    logger.info("E1 正向更新 session=%s %s: %s→%s（depth=%s, IR2 v%s），已重派 A3",
+                sid, pid, old_value, body.value, depth, ir2_version)
+    return {"ir2_version": ir2_version, "param_id": pid, "old_value": old_value,
+            "new_value": body.value, "invalidated": invalidated, "depth": depth,
+            "a3_redispatched": True,
+            "note": "A3 将按新参数重新建模并重算 A4，完成后自动回到审阅关②复审"}

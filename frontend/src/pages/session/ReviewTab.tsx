@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, App as AntdApp, Button, Card, Input, Modal, Radio, Space, Table, Tag, Typography,
+  Alert, App as AntdApp, Button, Card, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   postReview, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
 } from '../../api/workflow'
-import type { ParamProposal } from '../../api/cadAgent'
+import { updateParameter, type ParamProposal } from '../../api/cadAgent'
 import { ApiError } from '../../api/client'
 import { confirmParamProposals, ignoreParamProposal, listParamProposals, listTunes } from '../../api/cadAgent'
 import { summarizeTunes } from './tuneSummary'
@@ -135,6 +135,7 @@ export function ReviewTab({
   onDecided: () => void
 }) {
   const { message } = AntdApp.useApp()
+  const queryClient = useQueryClient()
   const roles = useAuthStore((s) => s.roles)
   const canDecide = hasAnyRole(roles, ['admin', 'reviewer'])
   // T8.5：gate2 裁决前提示活跃微调会话——确保审阅的即交付的版本（D8-3 衔接语义）
@@ -150,6 +151,8 @@ export function ReviewTab({
   const [decision, setDecision] = useState<'approved' | 'rejected'>('approved')
   const [reworkStage, setReworkStage] = useState<string>(gate === 'gate2' ? (ir4?.issues.find((i) => i.suggestion)?.suggestion?.replace('back_to_', '') ?? 'A2') : 'A2')
   const [annotations, setAnnotations] = useState('')
+  const [editParam, setEditParam] = useState<Ir2Param | null>(null)
+  const [editForm] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
 
   async function submit() {
@@ -272,7 +275,16 @@ export function ReviewTab({
       {ir2 ? (
         <Card
           title={`IR2 参数方案表（${params(ir2).length} 项）`}
-          extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>点击参数行溯源反查</Typography.Text>}
+          extra={
+            <Space size={8}>
+              {gate === 'gate2' && paused && hasAnyRole(roles, ['admin', 'designer']) && (
+                <Button size="small" onClick={() => { setEditParam(params(ir2)[0] ?? null); editForm.setFieldsValue({ pid: params(ir2)[0]?.id }) }}>
+                  修改参数（E1 正向）
+                </Button>
+              )}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>点击参数行溯源反查</Typography.Text>
+            </Space>
+          }
           styles={{ body: { padding: 0 } }}
         >
           {params(ir2).length === 0 ? (
@@ -299,6 +311,50 @@ export function ReviewTab({
       {ir3 && <Ir3Card ir3={ir3} params={params(ir2 ?? { design_document: '', parameters: [] })} />}
 
       {gate === 'gate2' && <ProposalCard sessionId={sessionId} />}
+
+      <Modal
+        title="E1 正向参数更新（文档 → CAD）"
+        open={!!editParam}
+        onCancel={() => setEditParam(null)}
+        okText="更新并重新建模"
+        onOk={async () => {
+          if (!editParam) return
+          const values = await editForm.validateFields()
+          if (values.value === undefined || Number.isNaN(Number(values.value)) || Number(values.value) <= 0) {
+            message.warning('参数值必须为正数')
+            return
+          }
+          try {
+            const r = await updateParameter(sessionId, editParam.id, { value: Number(values.value), reason: values.reason })
+            message.success(`已回写 IR2 v${r.ir2_version}（深度 ${r.depth}），A3 将按新参数重新建模，完成后回到审阅关②复审`)
+            setEditParam(null)
+            void queryClient.invalidateQueries({ queryKey: ['ir', sessionId] })
+            void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+          } catch (e) {
+            message.error(e instanceof ApiError ? e.message : '正向更新失败')
+          }
+        }}
+      >
+        <Alert
+          type="warning" showIcon style={{ marginBottom: 12 }}
+          message={`将修改 ${editParam?.name ?? ''}（${editParam?.id ?? ''}，当前 ${String(editParam?.value ?? '')} ${editParam?.unit ?? ''}）`}
+          description="提交后 IR2 追加新版本，IR3/IR4/IR5 失效并重跑 A3/A4——完成后自动回到审阅关②复审（传播深度上限 3）。"
+        />
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="pid" label="参数">
+            <Select
+              options={params(ir2 ?? { design_document: '', parameters: [] }).map((p) => ({ value: p.id, label: `${p.name}（${p.id}）= ${String(p.value)} ${p.unit}` }))}
+              onChange={(v) => setEditParam(params(ir2 ?? { design_document: '', parameters: [] }).find((p) => p.id === v) ?? null)}
+            />
+          </Form.Item>
+          <Form.Item name="value" label="新值" rules={[{ required: true }]}>
+            <Input type="number" />
+          </Form.Item>
+          <Form.Item name="reason" label="变更理由">
+            <Input.TextArea rows={2} placeholder="如：任务书修订 / 评审意见" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {gate && tuneSum.active && (
         <Alert

@@ -85,3 +85,17 @@ export function confirmParamProposals(sid: string, proposal_ids: string[]) {
 export function ignoreParamProposal(proposalId: string) {
   return post<{ id: string; status: string }>(`/cad-agent/param-proposals/${proposalId}/ignore`, {})
 }
+
+/** E1 正向参数更新（T12.2）：文档→CAD，仅 paused@gate2 可发起。 */
+export function updateParameter(sid: string, pid: string, body: { value: number; reason?: string }) {
+  return post<{
+    ir2_version: number
+    param_id: string
+    old_value: number | null
+    new_value: number
+    invalidated: string[]
+    depth: number
+    a3_redispatched: boolean
+    note: string
+  }>(`/cad-agent/sessions/${sid}/parameters/${pid}/update`, body)
+}

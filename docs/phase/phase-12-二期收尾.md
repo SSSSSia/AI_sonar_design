@@ -76,13 +76,13 @@
   - [x] `_chat_single` except：指数退避+jitter（`LLM_BACKOFF_BASE_S=2` / `LLM_BACKOFF_MAX_S=30` env 可调）；**分级口径**：仅显式 4xx（401/422 等，429 除外）不退避快速失败进转移链，429/5xx/网络/未知错误一律退避重试（保持既有「transient 可重试」语义，P2-6 只新增节律——初版把未知错误也排除重试，被 T1.2 既有用例 test_retry_upper_bound 当场纠正）
   - [x] 单测 4 例新增（test_t121_backoff.py：429 退避后成功/404 快速失败/网络错误退避/分类断言）；adapter 全族 23 用例回归绿
 
-### T12.2 E1 正向联动 ⬜
+### T12.2 E1 正向联动 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] `POST /cad-agent/sessions/{sid}/parameters/{pid}/update` + biz V16 `cad_param_updates`（origin/depth/状态）
-  - [ ] 变更抑制三件套：depth 记录与 >3 拒绝；反向事件确认制挂起；单飞行窗口（paused@gate2 only）
-  - [ ] 前端参数表「修改」弹窗（designer/admin）
-  - [ ] e2e `test_e1_forward_e2e.py` 全闭环（改参→A3 重算→新 IR3 正向联动→gate2 复审→批准）+ 抑制语义断言；单测 depth/origin
+  - [x] `POST /cad-agent/sessions/{sid}/parameters/{pid}/update`（总体设计 §8.2 承诺入口，仅 paused@gate2）+ biz V16 `cad_param_updates`（origin/depth 留痕）
+  - [x] 变更抑制三件套：depth 链计量（forward=1、反向 confirm 顺延，>3 409）；反向事件确认制挂起（v0.4 提案制即「回写拦截器」，T11.3 confirm 现同步记链）；单飞行窗口（非 paused@gate2 409）
+  - [x] 前端 ReviewTab 参数表「修改参数（E1 正向）」弹窗（designer/admin；选参/改值/理由→提示重跑 A3 回 gate2）
+  - [x] e2e `test_e1_forward_e2e.py` 全闭环 40.9s（改参 100→140 → IR2 v2 derivation 原地同步 → IR3 失效 → mock LLM 重新建模 → A4 重算 → 自动重挂 gate2 → depth=1 留痕 → 批准 → completed）；单测 5 例（happy path/守卫/深度上限/常量）
 
 ### T12.3 IR1 人工核对 ⬜
 
@@ -154,6 +154,7 @@
 | 任务 | 实测证据 | 时间 |
 |---|---|---|
 | T12.1 LLM 退避 | 单测 4 新 + adapter 族 23 绿（t116/t121/t12_worker）；分级口径被既有用例纠正一次（未知错误保持可重试） | 2026-10-01 |
+| T12.2 E1 正向联动 | 单测 5 例 + e2e 40.9s 全闭环（改参→重建模→复审→完成→链深留痕）；V16 手动应用 dev 库；执行期 Docker daemon 卡死一次（构建挂 50min+，`docker version` 超时）——重启 Docker Desktop 恢复，PG WAL 自动恢复数据完好（413 会话），见 devlog 2026-10-06 | 2026-10-06 |
 
 ## 6. 决策记录
 
