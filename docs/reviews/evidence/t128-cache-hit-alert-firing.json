@@ -1,0 +1,1 @@
+{"status":"success","data":{"alerts":[{"labels":{"alertname":"CacheHitRateLow","severity":"warning","team":"sonarcad"},"annotations":{"description":"近 10 分钟 L1 缓存命中率 <60%（总体设计 §10.5 告警⑤）；命中率过低意味着 LLM/检索重复计费与延迟上升","summary":"L1 缓存命中率低于 60%"},"state":"firing","activeAt":"2026-10-06T07:56:23.885522645Z","value":"0e+00"}]}}

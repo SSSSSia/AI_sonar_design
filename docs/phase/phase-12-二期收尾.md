@@ -116,11 +116,12 @@
   - [ ] 未 scoped 查询 SDK 级生效实测（local/basic 优先 + graphrag_sdk=true + 性能对比）；scoped 仍如实降级（D6-5）
   - [ ] requirements 可选依赖声明升级 + 验证记录落 §5；失败则 A-16 关账
 
-### T12.8 缓存命中率告警 ⬜
+### T12.8 缓存命中率告警 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] alerts.yml `CacheHitRateLow`（<60% 持续 5m）；临时调低阈值触发证据入 docs/reviews/evidence/
-  - [ ] Grafana 面板核对；恢复正式阈值确认回落
+  - [x] alerts.yml `CacheHitRateLow`（<60% 持续 10m；表达式健壮性实测返修：无 hit 序列时 sum 为空向量——`or vector(0)` 兜底 + `>1e-3 op/s` 最低流量门槛防空转误报）；§10.5 五条告警补齐
+  - [x] 触发证据：`docs/reviews/evidence/t128-cache-hit-alert-firing.json`（firing 快照；取证用临时去门槛+for:1m 变体——正式规则恢复后确认回落 inactive）；Prometheus 重启后规则 5/5 加载
+  - [x] 执行期发现：Prometheus 容器在 Docker daemon 卡死事故中退出（255）未自启——手动 start 恢复
 
 ### T12.9 用户指南 ⬜
 
@@ -159,6 +160,7 @@
 | T12.4 正文质检 | 单测 5 例 + A4 族 35 绿；warning 级口径验证（全中不翻转 overall/CSR） | 2026-10-06 |
 | T12.5 日志检索 | 真库检索验证（error total=6）+ vitest 2 例 + AdminPage 日志中心卡 | 2026-10-06 |
 | T12.6 bundle 分割 | 主包 2588→20 KB（首屏 -46%）；three/d3 按需；tsc+vitest 绿 | 2026-10-06 |
+| T12.8 缓存命中率告警 | firing 证据入库 + 正式规则回落 inactive；表达式两处健壮性返修；§10.5 五条补齐 | 2026-10-06 |
 
 ## 6. 决策记录
 

@@ -53,3 +53,20 @@ groups:
         annotations:
           summary: "Celery 任务队列积压超 100"
           description: "RabbitMQ sonarcad.* 队列消息数 >100（总体设计 §10.5 告警④）"
+
+      # ⑤ L1 缓存命中率 <60%（持续 10m；T12.8，§10.5 五条告警补齐）
+      #    口径：hit/(hit+miss) 按全层聚合。两处健壮性（实测教训）：
+      #    a) 无 hit 序列时 sum(...) 为空向量 → or vector(0) 兜底为 0（纯 miss 也能判 0%）；
+      #    b) 最低流量门槛 >1e-3 op/s（≈10 分钟 6 次操作）——完全空转不误报。
+      - alert: CacheHitRateLow
+        expr: >
+          ((sum(rate(py_cache_ops_total{result="hit"}[10m])) or vector(0))
+            / clamp_min(sum(rate(py_cache_ops_total[10m])), 1e-9) < 0.6)
+          and (sum(rate(py_cache_ops_total[10m])) > 1e-3)
+        for: 10m
+        labels:
+          severity: warning
+          team: sonarcad
+        annotations:
+          summary: "L1 缓存命中率低于 60%"
+          description: "近 10 分钟 L1 缓存命中率 <60%（总体设计 §10.5 告警⑤）；命中率过低意味着 LLM/检索重复计费与延迟上升"
