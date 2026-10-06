@@ -84,12 +84,12 @@
   - [x] 前端 ReviewTab 参数表「修改参数（E1 正向）」弹窗（designer/admin；选参/改值/理由→提示重跑 A3 回 gate2）
   - [x] e2e `test_e1_forward_e2e.py` 全闭环 40.9s（改参 100→140 → IR2 v2 derivation 原地同步 → IR3 失效 → mock LLM 重新建模 → A4 重算 → 自动重挂 gate2 → depth=1 留痕 → 批准 → completed）；单测 5 例（happy path/守卫/深度上限/常量）
 
-### T12.3 IR1 人工核对 ⬜
+### T12.3 IR1 人工核对 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] `POST /cad/sessions/{sid}/irs/IR1/revisions`（追加版本+失效下游+重派 A2；编辑窗口 running-after-A1/paused@gate1）
-  - [ ] 前端 IR1 卡编辑模式（objectives 行内改值 + missing_items 修订）
-  - [ ] 单测（修订→版本追加→重派语义）；既有 phase2 e2e 回归
+  - [x] `POST /cad/sessions/{sid}/irs/IR1/revisions`（追加版本 created_by=user + 失效 IR2..IR5 + 重派 a2_task；编辑窗口 running@A2 / paused@gate1，其他 409；人工修订目标标记「显式」）
+  - [x] 前端 ReviewTab IR1 卡「修订需求（人工核对）」（gate1 暂停态 + designer/admin；Form.List 行级编辑 + 缺失项逐行文本；提交后提示重算 A2 回审阅关①）
+  - [x] 单测 3 例（happy path 断言追加/保留未修订字段/重派；四态窗口守卫；空 objectives 拒绝）；tsc+vitest 回归
 
 ### T12.4 正文风险质检 ⬜
 
@@ -155,6 +155,7 @@
 |---|---|---|
 | T12.1 LLM 退避 | 单测 4 新 + adapter 族 23 绿（t116/t121/t12_worker）；分级口径被既有用例纠正一次（未知错误保持可重试） | 2026-10-01 |
 | T12.2 E1 正向联动 | 单测 5 例 + e2e 40.9s 全闭环（改参→重建模→复审→完成→链深留痕）；V16 手动应用 dev 库；执行期 Docker daemon 卡死一次（构建挂 50min+，`docker version` 超时）——重启 Docker Desktop 恢复，PG WAL 自动恢复数据完好（413 会话），见 devlog 2026-10-06 | 2026-10-06 |
+| T12.3 IR1 人工核对 | 单测 3 例（窗口守卫×4 态）；前端修订弹窗（Form.List 行级编辑）；tsc+vitest 绿 | 2026-10-06 |
 
 ## 6. 决策记录
 

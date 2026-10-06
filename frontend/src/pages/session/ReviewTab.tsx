@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  postReview, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
+  postReview, reviseIr1, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
 } from '../../api/workflow'
 import { updateParameter, type ParamProposal } from '../../api/cadAgent'
 import { ApiError } from '../../api/client'
@@ -153,6 +153,8 @@ export function ReviewTab({
   const [annotations, setAnnotations] = useState('')
   const [editParam, setEditParam] = useState<Ir2Param | null>(null)
   const [editForm] = Form.useForm()
+  const [ir1Editing, setIr1Editing] = useState(false)
+  const [ir1Form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
 
   async function submit() {
@@ -247,7 +249,20 @@ export function ReviewTab({
         <Card
           title="IR1 需求解析"
           size="small"
-          extra={ir1Degraded(ir1) ? <Tag color="warning">降级解析（LLM 规划不可用）</Tag> : undefined}
+          extra={
+            <Space size={8}>
+              {gate === 'gate1' && paused && hasAnyRole(roles, ['admin', 'designer']) && (
+                <Button size="small" onClick={() => {
+                  ir1Form.setFieldsValue({
+                    objectives: ir1.objectives.map((o) => ({ dimension: o.dimension, value: String(o.value) })),
+                    missingText: (ir1.missing_items ?? []).join('\n'),
+                  })
+                  setIr1Editing(true)
+                }}>修订需求（人工核对）</Button>
+              )}
+              {ir1Degraded(ir1) ? <Tag color="warning">降级解析（LLM 规划不可用）</Tag> : undefined}
+            </Space>
+          }
         >
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(64px, 88px) 1fr', rowGap: 6, fontSize: 12.5 }}>
             {ir1.objectives.map((o) => (
@@ -311,6 +326,65 @@ export function ReviewTab({
       {ir3 && <Ir3Card ir3={ir3} params={params(ir2 ?? { design_document: '', parameters: [] })} />}
 
       {gate === 'gate2' && <ProposalCard sessionId={sessionId} />}
+
+      <Modal
+        title="IR1 需求人工核对修订（P2-10）"
+        open={ir1Editing}
+        onCancel={() => setIr1Editing(false)}
+        okText="提交并重算 A2"
+        width={640}
+        onOk={async () => {
+          const values = await ir1Form.validateFields()
+          const objectives = (values.objectives as { dimension: string; value: string }[])
+            .filter((o) => o.dimension?.trim())
+            .map((o) => ({ dimension: o.dimension.trim(), value: Number.isNaN(Number(o.value)) ? o.value : Number(o.value), explicit: true }))
+          try {
+            const r = await reviseIr1(sessionId, {
+              objectives,
+              missing_items: String(values.missingText ?? '').split('\n').map((x: string) => x.trim()).filter(Boolean),
+              reason: '人工核对修订',
+            })
+            message.success(`IR1 v${r.ir1_version} 已追加（${r.objectives} 项目标），下游失效并重算 A2——完成后回到审阅关①`)
+            setIr1Editing(false)
+            void queryClient.invalidateQueries({ queryKey: ['ir', sessionId] })
+            void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+          } catch (e) {
+            message.error(e instanceof ApiError ? e.message : 'IR1 修订失败')
+          }
+        }}
+      >
+        <Alert
+          type="info" showIcon style={{ marginBottom: 12 }}
+          message="人工核对解析结果（设计 §5.1）：修订目标与缺失项后，IR1 追加新版本并重算 A2（不重新解析原文）。修订的目标将标记为「显式」。"
+        />
+        <Form form={ir1Form} layout="vertical">
+          <Form.List name="objectives">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field) => (
+                  <Space key={field.key} align="baseline" style={{ display: 'flex', marginBottom: 4 }}>
+                    <Form.Item name={[field.name, 'dimension']} rules={[{ required: true, message: '维度必填' }]}
+                      style={{ marginBottom: 0, width: 180 }}>
+                      <Input placeholder="维度（如 声阵规模）" />
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'value']} rules={[{ required: true, message: '取值必填' }]}
+                      style={{ marginBottom: 0, width: 200 }}>
+                      <Input placeholder="取值" />
+                    </Form.Item>
+                    <Button type="text" size="small" danger onClick={() => remove(field.name)}>删除</Button>
+                  </Space>
+                ))}
+                <Button type="dashed" size="small" onClick={() => add({ dimension: '', value: '' })} style={{ marginTop: 4 }}>
+                  + 添加目标
+                </Button>
+              </>
+            )}
+          </Form.List>
+          <Form.Item name="missingText" label="缺失项（每行一条）" style={{ marginTop: 12 }}>
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="E1 正向参数更新（文档 → CAD）"

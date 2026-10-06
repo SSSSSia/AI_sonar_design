@@ -183,6 +183,16 @@ export function getTrace(traceId: string) {
   return get<TraceChain>(`/trace/${traceId}`)
 }
 
+/** IR1 人工核对修订（T12.3，P2-10）：追加 IR1 新版本并重跑 A2（局部回环）。 */
+export function reviseIr1(sid: string, body: {
+  objectives: { dimension: string; value: unknown; explicit?: boolean }[]
+  missing_items: string[]
+  reason?: string
+}) {
+  return post<{ ir1_version: number; invalidated: string[]; objectives: number; a2_redispatched: boolean }>(
+    `/cad/sessions/${sid}/irs/IR1/revisions`, body)
+}
+
 export function listReviews(sid: string) {
   return get<ReviewRecord[]>(`/workflow/sessions/${sid}/reviews`)
 }

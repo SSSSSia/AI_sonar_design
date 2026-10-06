@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from api.authz import require_user, require_writer
+from pydantic import BaseModel
 from fastapi.responses import Response
 
 from api.authz import require_user
@@ -177,3 +179,67 @@ def export_docx(sid: str, user: str = Depends(require_user)) -> Response:
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
     )
+
+
+class Ir1ObjectiveIn(BaseModel):
+    dimension: str
+    value: Any
+    explicit: bool = True
+
+
+class Ir1RevisionBody(BaseModel):
+    objectives: list[Ir1ObjectiveIn]
+    missing_items: list[str] = []
+    reason: str | None = None
+
+
+@router.post("/sessions/{sid}/irs/IR1/revisions")
+def revise_ir1(sid: str, req: Ir1RevisionBody, user: str = Depends(require_writer)) -> dict[str, Any]:
+    """IR1 需求人工核对修订（T12.3，P2-10，设计 §5.1）：人工修订目标/缺失项后追加 IR1 新版本
+    （created_by=user，A-12 不可变），定向失效下游并重跑 A2——复用局部回环，不重跑 A1 解析。
+
+    编辑窗口：running@A2（解析完、gate1 前）与 paused@gate1——其他状态 409（A-16 口径）。"""
+    import copy
+
+    from worker.tasks import a2_task
+
+    session = ir_store.get_session(sid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"设计会话不存在: {sid}")
+    st, stage = session.get("pipeline_status"), session.get("current_stage")
+    editable = (st == "running" and stage == "A2") or (st == "paused" and stage == "gate1")
+    if not editable:
+        raise HTTPException(
+            status_code=409,
+            detail=f"会话状态为 {st}@{stage}：IR1 修订窗口为「A2 重算中（gate1 前）」与「审阅关①暂停态」")
+    if not req.objectives:
+        raise HTTPException(status_code=400, detail="objectives 不能为空（如需清空请驳回重解析）")
+
+    ir1_old = ir_store.get_latest_snapshot(sid, "IR1")
+    if ir1_old is None:
+        raise HTTPException(status_code=404, detail="IR1 快照缺失")
+
+    new_ir1 = copy.deepcopy(ir1_old)
+    # 人工修订的目标视为显式给出（用户确认即 explicit——与 A1 的「推断」区分）
+    new_ir1["objectives"] = [
+        {"dimension": o.dimension.strip(), "value": o.value, "explicit": True}
+        for o in req.objectives if o.dimension.strip()
+    ]
+    new_ir1["missing_items"] = [m.strip() for m in req.missing_items if m.strip()]
+    from ir_contract import validate_ir
+
+    try:
+        new_ir1 = validate_ir("IR1", new_ir1)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"修订后 IR1 未过契约校验: {exc}") from exc
+
+    version = ir_store.save_snapshot(sid, "IR1", new_ir1, created_by="user")
+    invalidated = ir_store.mark_invalidated(sid, ["IR2", "IR3", "IR4", "IR5"])
+    try:
+        a2_task.delay(sid)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"IR1 v{version} 已追加、下游已失效，但 A2 重派失败（{exc}）；请稍后重试") from exc
+    return {"ir1_version": version, "invalidated": invalidated,
+            "objectives": len(new_ir1["objectives"]), "a2_redispatched": True}
