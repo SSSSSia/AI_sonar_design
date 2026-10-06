@@ -33,8 +33,12 @@ def _scope_cache():
 
 @pytest.fixture
 def svc(monkeypatch):
-    """无 SDK、无 KB 扩展级的服务 + 动态语料打桩。"""
+    """无 SDK、无 KB 扩展级的服务 + 动态语料打桩。
+
+    T12.7 后 graphrag 包真实安装——fixture 显式置空 SDK，保持「SDK 不可用降级」
+    语义的确定性（否则随环境漂移）。SDK 在位的分级行为由 test_t127 覆盖。"""
     s = GraphRAGService()
+    s.sdk = None  # T12.7 后包真实在装——显式置空保持「SDK 不可用」语义确定性
     s._dynamic_sources = list(CHUNKS)
     monkeypatch.setattr(GraphRAGService, "_ensure_corpus", lambda self: None)
     return s

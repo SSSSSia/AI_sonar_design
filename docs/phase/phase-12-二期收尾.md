@@ -30,6 +30,27 @@
 | T12.8 缓存命中率告警 | §10.5 第 5 条 |
 | T12.7 GraphRAG SDK | local 级端到端生效（零降级，159s/查 vs 自建层 0.2s）；版本三连返修定位 3.2.0；scoped 降级不变 | 2026-10-06 |
 | T12.9 用户指南 | docs/ops/用户指南.md 按角色手册落地 | 2026-10-06 |
+
+### 全量回归（阶段末，2026-10-06）
+
+| 项 | 结果 |
+|---|---|
+| py-engine 单测 | 349 passed 1 skipped（新增 25：T12.1 退避 4 + T12.2 正向 5 + T12.3 IR1 3 + T12.4 质检 5 + T12.5 前端 2 + T62 fixture 确定性修正；T12.6/7/8/9 经构建与实机验证） |
+| e2e | 6 条：towed（真 LLM）/ kb_pipeline（真 LLM）/ phase2（门语义）/ cad_tune / e1_reverse / e1_forward **5+1 全绿**——套跑首轮 e1_forward 因 worker→host mock 瞬态拒连挂 1 次（paused@A3 卡住根因链如实归档：FAIL 事件被 paused 态 409 拒绝→停留原态；独立复跑 2 次全绿 24.4s/24.7s；测试已加 redrive 韧性） |
+| Java mvn test | 全 reactor BUILD SUCCESS（71 用例） |
+| 前端 | tsc 0 错 + vitest 43 passed |
+| GraphRAG | SDK 3.2.0 挂载 + local 级端到端（159s/查）+ scoped 降级语义不变 |
+
+### 二期收尾核验（总体设计 §11.1 二期定义逐项）
+
+| 二期项 | 结论 |
+|---|---|
+| 参数双向联动（变更抑制） | ✅ 反向（v0.4）+ 正向（T12.2）+ 变更抑制三件套（Origin Lock 窗口/Max Depth=3/反向确认制）——总体设计 §5.6/§8.2 承诺闭环 |
+| 约束推理校验精度优化 | ✅（v0.2 CSR 落地 + v0.2 军标 SymPy 求值 + v0.2 几何数值复核 + v0.5 正文质检） |
+| 多层缓存与查询调优 | ✅（v0.2 T9.6 L1 三层 + v0.3 T10.4 检索优化判定未触发 + T12.7 SDK 级可选增强） |
+| 压力测试通过 | ✅（v0.3 T10.2 50 并发） |
+
+**附录 A 自检**：①roadmap/文档回填 ✅（每任务 commit 即回填）；②端到端冒烟 = towed e2e ✅；③审阅关通过流+驳回流 = phase2 e2e ✅；④文档→KB 全流程 = kb_pipeline e2e ✅；⑤前端核心页面人工走查——**用户连续豁免**（沿用 2026-09-30 口径如实记录；[用户指南](../ops/用户指南.md) 已就绪供补走查）；⑥.env 未入库、密钥脱敏 ✅（出站脱敏默认开）；⑦工作区干净 main 已推 ✅；⑧tag 三段式 ✅。
 | T12.9 用户指南（按角色操作手册） | M5「培训」交付物 |
 | T12.10 收官 + tag v0.5.0 | — |
 
@@ -181,3 +202,4 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-10-01 | 初版编制（ZCode）。前置发现（探索实证）：①E1 正向半边零实现——`POST /parameters/{pid}/update`（总体设计 §8.2 :700）全库无路由，Origin Lock/Max Depth=3（系统实施方案 :279）代码零命中，phase-10 :145 划给 v0.4 而 phase-11 未含——三处口径打架，本阶段正式认领；②乒乓天然受控——反向 confirm 只重派 A4 不重派 A3（几何即真相），forward→reverse 单向不成环，确认制即「回写拦截器挂起」；③P2-10 复用点齐备（gate1 驳回 A1 通道已在），缺 IR1 修订端点+前端编辑；④P2-12 落点：design_document 在 A4 零校验，constraint_id 自由字符串无需改契约；⑤P2-6 插入点 `_chat_single` except（adapter.py :256），失败后现无 sleep、4xx/5xx 同权；⑥P2-8：App.tsx 七页面全静态、three/d3 全在主包、vite 无 build 段；⑦日志检索：log_store 仅单会话游标查询；⑧§10.5 五条告警只落四条（缺缓存命中率）；⑨P2-3 状态行过期（knowledge-dumps/GraphML 已于 T11.7 建成）；⑩HANDOFF 两条过期待决未勾（挂死根因已由 T9.1 闭环、llm_providers 已核实）；⑪graphrag~=2.0 包确认未安装（两 Python 环境核实），SDK 级一直如实降级 |
+| v1.1 | 2026-10-06 | 收官回填（T12.10）：全量回归绿（py 349 / e2e 6 条 / Java 71 / vitest 43）；二期四项承诺逐项闭环核验；附录 A 自检；tag v0.5.0。执行期事实：①e1_forward 套跑瞬态挂一次（worker→host mock 拒连；paused@A3 卡住根因 = FAIL 事件被 paused 态 409 拒绝），独立复跑×2 绿 + 测试加 redrive；②Docker daemon 卡死一次（构建挂 50min+）——重启 Docker Desktop 恢复（PowerShell 脚本可复用），PG WAL 自动恢复；③GAP-001 的 graphrag~=2.0 建议版本过时，实测需 3.2.0+graphrag-storage |

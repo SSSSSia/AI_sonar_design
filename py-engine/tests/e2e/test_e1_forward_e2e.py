@@ -198,7 +198,15 @@ def test_e1_forward_full_loop(env):
     assert "修订记录（E1 正向参数更新）" in ir2_v2["design_document"]
 
     # ③ A3 重新建模（mock LLM）→ A4 重算 → 自动重挂 gate2
-    _wait_session(token, "paused", "gate2", timeout_s=240)
+    # 韧性：套跑环境偶发 worker→host mock 瞬态拒连（2026-10-06 套跑实测一次，独立复跑即绿）；
+    # a3 失败时 FAIL 事件被 paused 态拒绝（409）→ 会话停在 paused@A3——同参重发一次即可 redrive。
+    try:
+        _wait_session(token, "paused", "gate2", timeout_s=240)
+    except AssertionError:
+        r2 = httpx.post(f"{PYAPI}/api/v1/cad-agent/sessions/{SID}/parameters/P-901/update",
+                        headers=_h(token), json={"value": 140, "reason": "redrive（瞬态重试）"}, timeout=20)
+        assert r2.status_code == 200, f"redrive 失败: {r2.text}"
+        _wait_session(token, "paused", "gate2", timeout_s=240)
     assert ir_store.get_latest_version(SID, "IR3") >= 2  # A3 产出新 IR3
     assert ir_store.get_latest_snapshot(SID, "IR4") is not None  # A4 重算落 IR4
 
