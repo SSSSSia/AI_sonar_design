@@ -5,6 +5,22 @@ import react from '@vitejs/plugin-react'
 // UI 改动须先 mockup 确认（宪法 §7.3）；蓝色仅用于交互/可操作语义元素。
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // T12.6（P2-8）手动分包：重库独立 vendor 包（随路由 lazy 按需加载），主包只留框架。
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('three')) return 'vendor-three'
+            if (id.includes('d3-') || id.includes('/d3/')) return 'vendor-d3'
+            if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'vendor-antd'
+            if (id.includes('react') || id.includes('scheduler')) return 'vendor-react'
+            return 'vendor-misc'
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     // 5173 被占即报错退出，禁止顺延 5174/5175——全栈文档/插件/WS 代理都只认 5173，

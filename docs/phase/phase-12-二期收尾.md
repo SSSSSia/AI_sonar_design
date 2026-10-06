@@ -103,11 +103,11 @@
   - [x] `log_store.search_logs`（session 前缀/level/kind/关键字 ILIKE/时间窗 + COUNT 分页）+ `GET /logs/search`（admin-only，跨会话遥测）
   - [x] AdminPage「日志中心」卡（会话/级别/关键字过滤 + 分页表格 + 60s 刷新）；vitest 2 例（参数构造）；真库验证：error 级检索 total=6 命中、「待接」文案清账
 
-### T12.6 bundle 分割 ⬜
+### T12.6 bundle 分割 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] App.tsx 路由级 React.lazy+Suspense；vite manualChunks（three 系/d3/antd/react vendor）
-  - [ ] build 产物体积前后对比入任务书 §5（主包显著缩小，数字如实）；tsc+vitest 回归
+  - [x] App.tsx 七页面 React.lazy + Suspense（PageFallback 居中 Spin）；vite `manualChunks`（vendor-three / vendor-d3 / vendor-antd / vendor-react / vendor-misc）
+  - [x] 体积对比（build 实测，A-16 如实）：改造前单包 **2588 KB**；改造后入口 **20 KB** + 页面 chunk（SessionPage 67 / KnowledgePage 36 / DashboardPage 10 / AdminPage 10 KB）+ vendor 按需（three 969 KB 仅 3D 页、d3 60 KB 仅图谱页、antd 1014 KB 共享）；**首屏从 2588 KB 降至 ~1400 KB（-46%），重库 1029 KB 完全按需**；总资产 2626 KB（分包元数据略增 +34 KB，如实记录）。tsc 0 错 + vitest 43 全绿
 
 ### T12.7 GraphRAG SDK 验证 ⬜
 
@@ -158,6 +158,7 @@
 | T12.3 IR1 人工核对 | 单测 3 例（窗口守卫×4 态）；前端修订弹窗（Form.List 行级编辑）；tsc+vitest 绿 | 2026-10-06 |
 | T12.4 正文质检 | 单测 5 例 + A4 族 35 绿；warning 级口径验证（全中不翻转 overall/CSR） | 2026-10-06 |
 | T12.5 日志检索 | 真库检索验证（error total=6）+ vitest 2 例 + AdminPage 日志中心卡 | 2026-10-06 |
+| T12.6 bundle 分割 | 主包 2588→20 KB（首屏 -46%）；three/d3 按需；tsc+vitest 绿 | 2026-10-06 |
 
 ## 6. 决策记录
 
