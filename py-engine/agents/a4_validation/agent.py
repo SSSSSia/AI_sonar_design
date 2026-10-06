@@ -19,6 +19,7 @@ overall：存在任一 error 即 fail。输出经 contracts/ir/ir4.schema.json �
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from agents.a3_cad.geometry_link import UNIT_TO_MM
@@ -56,6 +57,7 @@ class A4Agent:
         issues += self._check_standard(params, stats)
         issues += self._check_estimated(params)
         issues += self._check_geometry(ir2, ir3 or {}, stats)
+        issues += self._check_document(ir2, params)
 
         total = stats["pass"] + stats["violation"]
         csr = round(stats["pass"] / total * 100, 2) if total > 0 else None
@@ -258,6 +260,38 @@ class A4Agent:
         return issues
 
     # ------------------------------------------------------------------
+    def _check_document(self, ir2: dict[str, Any], params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """方案正文风险质检（T12.4，P2-12，设计 §5.4）：warning 级不阻断（overall/CSR 口径
+        不变——CSR 分母本就不含 warning，T9.2）。三检查：①降级横幅残留；②正文引用参数 ID
+        与参数表一致性；③formula/standard 类参数 source_ref 缺失（溯源依据空洞）。"""
+        doc = str(ir2.get("design_document") or "")
+        issues: list[dict[str, Any]] = []
+        if not doc.strip():
+            issues.append(_issue(
+                "CHK-DOC-DEGRADED", "warning",
+                "方案正文为空（design_document 缺失），请人工补全后复审", []))
+            return issues
+        if "降级模式" in doc or "降级产物" in doc:
+            issues.append(_issue(
+                "CHK-DOC-DEGRADED", "warning",
+                "正文含降级模式标记（A2 降级产物残留）——正式交付前请人工改写或驳回重算", []))
+        # 正文引用参数 ID 一致性（P-数字 形态；用字符类避免转义问题）
+        param_ids = {str(p.get("id")) for p in params}
+        for ref in sorted(set(re.findall(r"P-[0-9][0-9]{0,3}", doc))):
+            if param_ids and ref not in param_ids:
+                issues.append(_issue(
+                    "CHK-DOC-PARAM-REF", "warning",
+                    f"正文引用了参数表中不存在的 {ref}（参数表含：{', '.join(sorted(param_ids)[:6])}）",
+                    []))
+        for p in params:
+            st = str(p.get("source_type") or "")
+            if st in ("formula", "standard") and not str(p.get("source_ref") or "").strip():
+                issues.append(_issue(
+                    "CHK-DOC-SOURCE-MISSING", "warning",
+                    f"{st} 类参数「{p.get('name')}」（{p.get('id')}）source_ref 缺失——溯源依据空洞",
+                    [str(p.get("id"))]))
+        return issues
+
     def _check_geometry_numeric(self, ir2: dict[str, Any], ir3: dict[str, Any],
                                 stats: dict[str, int]) -> list[dict[str, Any]]:
         """数值级几何复核（T7.4，PHASE-007）。确定性无 LLM；A-09 只报告不改参数。

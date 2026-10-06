@@ -91,11 +91,11 @@
   - [x] 前端 ReviewTab IR1 卡「修订需求（人工核对）」（gate1 暂停态 + designer/admin；Form.List 行级编辑 + 缺失项逐行文本；提交后提示重算 A2 回审阅关①）
   - [x] 单测 3 例（happy path 断言追加/保留未修订字段/重派；四态窗口守卫；空 objectives 拒绝）；tsc+vitest 回归
 
-### T12.4 正文风险质检 ⬜
+### T12.4 正文风险质检 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] `_check_document` 三检查（CHK-DOC-DEGRADED / CHK-DOC-PARAM-REF / CHK-DOC-SOURCE-MISSING，warning 级）
-  - [ ] 单测三场景；overall/CSR 口径不回归
+  - [x] `_check_document` 三检查（降级横幅残留 / 正文参数 ID 引用一致性 / formula·standard 类 source_ref 缺失），全部 warning 级
+  - [x] 单测 5 例（三检查各一 + warning 级不翻转 overall/CSR 口径 + 空正文）；A4 既有族回归 35 绿（P2-12 清账）
 
 ### T12.5 日志检索 ⬜
 
@@ -156,6 +156,7 @@
 | T12.1 LLM 退避 | 单测 4 新 + adapter 族 23 绿（t116/t121/t12_worker）；分级口径被既有用例纠正一次（未知错误保持可重试） | 2026-10-01 |
 | T12.2 E1 正向联动 | 单测 5 例 + e2e 40.9s 全闭环（改参→重建模→复审→完成→链深留痕）；V16 手动应用 dev 库；执行期 Docker daemon 卡死一次（构建挂 50min+，`docker version` 超时）——重启 Docker Desktop 恢复，PG WAL 自动恢复数据完好（413 会话），见 devlog 2026-10-06 | 2026-10-06 |
 | T12.3 IR1 人工核对 | 单测 3 例（窗口守卫×4 态）；前端修订弹窗（Form.List 行级编辑）；tsc+vitest 绿 | 2026-10-06 |
+| T12.4 正文质检 | 单测 5 例 + A4 族 35 绿；warning 级口径验证（全中不翻转 overall/CSR） | 2026-10-06 |
 
 ## 6. 决策记录
 
