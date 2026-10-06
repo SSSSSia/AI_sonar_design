@@ -27,6 +27,8 @@ backend/knowledge/kb/logs/
 
 # py-engine 运行日志（sdk 写入）
 py-engine/logs/
+# GraphRAG SDK 运行日志（T12.7 验证产物）
+py-engine/knowledge/kb/logs/
 
 # ===== Java =====
 target/
