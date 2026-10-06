@@ -28,6 +28,7 @@
 | T12.6 前端 bundle 分割（路由 lazy + manualChunks） | P2-8 |
 | T12.7 GraphRAG SDK 安装与验证（SDK 级自动优先实测） | P2-9（A-14） |
 | T12.8 缓存命中率告警 | §10.5 第 5 条 |
+| T12.7 GraphRAG SDK | local 级端到端生效（零降级，159s/查 vs 自建层 0.2s）；版本三连返修定位 3.2.0；scoped 降级不变 | 2026-10-06 |
 | T12.9 用户指南（按角色操作手册） | M5「培训」交付物 |
 | T12.10 收官 + tag v0.5.0 | — |
 
@@ -109,12 +110,12 @@
   - [x] App.tsx 七页面 React.lazy + Suspense（PageFallback 居中 Spin）；vite `manualChunks`（vendor-three / vendor-d3 / vendor-antd / vendor-react / vendor-misc）
   - [x] 体积对比（build 实测，A-16 如实）：改造前单包 **2588 KB**；改造后入口 **20 KB** + 页面 chunk（SessionPage 67 / KnowledgePage 36 / DashboardPage 10 / AdminPage 10 KB）+ vendor 按需（three 969 KB 仅 3D 页、d3 60 KB 仅图谱页、antd 1014 KB 共享）；**首屏从 2588 KB 降至 ~1400 KB（-46%），重库 1029 KB 完全按需**；总资产 2626 KB（分包元数据略增 +34 KB，如实记录）。tsc 0 错 + vitest 43 全绿
 
-### T12.7 GraphRAG SDK 验证 ⬜
+### T12.7 GraphRAG SDK 验证 ✅ 已完成（2026-10-06）
 
 - **DoD**：
-  - [ ] 安装 graphrag~=2.0（连带 litellm）；kb/output 索引就绪（缺则构建）
-  - [ ] 未 scoped 查询 SDK 级生效实测（local/basic 优先 + graphrag_sdk=true + 性能对比）；scoped 仍如实降级（D6-5）
-  - [ ] requirements 可选依赖声明升级 + 验证记录落 §5；失败则 A-16 关账
+  - [x] 安装成功但版本有讲究（实测三连）：`graphrag~=2.0` 装到 2.7.2 / 2.1.0 / 2.0.0 均**无** `data_model.data_reader`（sdk.py 按 3.x API 编写）——**graphrag==3.2.0 + graphrag-storage** 才匹配；kb/output 索引产物既有（parquet+lancedb）
+  - [x] 未 scoped 查询 SDK 级生效实测：**level=local、degraded_from=[]**（内容 3022 字符；耗时 159.4s——local 内含 LLM 综合调用）；scoped 场景仍如实降级（`sdk_kb_scope_unsupported`，D6-5 语义不变）
+  - [x] requirements 注释升级为精确版本声明 + 性能口径（SDK local 159s vs 自建 graph/vector 0.2s——**默认生产形态维持自建层承担实时检索，SDK 级作深度分析可选**；容器镜像默认不含）；执行期另发现：L1 检索缓存会把降级结果缓存 24h——换查询文本才验出真实层级（缓存键教训，devlog）
 
 ### T12.8 缓存命中率告警 ✅ 已完成（2026-10-06）
 

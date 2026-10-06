@@ -13,8 +13,12 @@ jsonschema>=4.23
 redis>=5.0
 psycopg[binary]>=3.2
 
-# 知识库 GraphRAG（T1.6）：可选重依赖（graphrag + litellm），未安装时检索自动降级到文本级（A-14）
-# 图谱级索引/查询需要时执行：python -m pip install graphrag~=2.0
+# 知识库 GraphRAG（T1.6）：可选重依赖，未安装时检索自动降级到自建 graph/vector 层（A-14）。
+# T12.7 实测：SDK 级要求 graphrag==3.2.0 + graphrag-storage（3.x 布局，sdk.py 按此编写；
+# 用 ~=2.0 会装到 2.x（无 data_reader 模块）；启用执行：
+#   python -m pip install graphrag==3.2.0 graphrag-storage
+# 性能口径（T12.7 实测）：SDK local 级内含 LLM 综合（单查 159s），自建 graph/vector 级 0.2s——
+# 默认生产形态保持自建层承担实时检索，SDK 级作深度分析可选；容器镜像默认不含。
 
 # T1.4/T1.5：公式求解（D-15 SymPy 精确代入）、MinIO 产物落桶（D-10）、CadQuery 沙箱执行（D-13，含 OCP 大依赖）
 sympy>=1.13
