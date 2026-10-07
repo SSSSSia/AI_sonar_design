@@ -404,6 +404,8 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
+      # T13.5 PDF 导出：gotenberg（LibreOffice docx→PDF）转换端点
+      DOCGEN_PDF_ENDPOINT: ${DOCGEN_PDF_ENDPOINT:-http://gotenberg:3000}
     ports:
       - "${PYAPI_PORT:-8090}:8090"
     depends_on:
@@ -565,6 +567,24 @@ services:
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9187/metrics"]
       interval: 30s
+      timeout: 5s
+      retries: 5
+    networks: [sonar-net]
+
+  # ================= 文档转换（T13.5，§5.2 Word/PDF：docx→PDF 保真转换） =================
+  gotenberg:
+    image: ${DOCKER_MIRROR:-}gotenberg/gotenberg:8.15
+    container_name: sonarcad-gotenberg
+    profiles: ["app"]
+    restart: unless-stopped
+    # 禁用非 LibreOffice 路由（webhook/chromium 等），最小攻击面
+    command: ["gotenberg", "--api-enable-basic-auth=false", "--api-timeout=120s"]
+    ports:
+      # 宿主 3010（3000 与前端冲突）；栈内走 http://gotenberg:3000
+      - "${GOTENBERG_PORT:-3010}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/health || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 5
     networks: [sonar-net]

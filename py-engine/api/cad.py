@@ -181,6 +181,45 @@ def export_docx(sid: str, user: str = Depends(require_user)) -> Response:
     )
 
 
+@router.get("/sessions/{sid}/export/pdf")
+def export_pdf(sid: str, user: str = Depends(require_user)) -> Response:
+    """军标格式 PDF 导出（T13.5，§5.2）：复用 docx 模板链 → gotenberg(LibreOffice) 转换。
+
+    gotenberg 未配置/不可达/返回异常 → 503 如实（A-14），不降级伪造；
+    PDF 基于既有内置模板——正式军标模板仍待授权文本（外部依赖）。
+    """
+    import urllib.parse
+
+    import httpx
+
+    from docgen.export_docx import export_session_docx
+    from docgen.export_pdf import docx_to_pdf
+
+    ir2 = ir_store.get_latest_snapshot(sid, "IR2")
+    if ir2 is None:
+        raise HTTPException(status_code=404, detail="IR2 尚未生成，无可导出的方案文档")
+    ir2_version = ir_store.get_latest_version(sid, "IR2")
+    ir3 = ir_store.get_latest_snapshot(sid, "IR3")
+    ir4 = ir_store.get_latest_snapshot(sid, "IR4")
+    title = ir_store.get_session_title(sid)
+    session = {"id": sid, "title": title, **(ir_store.get_session(sid) or {})}
+    docx_bytes = export_session_docx(session, ir2, ir3, ir4, ir2_version)
+    docx_name = f"设计方案_{title or sid}_IR2v{ir2_version}.docx"
+    try:
+        pdf = docx_to_pdf(docx_bytes, docx_name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail=f"PDF 转换服务不可达: {exc}") from exc
+    filename = f"设计方案_{title or sid}_IR2v{ir2_version}.pdf"
+    quoted = urllib.parse.quote(filename)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )
+
+
 class Ir1ObjectiveIn(BaseModel):
     dimension: str
     value: Any

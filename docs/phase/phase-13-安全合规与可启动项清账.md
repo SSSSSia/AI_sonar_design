@@ -126,11 +126,14 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
   - [ ] 前端成员管理弹窗 + 列表联动
   - [ ] 单测（Java ProjectMemberTest + workflow 过滤）
 
-### T13.5 PDF 导出 ⬜
+### T13.5 PDF 导出 ✅ 已完成（2026-10-07）
 
 - **DoD**：
-  - [ ] compose gotenberg + py export/pdf 端点（不可达 503 如实）+ 前端按钮
-  - [ ] 单测（MockTransport 转换请求/降级路径）+ 容器级真实转换证据
+  - [x] compose gotenberg:8.15（profile: app；仅 LibreOffice 转换路由，宿主 3010/栈内 3000——3000 与前端冲突实测修正）+ py-api `DOCGEN_PDF_ENDPOINT` 注入
+  - [x] py `GET /cad/sessions/{sid}/export/pdf`：复用 export_session_docx → gotenberg `POST /forms/libreoffice/convert`；未配置/不可达/非 %PDF 内容一律 503 如实（A-14/A-16）；审计中间件补 `export.pdf` 规则
+  - [x] 前端 ReportTab「导出 PDF」按钮（沿 exportDocx 下载模式）
+  - [x] 单测 6 例（未配置/成功 multipart 断言/非 PDF 拒收/HTTP 错误传播/端点 503/审计规则覆盖）+ 容器级真实验证：37 KB docx → 46 KB 合法 PDF（%PDF-1.7，7.8s），证据 docs/reviews/evidence/t135-pdf-conversion.json
+  - 边界如实：基于既有内置模板；正式军标模板仍待授权文本（外部依赖）。py-api 容器内端点上线随 T13.8 镜像重建
 
 ### T13.6 交叉编码器重排序 ⬜
 

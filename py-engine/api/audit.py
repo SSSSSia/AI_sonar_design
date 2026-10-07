@@ -49,6 +49,7 @@ _RULES: list[tuple[str, re.Pattern[str], str, str | None, str | None]] = [
     ("POST", re.compile(r"^/api/v1/kb/graph/snapshot$"), "kb.graph_snapshot", None, None),
     # 导出（§9.4 明列「导出操作」；GET 但语义为交付物产出）
     ("GET", re.compile(r"^/api/v1/cad/sessions/(?P<rid>[^/]+)/export/docx$"), "export.docx", "session", "rid"),
+    ("GET", re.compile(r"^/api/v1/cad/sessions/(?P<rid>[^/]+)/export/pdf$"), "export.pdf", "session", "rid"),
 ]
 
 _MATCH_CACHE: dict[tuple[str, str], tuple[str, str | None, str | None, dict[str, str]] | None] = {}

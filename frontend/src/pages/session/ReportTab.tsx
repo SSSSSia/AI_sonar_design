@@ -124,6 +124,28 @@ export function ReportTab({
     }
   }
 
+  // T13.5 军标格式 PDF 导出（§5.2）：docx 模板链复用 → gotenberg(LibreOffice) 转换；未部署 503 如实
+  const [exportingPdf, setExportingPdf] = useState(false)
+  async function exportPdf() {
+    setExportingPdf(true)
+    try {
+      const { blob, disposition } = await getBlob(`/cad/sessions/${sessionId}/export/pdf`)
+      const m = /filename\*=UTF-8''([^;]+)/.exec(disposition ?? '')
+      const filename = m ? decodeURIComponent(m[1]) : `设计方案_${sessionId}.pdf`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success('已导出 PDF 文档（内置模板；正式军标模板待授权后替换）')
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : '导出失败')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card
@@ -132,6 +154,7 @@ export function ReportTab({
           <Space size={8}>
             {ir4 ? <Tag color={ir4.overall === 'fail' ? 'error' : 'success'}>{ir4.overall === 'fail' ? '总体结论 fail' : '总体结论 pass'}</Tag> : null}
             <Button size="small" loading={exporting} onClick={() => void exportDocx()}>导出 Word</Button>
+            <Button size="small" loading={exportingPdf} onClick={() => void exportPdf()}>导出 PDF</Button>
           </Space>
         }
       >
