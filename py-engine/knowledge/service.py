@@ -305,6 +305,7 @@ class GraphRAGService:
 
     def _try_milvus(self, query: str, doc_scope: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]]]]:
         from kb.embeddings import embed_texts
+        from kb.rerank import get_reranker
         from kb.vector_store import ChunkVectorStore
 
         vs = ChunkVectorStore()
@@ -313,9 +314,16 @@ class GraphRAGService:
         vectors = embed_texts([query])
         if not vectors:
             return None
-        hits = vs.search(vectors[0], top_k=5, doc_ids=doc_scope if doc_scope is not None else None)
+        # T13.6 交叉编码器重排序（§7.4）：配置可用时先扩量召回（fetch_k）→ 重排 → 截断
+        # （top_n）；未配置/失败维持向量原序 top5（A-14 如实降级，主链路不受影响）。
+        reranker = get_reranker()
+        rerank_on = reranker.available()
+        hits = vs.search(vectors[0], top_k=reranker.fetch_k if rerank_on else 5,
+                         doc_ids=doc_scope if doc_scope is not None else None)
         if not hits:
             return None
+        if rerank_on:
+            hits = reranker.apply(query, hits)
         content = "知识库向量检索结果（Milvus chunks）：\n\n" + "\n\n---\n\n".join(
             f"[{h.get('doc_id', '?')}#{h.get('location', '?')}]\n{h.get('text', '')}"
             for h in hits

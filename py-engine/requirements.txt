@@ -47,3 +47,11 @@ pymilvus>=2.4
 #      API /metrics + worker :9101 独立端点；缺失时埋点静默降级，主链路不受影响）
 prometheus-client>=0.21
 
+
+# T12.7（PHASE-012）：GraphRAG SDK——可选深度分析路径（3.2.0+graphrag-storage，实测 local 级
+#      159s/查 vs 自建 graph/vector 0.2s；默认生产形态维持自建层，容器镜像默认不含）
+# graphrag==3.2.0
+# graphrag-storage
+# T13.6（PHASE-013）：交叉编码器重排序——配置驱动 /rerank HTTP 客户端（Jina/Cohere/SiliconFlow/
+#      vLLM 兼容），复用 httpx 无新依赖；env KB_RERANK_ENDPOINT/KB_RERANK_MODEL/KB_RERANK_API_KEY/
+#      KB_RERANK_FETCH_K/KB_RERANK_TOPN（密钥入 .env），未配置即直通跳过（默认不开）

@@ -274,6 +274,13 @@ def knowledge_status() -> dict[str, Any]:
         "kb_levels_enabled": svc.enable_kb_levels,
         "dynamic_corpus_chunks": len(svc._dynamic_sources),
     }
+    # T13.6 重排序状态（诚实上报：配置态/失败原因，不含密钥）
+    try:
+        from kb.rerank import get_reranker
+
+        status["rerank"] = get_reranker().status()
+    except Exception:  # noqa: BLE001
+        pass
     status.update(kb_store.doc_stats())
     if svc.enable_kb_levels:
         from kb.vector_store import ChunkVectorStore
