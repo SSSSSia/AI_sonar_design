@@ -57,7 +57,7 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
 - §9.3 要求「剥离 → 占位 → 大模型返回后按映射回填」——v0.4 T11.6 已落**密钥形态**出站脱敏（sanitize.py 7 pattern），本任务补**语义级**：
   - 新 `llm/desensitize.py`：`extract_sensitive_items()` 从**结构化字段直取**（会话标题、IR1 objectives 文本、参数 `name=value 单位` 对）——规则级提取、非 NER 模型，覆盖面如实标注（A-16）；
   - `Desensitizer.mask(texts)` →（masked, mapping）占位符 `[SENS-n]`；`restore(text, mapping)` 按映射精确回填；per-call 无全局状态。
-- **挂点**：`adapter.chat()` 加可选 `desensitize_items`——出站 `sanitize_messages()` 之后 mask、LLM 响应返回前 restore（A3/A4/A5 正文与报告需真实值，回填在进入管线前完成）。A1–A5 各调用点传入手头 IR 的敏感项列表。开关 `SANITIZE_SEMANTIC`（默认开，纵深防御口径；密钥脱敏不受此开关影响）。
+- **挂点**：`adapter.chat()` 加可选 `desensitize_items`——出站 `sanitize_messages()` 之后 mask、LLM 响应返回前 restore（A3/A4/A5 正文与报告需真实值，回填在进入管线前完成）。默认**身份形态自动扫描**（chat 内生效，A1–A5 调用点零改动）；显式注册项为可选增强（调用方有确定敏感串时传入）。开关 `SANITIZE_SEMANTIC`（默认开，纵深防御口径；密钥脱敏不受此开关影响）。
 - **风险**：默认开可能破「断言 prompt 内容」的既有测试——逐个更新并在 devlog 记录。
 
 ### 2.4 成员级数据权限（T13.4）
@@ -107,12 +107,15 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
   - [x] 证据：docs/reviews/evidence/t132-loki-log-shipping.json（ready 双端 + 标签清单 + 经网关真实请求后 py-api 访问日志行 + Grafana 数据源清单）
   - [x] ELK 差异口径写入本节与 HANDOFF（Loki 承担采集/检索语义，ELK 留生产替换；session_logs 定位不变：业务遥测 A-12）
 
-### T13.3 涉密语义脱敏完整形态 ⬜
+### T13.3 涉密语义脱敏完整形态 ✅ 已完成（2026-10-07）
 
 - **DoD**：
-  - [ ] llm/desensitize.py（extract_sensitive_items + Desensitizer mask/restore，[SENS-n] 占位）
-  - [ ] adapter.chat 挂点（出站 mask/响应 restore）+ A1–A5 调用点传敏感项 + SANITIZE_SEMANTIC 开关
-  - [ ] 单测：往返一致 + wire 级断言（LLM 收到的 messages 不含真实型号/参数值）+ 受影响既有测试修正
+  - [x] llm/desensitize.py：`Desensitizer`（per-call 映射，mask_messages/restore）+ `make_desensitizer` 工厂；身份形态规则 4 条（型号/代号/番号引导值、责任人、单位部门、≥2 字母前缀编号）+ 显式注册项通道（长串优先）+ numeric_items 通道（SANITIZE_SEMANTIC_NUMERIC=1 才启用）
+  - [x] adapter.chat 挂点：sanitize 键值脱敏后 mask（缓存键/缓存值均为 mask 形态，取回统一 restore——语义一致）；出站 mask、响应 restore 两个 return 点全覆盖；desensitize_items 显式参数
+  - [x] 开关：SANITIZE_SEMANTIC（默认开，纵深防御）；关闭时显式注册项仍生效（调用方确定性意图）
+  - [x] 单测 9 例：往返一致/同值复用占位/数值默认关+开/关闭直通+显式仍生效/非字符串字段保留/单字母前缀不误捕（A-12 决策编号）/wire 级出站无原值+响应回填/默认自动扫描/关闭无脱敏；LLM 适配器族回归 28 绿
+  - **边界如实（A-14/A-16，任务书 §2.3）**：①规则级提取非 NER，覆盖面以规则集为准；②**数值型指标默认不脱敏**——A2/A3/A4 数值推导/建模/校验依赖真实值参与 LLM 侧算术，占位符无法计算，盲脱破坏工程正确性；数值剥离需「占位化+确定性 solver 代入」架构改造（生产化纵深项），机制通道已留；③LLM 改写（非回显）敏感串时 restore 无法还原——§9.3 占位方案固有限制
+  - 执行期返修 2 次（如实记录）：①占位符 `[SENS-1]` 被「≥2 字母编号」规则二次捕获嵌套——占位符改 `[SENS_n]` 下划线形态 + 身份扫描先行；②身份规则把「型号：」标签词一起吞掉致 restore 后原文缺损——改为 group(0) 内定位 group(1) 只替换捕获组，restore 后原文完整
 
 ### T13.4 成员级数据权限 ⬜
 

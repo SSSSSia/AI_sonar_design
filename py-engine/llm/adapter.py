@@ -173,17 +173,25 @@ class LlmAdapter:
     键 = sha256(model+messages+temperature 等 kwargs)，TTL 7d，LLM_CACHE_ENABLED 可关。
     """
 
-    def chat(self, messages: list[dict[str, str]], timeout_s: int | None = None, **kwargs: Any) -> str:
+    def chat(self, messages: list[dict[str, str]], timeout_s: int | None = None,
+             desensitize_items: list[str] | None = None, **kwargs: Any) -> str:
         """timeout_s：单次调用超时覆盖（默认用供应商配置）；其余 kwargs 透传请求体。
 
         T11.6：出站消息先经 llm/sanitize 键值脱敏（默认开——密钥/token/密码/连接串）；
         供应商失败转移——主供应商重试耗尽后按优先级次高继续（LLM_FAILOVER 缺省开）。
+        T13.3：涉密语义脱敏（§9.3 占位回填）——身份类敏感项出站 mask 为 [SENS-n]，
+        响应返回前按映射 restore；映射仅存活单次调用（per-call，无全局状态）。
+        缓存键基于 mask 后内容，缓存值同为 mask 形态，取回后统一 restore——语义一致。
         """
         from app_config import LLM_CACHE_ENABLED
+        from llm.desensitize import make_desensitizer
         from llm.sanitize import sanitize_messages
         from storage import cache
 
         messages, _hits = sanitize_messages(messages)  # 出站脱敏（缓存键随之基于脱敏后内容）
+        desensitizer = make_desensitizer(desensitize_items)
+        if desensitizer is not None:
+            messages = desensitizer.mask_messages(messages)
 
         cache_key: str | None = None
         if LLM_CACHE_ENABLED:
@@ -199,7 +207,7 @@ class LlmAdapter:
                 cache_key = cache.llm_cache_key(tag, messages, kwargs)
                 cached = cache.get_str("llm", cache_key)
                 if cached is not None:
-                    return cached
+                    return desensitizer.restore(cached) if desensitizer else cached
 
         chain: list = []
         if _FAILOVER_ENABLED:
@@ -210,7 +218,7 @@ class LlmAdapter:
         for provider in chain:
             outcome = self._chat_single(provider, messages, timeout_s, cache_key, kwargs)
             if isinstance(outcome, str):
-                return outcome
+                return desensitizer.restore(outcome) if desensitizer else outcome
             last_exc = outcome
         raise RuntimeError(f"LLM 调用在全部 {len(chain)} 家供应商（含各自重试）后仍失败") from last_exc
 
