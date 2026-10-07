@@ -1,0 +1,192 @@
+# 阶段 13 开发文档 · 安全合规与可启动项清账（v0.6）
+
+| 项 | 内容 |
+|---|---|
+| 文档编号 | PHASE-013 |
+| 版本 | v1.0（2026-10-07，编制；HANDOFF 入口 9 全部可启动项一轮清账） |
+| 关联 | 总体设计方案 §9.3/§9.4/§5.16/§5.2/§7.4/§5.19/§10.5、[HANDOFF](../HANDOFF.md) 入口 9、[PHASE-012](phase-12-二期收尾.md) §7（v0.6+ 清单来源）、[GAP-001](../设计实现对照与优化路线.md)（P2-7 过期子句修正）、[PHASE-011](phase-11-业务泛化与生产上线.md) :56/:108（成员级权限缺口留痕）、roadmap 阶段 13 |
+| 阶段目标 | 清掉入口 9 中 6 个可启动项：独立审计库+日志分流（Loki 轻量）、涉密语义脱敏完整形态（占位回填）、成员级数据权限（project_members）、PDF 导出（gotenberg）、交叉编码器重排序（配置驱动）、基础元数据管理；收官打 tag `v0.6.0` |
+| 验收形态 | 单测 + Java 测试 + vitest/tsc + 容器级实测证据（Loki 采集/PDF 转换）+ e2e 全量回归 + 文档回填 |
+
+---
+
+## 1. 阶段定位与边界
+
+### 1.1 为什么有这个阶段
+
+HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权文本）、双活（待生产环境）三项外部阻塞继续留待；其余 6 项（ELK/审计库、涉密语义脱敏完整形态、成员级数据权限、PDF 导出、交叉编码器重排序、元数据管理界面）**均无外部依赖、可立即启动**——本阶段一次清账。主轴是总体设计 §9 安全合规章的两笔欠账（§9.4 审计留痕 + 项目级权限粒度、§9.3 涉密脱敏「占位与回填」完整形态），辅以 §5.2 PDF、§7.4 重排序、§5.16 元数据三项能力补全。
+
+### 1.2 本期范围（做）
+
+| 任务 | 对应 |
+|---|---|
+| T13.1 独立审计库与留痕插桩（V17 + Java/py 插桩 + 查询界面） | §9.4 审计留痕 |
+| T13.2 日志分流 Loki 轻量落地（loki+promtail+Grafana 数据源） | §5.19/§10.5「应用日志→ELK」（差异如实） |
+| T13.3 涉密语义脱敏完整形态（占位回填 + A1–A5 挂点） | §9.3 完整形态 |
+| T13.4 成员级数据权限（V18 project_members + 可见性过滤 + 成员管理 UI） | §9.4 项目级粒度 + 附录 C「本人项目」 |
+| T13.5 PDF 导出（gotenberg + export/pdf 端点 + 前端按钮） | §5.2 Word/PDF（正式军标模板仍待外部） |
+| T13.6 交叉编码器重排序（配置驱动 /rerank + 检索融合挂钩） | §7.4 |
+| T13.7 基础元数据管理（V19 + CRUD + KnowledgePage 新 Tab） | §5.16 + 附录 D |
+| T13.8 收官 + tag v0.6.0 | — |
+
+### 1.3 非目标（明确不做）
+
+- 真实 vLLM 部署、真实 GJB 全量录入、双活实施（外部依赖，按 v0.4 既有手册/入口/ADR 执行）；
+- 完整 ELK 栈（Elasticsearch+Kibana+Logstash）——开发环境以 Loki+promtail 承担日志分流语义，**差异如实记录，ELK 留生产替换**（§10.5 口径差异，A-14）；
+- DWG/DXF 解析、PDM/PLM 对接、图谱手动编辑、三层记忆、任务独立页（更远期外围，GAP-001 保留）；
+- 正式军标 docx/PDF 模板替换（模板待授权文本，本期 PDF 转换基于既有内置模板）；
+- AdminPage Tabs 化重构（第 5 张审计卡继续堆叠，避免无谓回归——前置发现 ⑨）。
+
+## 2. 设计要点
+
+### 2.1 独立审计库（T13.1）
+
+- **表**：biz Flyway V17 `audit_logs(id bigserial, user_id uuid, username varchar(64), action varchar(64), resource_type varchar(32), resource_id varchar(64), detail jsonb, ip varchar(64), created_at timestamptz default now())` + 索引（created_at、user_id、(resource_type, resource_id)）。与 notifications 同模式：**biz 持有 Flyway，多服务直写同一张表**。
+- **插桩范围**（§9.4 口径「记录所有 Agent 调用、参数变更、人工审阅决定、知识回写与导出操作」——Agent 调用/参数变更/审阅决定/知识回写已由 traceability_chain、cad_param_updates、review_records、IR5 回写承担（A-12 溯源体系），审计库补齐**不覆盖的操作域**）：auth=login 成功/失败 + 用户管理写端点；workflow=会话创建/删除 + gate 裁决；biz=项目写端点；py-engine=KB 写端点（上传/删除/建图/registry 写/llm-providers 写）+ 导出端点。action 命名 `域.动作`（如 `auth.login`、`session.delete`、`kb.build`）。
+- **AuditRecorder**：Java 侧轻量组件（try-catch 包裹，审计失败只打 log 不阻断主流程——审计是旁路）；detail 只落资源标识与动作参数摘要，**不落敏感明文**（沿用掩码口径，宪法 §10）。
+- **查询**：auth 服务 `AuditController GET /api/v1/audit/logs`（admin-only，user/action/resource_type/时间窗+分页）+ gateway 路由 `/api/v1/audit/**` → auth。前端 AdminPage 第 5 卡「审计日志」（过滤表格+详情，复用 T12.5 LogCenter 模式）。
+
+### 2.2 日志分流 Loki（T13.2）
+
+- compose 加 `loki`（单体模式，retention 7d，压缩开）+ `promtail`（docker_sd 服务发现采集容器 stdout，经 docker.sock）。Grafana provisioning 加 Loki 数据源。
+- **先验证再铺开**：Docker Desktop 挂 docker.sock 给容器的可行性先做最小实验（起 loki+promtail 看 targets）；不可达则改静态文件方案并如实记录。
+- **差异口径（A-14 如实）**：§10.5 写「应用日志 → ELK」；开发环境以 Loki+Grafana 承担「集中采集/检索/告警查询」同等分流语义（Grafana 已在栈内，零新增查询面）；ELK 留生产环境替换（采集面接口不变——promtail/pipeline 换 filebeat 即可）。session_logs（PG）定位不变：业务遥测（A-12），Loki 采的是容器 stdout（应用日志）。
+
+### 2.3 涉密语义脱敏完整形态（T13.3）
+
+- §9.3 要求「剥离 → 占位 → 大模型返回后按映射回填」——v0.4 T11.6 已落**密钥形态**出站脱敏（sanitize.py 7 pattern），本任务补**语义级**：
+  - 新 `llm/desensitize.py`：`extract_sensitive_items()` 从**结构化字段直取**（会话标题、IR1 objectives 文本、参数 `name=value 单位` 对）——规则级提取、非 NER 模型，覆盖面如实标注（A-16）；
+  - `Desensitizer.mask(texts)` →（masked, mapping）占位符 `[SENS-n]`；`restore(text, mapping)` 按映射精确回填；per-call 无全局状态。
+- **挂点**：`adapter.chat()` 加可选 `desensitize_items`——出站 `sanitize_messages()` 之后 mask、LLM 响应返回前 restore（A3/A4/A5 正文与报告需真实值，回填在进入管线前完成）。A1–A5 各调用点传入手头 IR 的敏感项列表。开关 `SANITIZE_SEMANTIC`（默认开，纵深防御口径；密钥脱敏不受此开关影响）。
+- **风险**：默认开可能破「断言 prompt 内容」的既有测试——逐个更新并在 devlog 记录。
+
+### 2.4 成员级数据权限（T13.4）
+
+- V18 `project_members(project_id, user_id, role varchar(32) default 'member', created_at)`，UNIQUE(project_id, user_id)；建项目时 owner 自动种子（projects.owner_id 即天然 owner）。
+- **可见性规则**：admin 全量；项目 owner 或成员可见该项目及其会话；无关联用户不可见（403 口径与其他资源一致）。py-engine 内网计算路径不动（identity 信任头已透传，A1–A5 worker 是系统行为非用户行为）。
+- **管理**：biz ProjectMemberController GET/POST/DELETE `/api/v1/projects/{id}/members`（admin 或 owner）；前端 ProjectsPage 项目卡「成员管理」弹窗。
+- **scope 划界（务实，A-14）**：本任务落「项目级」粒度——会话隶属于项目，会话可见性随项目；不引入会话级独立 ACL（附录 C 的「本人项目」列语义即项目级）。
+
+### 2.5 PDF 导出（T13.5）
+
+- compose 加 `gotenberg` 容器（内置 LibreOffice，`POST /forms/libreoffice/convert`）——**docx→PDF 直转保真**优于 HTML 重排路线（weasyprint），且完整复用既有 docx 模板链（T11.5）。
+- `GET /cad/sessions/{sid}/export/pdf`：`export_session_docx()` 产 docx bytes → httpx 推 gotenberg → 返回 PDF；gotenberg 不可达 503 如实报错（A-14）。env `DOCGEN_PDF_ENDPOINT`（缺省不开挂转换）。
+- 前端 ReportTab「导出 PDF」按钮（沿 exportDocx 下载模式）。正式军标模板仍待外部（差异如实）。
+
+### 2.6 交叉编码器重排序（T13.6）
+
+- 新 `kb/rerank.py` RerankClient：POST `/rerank`（兼容 Jina/Cohere/SiliconFlow/vLLM 格式；env `KB_RERANK_ENDPOINT/MODEL/API_KEY/TOPK`，密钥入 .env）。**配置驱动默认不开**——无 endpoint 即直通跳过（A-14 如实标注，与 graphrag_sdk_unavailable 降级同口径）。
+- 挂点 `service.py:_query_uncached` 融合分支：配置可用→vector top_k 放大（如 20）→rerank→截断（5）→融合；失败→跳过原结果并 degraded 标注。
+- 对比验证：同组查询 on/off 命中序对比入任务书；无真实 key 则 mock 单测 + 如实标注「实测待配置」（A-16 不造假）。
+
+### 2.7 基础元数据管理（T13.7）
+
+- V19 四表：`meta_sonar_types`（安装形式×频率双维度枚举）、`meta_freq_bands`（低/中/高/甚高频+范围）、`meta_perf_specs`（参数名/单位/典型范围/依据）、`meta_prompt_templates`（环节/名称/模板文本/版本/启用）。种子数据取自总体设计附录 D 元数据字典。
+- py-engine `storage/metadata_store.py` + `api/metadata.py`（CRUD，写端点 require_admin 沿 kb 口径）+ gateway 路由 `/api/v1/metadata/**`；前端 KnowledgePage 第 5 Tab「元数据管理」（prompt_templates 带版本化+启用切换）。
+- LLM 模型注册表（llm_providers）已于 v0.1 落地并有前端页——四子项补齐后 §5.16 全覆盖。
+
+## 3. 任务分解（T13.1–T13.8）
+
+> 执行顺序：T13.1 → T13.2 → T13.3 → T13.4 → T13.5 → T13.6 → T13.7 → T13.8（每任务独立 commit）。
+
+### T13.1 独立审计库与留痕插桩 ⬜
+
+- **DoD**：
+  - [ ] V17__audit_logs.sql（表+索引；dev 库 Flyway 自动应用）
+  - [ ] Java 插桩：auth login/UserController、workflow SessionController/ReviewController、biz ProjectController；AuditRecorder 失败不阻断
+  - [ ] py-engine audit_store + kb/cad 写端点插桩
+  - [ ] `GET /api/v1/audit/logs`（admin）+ gateway 路由 + AdminPage 审计卡
+  - [ ] 单测（Java 冒烟 + py audit_store）
+
+### T13.2 日志分流 Loki ⬜
+
+- **DoD**：
+  - [ ] compose loki+promtail + Grafana Loki 数据源 provisioning
+  - [ ] docker.sock 可行性验证（不可达则静态文件方案如实记录）
+  - [ ] targets up + Grafana Explore 查到日志的证据入 docs/reviews/evidence/
+  - [ ] ELK 差异口径写入任务书与 HANDOFF
+
+### T13.3 涉密语义脱敏完整形态 ⬜
+
+- **DoD**：
+  - [ ] llm/desensitize.py（extract_sensitive_items + Desensitizer mask/restore，[SENS-n] 占位）
+  - [ ] adapter.chat 挂点（出站 mask/响应 restore）+ A1–A5 调用点传敏感项 + SANITIZE_SEMANTIC 开关
+  - [ ] 单测：往返一致 + wire 级断言（LLM 收到的 messages 不含真实型号/参数值）+ 受影响既有测试修正
+
+### T13.4 成员级数据权限 ⬜
+
+- **DoD**：
+  - [ ] V18__project_members.sql + 建项目 owner 自动种子
+  - [ ] biz ProjectMemberController（GET/POST/DELETE，admin/owner）
+  - [ ] workflow 可见性过滤（list 过滤 + 单查/删除/事件校验，403 口径）
+  - [ ] 前端成员管理弹窗 + 列表联动
+  - [ ] 单测（Java ProjectMemberTest + workflow 过滤）
+
+### T13.5 PDF 导出 ⬜
+
+- **DoD**：
+  - [ ] compose gotenberg + py export/pdf 端点（不可达 503 如实）+ 前端按钮
+  - [ ] 单测（MockTransport 转换请求/降级路径）+ 容器级真实转换证据
+
+### T13.6 交叉编码器重排序 ⬜
+
+- **DoD**：
+  - [ ] kb/rerank.py RerankClient（多供应商格式兼容，配置驱动默认关）
+  - [ ] service.py 挂点（top_k 放大→rerank→截断→融合；失败 degraded 如实）
+  - [ ] 单测（MockTransport）+ on/off 对比记录（无 key 则如实标注实测待配置）
+
+### T13.7 基础元数据管理 ⬜
+
+- **DoD**：
+  - [ ] V19 四表 + 附录 D 种子数据
+  - [ ] metadata_store + api/metadata CRUD + gateway 路由
+  - [ ] KnowledgePage 第 5 Tab（prompt_templates 版本化+启用切换）
+  - [ ] 单测 + vitest
+
+### T13.8 收官 ⬜
+
+- **DoD**：
+  - [ ] 全量回归全绿（py 单测 + e2e 全套 + Java + vitest/tsc）
+  - [ ] GAP-001 P2-7 过期子句修正 + §4 v0.6 行；HANDOFF 头部时间戳 + 入口 7 过期子句 + 入口 10；roadmap 阶段 13 全 ✅；附录 E.4 v0.6 行；用户指南补章节
+  - [ ] 宪法附录 A 自检 → tag `v0.6.0` + push
+
+## 4. 阶段管理
+
+### 4.1 风险与对策
+
+| 风险 | 对策 |
+|---|---|
+| Docker Desktop 挂 docker.sock 不可达 → promtail 采不到容器日志 | 先最小实验验证；降级静态文件方案并如实记录；不阻塞收官（A-16） |
+| SANITIZE_SEMANTIC 默认开破坏既有断言 prompt 的测试 | 执行期逐个修正 + devlog 记录；开关可关作为逃生门 |
+| gotenberg 镜像拉取慢/容器启动失败 | 后台拉取轮询；失败则 A-16 如实关账（端点保留 503 语义） |
+| 成员可见性过滤波及既有前端列表（admin 视角回归） | Java 过滤测试 + Dashboard 走查；admin 全量语义不变 |
+| audit 插桩影响主流程性能 | 旁路 try-catch + 异步不阻断；detail 不落敏感明文 |
+
+### 4.2 验收流程（阶段末）
+
+全量回归绿 → 各任务 DoD 证据齐 → 文档回填 → 附录 A 自检 → tag v0.6.0。
+
+## 5. 验收记录
+
+| 任务 | 实测证据 | 时间 |
+|---|---|---|
+| （执行期回填） | | |
+
+## 6. 决策记录
+
+- **范围主轴 = 全量清账（6 项可启动项一次清完）**——用户未在范围问题作答，按既有偏好（v0.5「二期收尾完整版」取径）与「继续=彻底清账」模式取全量（2026-10-07，ZCode 判断，规划已批准）。
+- **日志分流 = Loki 轻量落地**（Grafana 已在栈内零新增查询面；ELK 留生产替换，差异如实）——同上决策路径。
+- **PDF = gotenberg docx→PDF 直转**（保真优于 HTML 重排；正式军标模板仍待外部，转换基于既有内置模板——两件事分开如实记录）。
+- **重排序 = 配置驱动 HTTP /rerank**（仿 embeddings.py 模式），非本地 torch 交叉编码器——避免 py 容器重依赖；语义等价（交叉编码器重排由供应商侧模型承担），能力如实标注。
+- **审计范围 = 操作域补齐**（登录/用户/项目/会话/KB/导出），Agent 调用等已由溯源体系（A-12）承担的域不重复留痕——§9.4 口径的务实切分。
+- **成员权限 = 项目级粒度**（会话可见性随项目），不引入会话级独立 ACL——附录 C「本人项目」列语义。
+
+## 7. 演进路线（承诺项，非本期范围）
+
+- v0.7+/生产环境：真实 vLLM 部署（按 vLLM切换手册）、真实 GJB 全量录入（按批量入口）、双活实施（按 ADR-005）、ELK 替换 Loki（生产口径）、正式军标模板替换、阶段 1–4/6/8 人工补走查（用户指南就绪）。
+
+## 8. 修订记录
+
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| v1.0 | 2026-10-07 | 初版编制（ZCode）。前置发现（探索实证）：①审计零实现——全库无 audit 表/插桩，AuthController 无 logger，现有留痕（traceability_chain/review_records/cad_param_updates/IR5）不覆盖登录/用户管理/KB 写/导出；②数据权限——design_sessions.created_by 存在但全库查询无归属过滤（SessionService.list 仅按 projectId），team/member/share 零命中，无 project_members 模型（phase-11:56/:108 明示缺口）；③脱敏——sanitize.py 7 pattern 全为密钥形态，无语义级占位回填；④PDF 零能力——全库无转换库/容器，docx 链路（export_docx.py + ReportTab）可复用；⑤rerank 零实现（附录 E:1028 明示规划项），融合点 knowledge/service.py:_query_uncached:226-234，embedding 走供应商 HTTP 可仿；⑥元数据——§5.16 四子项无模型无界面（LLM 注册表已落地），kb registry CRUD+Tab 模式可复用；⑦日志分流——compose 无日志收集容器，session_logs 为业务遥测（A-12）；⑧文档欠账——GAP-001 P2-7 行「日志检索仍待接」子句过期（T12.5 已清）、HANDOFF:20 头部时间戳停在 v0.4.0、HANDOFF:56 入口 7 尾同类过期；⑨AdminPage 已 4 卡堆叠——审计卡继续堆叠不引入 Tabs 重构 |
