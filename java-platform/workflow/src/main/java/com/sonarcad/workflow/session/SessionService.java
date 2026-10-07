@@ -31,11 +31,13 @@ public class SessionService {
     private final ProjectLookupMapper projectLookupMapper;
     private final KbBaseLookupMapper kbBaseLookupMapper;
     private final CadTuneLookupMapper cadTuneLookupMapper;
+    private final ProjectVisibilityMapper projectVisibilityMapper;
 
     public SessionService(DesignSessionMapper mapper, IrSnapshotMapper irSnapshotMapper,
                           TaskPublisher taskPublisher, NotifyClient notifyClient,
                           UserLookupMapper userLookupMapper, ProjectLookupMapper projectLookupMapper,
-                          KbBaseLookupMapper kbBaseLookupMapper, CadTuneLookupMapper cadTuneLookupMapper) {
+                          KbBaseLookupMapper kbBaseLookupMapper, CadTuneLookupMapper cadTuneLookupMapper,
+                          ProjectVisibilityMapper projectVisibilityMapper) {
         this.mapper = mapper;
         this.irSnapshotMapper = irSnapshotMapper;
         this.taskPublisher = taskPublisher;
@@ -44,6 +46,7 @@ public class SessionService {
         this.projectLookupMapper = projectLookupMapper;
         this.kbBaseLookupMapper = kbBaseLookupMapper;
         this.cadTuneLookupMapper = cadTuneLookupMapper;
+        this.projectVisibilityMapper = projectVisibilityMapper;
     }
 
     /**
@@ -135,16 +138,43 @@ public class SessionService {
         return s;
     }
 
+    /** 无可见性约束（内部调用兼容入口）。 */
     public Page<DesignSessionEntity> list(String projectId, long page, long size) {
+        return list(projectId, page, size, null);
+    }
+
+    /**
+     * 列表（T13.4 可见性 overload）：visibleProjectIds 为 null = 不限制（admin）；
+     * 非 null 空表 = 无可见项目（直接空页）。控制器负责按角色解析后传入。
+     */
+    public Page<DesignSessionEntity> list(String projectId, long page, long size,
+                                          java.util.List<String> visibleProjectIds) {
+        if (visibleProjectIds != null && visibleProjectIds.isEmpty()) {
+            return new Page<>(page, size);
+        }
         Page<DesignSessionEntity> p = mapper.selectPage(new Page<>(page, size),
                 new LambdaQueryWrapper<DesignSessionEntity>()
                         .eq(projectId != null, DesignSessionEntity::getProjectId, projectId)
+                        .in(visibleProjectIds != null, DesignSessionEntity::getProjectId, visibleProjectIds)
                         .orderByDesc(DesignSessionEntity::getCreatedAt));
         fillCreatorNames(p.getRecords());
         fillProjectNames(p.getRecords());
         fillKbNames(p.getRecords());
         fillTuneStatus(p.getRecords());
         return p;
+    }
+
+    /**
+     * 会话所属项目可见性断言（T13.4）：admin 直通；owner/成员通过；
+     * 404（不暴露存在性，与 biz ProjectController.get 同口径）。
+     */
+    public void assertVisible(DesignSessionEntity s, String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在: " + s.getId());
+        }
+        if (!projectVisibilityMapper.canSeeProject(s.getProjectId(), userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在: " + s.getId());
+        }
     }
 
     /** kb_ids JSON 数组 → 库名列表（kb_bases 同库只读回填，与 fillProjectNames 同模式；PHASE-006）。 */

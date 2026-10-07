@@ -10,6 +10,7 @@ import { errText } from '../api/client'
 import type { Project } from '../api/types'
 import { QueryEmpty } from '../components/QueryEmpty'
 import { EditProjectModal, NewProjectModal } from '../components/ProjectModals'
+import { MemberManageModal } from '../components/MemberModal'
 import { SonarMark } from '../components/AppLayout'
 import { hasAnyRole, useAuthStore } from '../stores/authStore'
 
@@ -30,13 +31,14 @@ const STATUS_DOT: Record<string, { color: string; label: string }> = {
   pending: { color: '#8b949e', label: '待启动' },
 }
 
-function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onDelete }: {
+function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onMembers, onDelete }: {
   p: Project
   canManage: boolean
   isAdmin: boolean
   onView: () => void
   onNewSession: () => void
   onEdit: () => void
+  onMembers: () => void
   onDelete: () => void
 }) {
   const stats = p.session_stats ?? {}
@@ -104,6 +106,7 @@ function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onDe
             menu={{
               items: [
                 { key: 'edit', label: '编辑项目', onClick: onEdit },
+                { key: 'members', label: '成员管理', onClick: onMembers },
                 ...(isAdmin ? [{ key: 'del', label: '删除项目', danger: true, disabled: !empty, onClick: onDelete }] : []),
               ],
             }}
@@ -127,6 +130,7 @@ export default function ProjectsPage() {
   const canManage = hasAnyRole(roles, ['admin', 'designer'])
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
+  const [memberProject, setMemberProject] = useState<Project | null>(null)
 
   const q = useQuery({
     queryKey: ['projects'],
@@ -188,6 +192,7 @@ export default function ProjectsPage() {
               onView={() => navigate(`/?project=${r.id}`)}
               onNewSession={() => navigate(`/sessions/new?project=${r.id}`)}
               onEdit={() => setEditing(r)}
+              onMembers={() => setMemberProject(r)}
               onDelete={() => confirmDelete(r)}
             />
           ))}
@@ -210,6 +215,10 @@ export default function ProjectsPage() {
       )}
 
       <NewProjectModal open={creating} onClose={() => setCreating(false)} onCreated={() => void queryClient.invalidateQueries({ queryKey: ['projects'] })} />
-      <EditProjectModal open={!!editing} project={editing} onClose={() => setEditing(null)} />    </div>
+      <EditProjectModal open={!!editing} project={editing} onClose={() => setEditing(null)} />
+      <MemberManageModal
+        projectId={memberProject?.id ?? ''} projectName={memberProject?.name ?? ''}
+        open={!!memberProject} onClose={() => setMemberProject(null)}
+      />    </div>
   )
 }

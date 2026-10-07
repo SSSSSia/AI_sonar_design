@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sonarcad.biz.audit.AuditRecorder;
+import com.sonarcad.biz.member.ProjectMemberMapper;
+import com.sonarcad.biz.member.ProjectVisibility;
 import com.sonarcad.biz.project.ProjectEntity;
 import com.sonarcad.biz.project.ProjectMapper;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,8 @@ import java.util.UUID;
  *   GET    /api/v1/projects/{id}
  *   DELETE /api/v1/projects/{id}     删除（admin；项目下仍有会话则 409 拒绝——先删会话）
  * T13.1：创建/修改/删除落审计（§9.4；成员管理随 T13.4）。
+ * T13.4：list/get 按「项目级」可见性过滤（§9.4 + 附录 C「本人项目」）——admin 全量；
+ *        非 admin 仅见 owner 或成员的项目（不可见 → 404，不暴露存在性）。
  */
 @RestController
 @RequestMapping("/api/v1/projects")
@@ -30,10 +34,15 @@ public class ProjectController {
 
     private final ProjectMapper projectMapper;
     private final AuditRecorder auditRecorder;
+    private final ProjectMemberMapper memberMapper;
+    private final ProjectVisibility visibility;
 
-    public ProjectController(ProjectMapper projectMapper, AuditRecorder auditRecorder) {
+    public ProjectController(ProjectMapper projectMapper, AuditRecorder auditRecorder,
+                             ProjectMemberMapper memberMapper, ProjectVisibility visibility) {
         this.projectMapper = projectMapper;
         this.auditRecorder = auditRecorder;
+        this.memberMapper = memberMapper;
+        this.visibility = visibility;
     }
 
     public record CreateProjectRequest(String name, String code, String description) {}
@@ -86,12 +95,22 @@ public class ProjectController {
     @GetMapping
     @PreAuthorize("hasAnyRole('admin','designer','reviewer','viewer')")
     public ApiResponse<IPage<Map<String, Object>>> list(@RequestParam(defaultValue = "1") long page,
-                                                       @RequestParam(defaultValue = "20") long size,
-                                                       @RequestParam(required = false) String keyword) {
-        Page<ProjectEntity> result = projectMapper.selectPage(new Page<>(page, Math.min(size, 100)),
-                new LambdaQueryWrapper<ProjectEntity>()
-                        .like(keyword != null && !keyword.isBlank(), ProjectEntity::getName, keyword)
-                        .orderByDesc(ProjectEntity::getCreatedAt));
+                                                        @RequestParam(defaultValue = "20") long size,
+                                                        @RequestParam(required = false) String keyword,
+                                                        @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                        @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        LambdaQueryWrapper<ProjectEntity> wrapper = new LambdaQueryWrapper<ProjectEntity>()
+                .like(keyword != null && !keyword.isBlank(), ProjectEntity::getName, keyword)
+                .orderByDesc(ProjectEntity::getCreatedAt);
+        // T13.4 可见性：admin 全量；非 admin 仅 owner 或成员（EXISTS 参数化占位 {0}，防注入）
+        if (!ProjectVisibility.isAdmin(roles) && userId != null && !userId.isBlank()) {
+            wrapper.and(w -> w
+                    .eq(ProjectEntity::getOwnerId, userId)
+                    .or()
+                    .apply("EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = projects.id AND pm.user_id = {0})",
+                            userId));
+        }
+        Page<ProjectEntity> result = projectMapper.selectPage(new Page<>(page, Math.min(size, 100)), wrapper);
         // 状态分布（含总数）与最近活动：一次分组查询取齐，避免逐项目 N+1
         Map<String, Map<String, Long>> statsByProject = new java.util.HashMap<>();
         for (Map<String, Object> row : projectMapper.countSessionsByStatus()) {
@@ -127,7 +146,13 @@ public class ProjectController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('admin','designer','reviewer','viewer')")
-    public ApiResponse<ProjectEntity> get(@PathVariable String id) {
+    public ApiResponse<ProjectEntity> get(@PathVariable String id,
+                                          @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                          @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        if (!visibility.canSee(id, userId, roles)) {
+            // 不可见 → 404（不暴露存在性）
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在: " + id);
+        }
         ProjectEntity p = projectMapper.selectById(id);
         if (p == null) throw new IllegalArgumentException("项目不存在: " + id);
         return ApiResponse.ok(p);

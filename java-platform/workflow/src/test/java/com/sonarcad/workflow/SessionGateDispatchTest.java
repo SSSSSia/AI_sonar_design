@@ -43,7 +43,8 @@ class SessionGateDispatchTest {
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
                 new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
                 projectLookupMapper, kbBaseLookupMapper,
-                mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class));
+                mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class),
+                mock(com.sonarcad.workflow.session.ProjectVisibilityMapper.class));
     }
 
     @Test
@@ -142,7 +143,8 @@ class SessionGateDispatchTest {
                 mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class);
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
                 new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
-                projectLookupMapper, kbBaseLookupMapper, cadTuneLookupMapper);
+                projectLookupMapper, kbBaseLookupMapper, cadTuneLookupMapper,
+                mock(com.sonarcad.workflow.session.ProjectVisibilityMapper.class));
         DesignSessionEntity s = session("s1nodash", "paused", "gate2");
         Page<DesignSessionEntity> page = new Page<>(1, 10);
         page.setRecords(java.util.List.of(s));
@@ -171,7 +173,8 @@ class SessionGateDispatchTest {
                 mock(com.sonarcad.workflow.session.CadTuneLookupMapper.class);
         service = new SessionService(sessionMapper, irSnapshotMapper, taskPublisher,
                 new NotifyClient("http://127.0.0.1:1"), mock(UserLookupMapper.class),
-                projectLookupMapper, kbBaseLookupMapper, cadTuneLookupMapper);
+                projectLookupMapper, kbBaseLookupMapper, cadTuneLookupMapper,
+                mock(com.sonarcad.workflow.session.ProjectVisibilityMapper.class));
         DesignSessionEntity s = session("s1", "paused", "gate2");
         Page<DesignSessionEntity> page = new Page<>(1, 10);
         page.setRecords(java.util.List.of(s));

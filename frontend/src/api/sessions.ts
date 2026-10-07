@@ -62,3 +62,26 @@ export function deleteProject(id: string) {
 export function patchProject(id: string, body: { name?: string; code?: string; description?: string }) {
   return patch<Project>(`/projects/${id}`, body)
 }
+
+// ---- 项目成员管理（T13.4，§9.4 项目级粒度；管理 = admin/owner） ----
+
+export interface ProjectMember {
+  user_id: string
+  role: string
+  username: string | null
+  display_name: string | null
+  created_at?: string
+}
+
+export function listProjectMembers(id: string) {
+  return get<ProjectMember[]>(`/projects/${id}/members`)
+}
+
+/** 添加成员（按用户名解析；角色固定 member，owner 由 projects.owner_id 承担）。 */
+export function addProjectMember(id: string, username: string) {
+  return post<ProjectMember>(`/projects/${id}/members`, { username })
+}
+
+export function removeProjectMember(id: string, userId: string) {
+  return del<{ removed: boolean }>(`/projects/${id}/members/${userId}`)
+}

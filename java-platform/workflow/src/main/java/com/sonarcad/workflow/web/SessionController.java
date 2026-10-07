@@ -3,12 +3,14 @@ package com.sonarcad.workflow.web;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sonarcad.workflow.audit.AuditRecorder;
 import com.sonarcad.workflow.session.DesignSessionEntity;
+import com.sonarcad.workflow.session.ProjectVisibilityMapper;
 import com.sonarcad.workflow.session.SessionCleanupService;
 import com.sonarcad.workflow.session.SessionService;
 import com.sonarcad.workflow.statemachine.PipelineEvent;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,12 +29,22 @@ public class SessionController {
     private final SessionService sessionService;
     private final SessionCleanupService cleanupService;
     private final AuditRecorder auditRecorder;
+    private final ProjectVisibilityMapper visibilityMapper;
 
     public SessionController(SessionService sessionService, SessionCleanupService cleanupService,
-                             AuditRecorder auditRecorder) {
+                             AuditRecorder auditRecorder, ProjectVisibilityMapper visibilityMapper) {
         this.sessionService = sessionService;
         this.cleanupService = cleanupService;
         this.auditRecorder = auditRecorder;
+        this.visibilityMapper = visibilityMapper;
+    }
+
+    private static boolean isAdmin(String roles) {
+        if (roles == null) return false;
+        for (String r : roles.split(",")) {
+            if ("admin".equals(r.trim())) return true;
+        }
+        return false;
     }
 
     /** kbIds 可选（PHASE-006 会话选库；null/空 = Agent 自主决策模式）。 */
@@ -43,9 +55,15 @@ public class SessionController {
     @PreAuthorize("hasAnyRole('admin','designer')")
     public ApiResponse<DesignSessionEntity> create(@RequestBody CreateSessionRequest req,
                                                    @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                   @RequestHeader(value = "X-User-Roles", required = false) String roles,
                                                    jakarta.servlet.http.HttpServletRequest request) {
         if (req.projectId() == null || req.projectId().isBlank()) {
             throw new IllegalArgumentException("projectId 不能为空");
+        }
+        // T13.4「本人项目」：非 admin 须为该项目 owner/成员才可建会话（404 口径同 biz）
+        if (!isAdmin(roles) && !visibilityMapper.canSeeProject(req.projectId(), userId)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "项目不存在: " + req.projectId());
         }
         // 标题非空 + ≤20 字（2026-09-24 用户要求；前端 Input maxLength 同校验，此处权威）
         if (req.title() == null || req.title().isBlank()) {
@@ -66,19 +84,35 @@ public class SessionController {
     public ApiResponse<Page<DesignSessionEntity>> list(
             @RequestParam(required = false) String projectId,
             @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size) {
-        return ApiResponse.ok(sessionService.list(projectId, page, Math.min(size, 100)));
+            @RequestParam(defaultValue = "20") long size,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        // T13.4：admin 全量；其余仅见可见项目（owner/成员）的会话
+        List<String> visible = isAdmin(roles) ? null : visibilityMapper.visibleProjectIds(userId);
+        return ApiResponse.ok(sessionService.list(projectId, page, Math.min(size, 100), visible));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('admin','designer','reviewer','viewer')")
-    public ApiResponse<DesignSessionEntity> get(@PathVariable String id) {
-        return ApiResponse.ok(sessionService.get(id));
+    public ApiResponse<DesignSessionEntity> get(@PathVariable String id,
+                                                @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        DesignSessionEntity s = sessionService.get(id);
+        if (!isAdmin(roles)) {
+            sessionService.assertVisible(s, userId);
+        }
+        return ApiResponse.ok(s);
     }
 
     @GetMapping("/{id}/allowed-events")
     @PreAuthorize("hasAnyRole('admin','designer','reviewer','viewer')")
-    public ApiResponse<Map<String, Object>> allowedEvents(@PathVariable String id) {
+    public ApiResponse<Map<String, Object>> allowedEvents(@PathVariable String id,
+                                                          @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                          @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        DesignSessionEntity s = sessionService.get(id);
+        if (!isAdmin(roles)) {
+            sessionService.assertVisible(s, userId);
+        }
         return ApiResponse.ok(sessionService.allowedEvents(id));
     }
 
@@ -86,7 +120,13 @@ public class SessionController {
 
     @PostMapping("/{id}/events")
     @PreAuthorize("hasAnyRole('admin','designer')")
-    public ApiResponse<DesignSessionEntity> fireEvent(@PathVariable String id, @RequestBody FireEventRequest req) {
+    public ApiResponse<DesignSessionEntity> fireEvent(@PathVariable String id, @RequestBody FireEventRequest req,
+                                                      @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                      @RequestHeader(value = "X-User-Roles", required = false) String roles) {
+        DesignSessionEntity current = sessionService.get(id);
+        if (!isAdmin(roles)) {
+            sessionService.assertVisible(current, userId);
+        }
         PipelineEvent event;
         try {
             event = PipelineEvent.valueOf(req.event());

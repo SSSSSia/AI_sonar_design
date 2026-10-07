@@ -23,7 +23,9 @@ class ProjectControllerDeleteTest {
 
     private final ProjectMapper mapper = mock(ProjectMapper.class);
     private final com.sonarcad.biz.audit.AuditRecorder auditRecorder = mock(com.sonarcad.biz.audit.AuditRecorder.class);
-    private final ProjectController controller = new ProjectController(mapper, auditRecorder);
+    private final com.sonarcad.biz.member.ProjectMemberMapper memberMapper = mock(com.sonarcad.biz.member.ProjectMemberMapper.class);
+    private final ProjectController controller = new ProjectController(mapper, auditRecorder, memberMapper,
+            new com.sonarcad.biz.member.ProjectVisibility(memberMapper));
 
     private static ProjectEntity project(String id, String name) {
         ProjectEntity p = new ProjectEntity();
@@ -110,7 +112,7 @@ class ProjectControllerDeleteTest {
         when(mapper.lastSessionActivity()).thenReturn(java.util.List.of(
                 Map.of("project_id", "p1", "last_at", last)));
 
-        var row = controller.list(1, 20, null).data().getRecords().get(0);
+        var row = controller.list(1, 20, null, "u-admin", "admin").data().getRecords().get(0);
         assertThat(row.get("session_count")).isEqualTo(3L);
         @SuppressWarnings("unchecked")
         Map<String, Long> stats = (Map<String, Long>) row.get("session_stats");
