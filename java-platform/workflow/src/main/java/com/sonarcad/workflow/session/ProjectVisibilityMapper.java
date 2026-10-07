@@ -13,7 +13,7 @@ import java.util.List;
 @Mapper
 public interface ProjectVisibilityMapper {
 
-    @Select("SELECT project_id::text FROM projects WHERE owner_id = #{userId}::uuid "
+    @Select("SELECT id::text FROM projects WHERE owner_id = #{userId}::uuid "
             + "UNION "
             + "SELECT project_id::text FROM project_members WHERE user_id = #{userId}::uuid")
     List<String> visibleProjectIds(@Param("userId") String userId);

@@ -12,7 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 不做业务决策、不写业务逻辑。
  */
 @SpringBootApplication
-@MapperScan("com.sonarcad.workflow.session")
+@MapperScan({"com.sonarcad.workflow.session", "com.sonarcad.workflow.audit"})
 public class WorkflowApplication {
 
     public static void main(String[] args) {

@@ -159,6 +159,13 @@ resilience4j:
         failureRateThreshold: 60
         waitDurationInOpenState: 30s
         permittedNumberOfCallsInHalfOpenState: 3
+  # T13.5 实测返修：Spring Cloud Gateway 默认 TimeLimiter=1s，PDF 转换（gotenberg ~8s）
+  # 被掐断进 fallback（误报熔断）——pyEngine 路由超时放宽到 120s（对齐 gotenberg 转换预算）
+  timelimiter:
+    instances:
+      pyEngine:
+        timeoutDuration: 120s
+        cancelRunningFuture: false
 
 # T9.4 结构化降级文案的重试等待（秒）：429 = 令牌桶回充节奏；503 = 熔断半开等待
 gateway:

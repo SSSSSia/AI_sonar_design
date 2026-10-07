@@ -4,7 +4,7 @@
 -- 种子数据取自附录 D（示例口径，如实标注 example）。
 
 -- ---------- 声呐类型（双维度：install_form × functional_system） ----------
-CREATE TABLE meta_sonar_types (
+CREATE TABLE IF NOT EXISTS meta_sonar_types (
     id                 bigserial PRIMARY KEY,
     install_form       varchar(32)  NOT NULL,              -- 艇艏阵 | 舷侧阵 | 拖曳阵
     functional_system  varchar(32)  NOT NULL,              -- 侧扫 | 多波束 | 前视 | 合成孔径(SAS) | 被动
@@ -15,7 +15,7 @@ CREATE TABLE meta_sonar_types (
 );
 
 -- ---------- 频率段定义 ----------
-CREATE TABLE meta_freq_bands (
+CREATE TABLE IF NOT EXISTS meta_freq_bands (
     id                 bigserial PRIMARY KEY,
     name               varchar(32)  NOT NULL UNIQUE,       -- 低频段 | 中频段 | 高频段 | 甚高频段
     freq_min_hz        numeric,
@@ -27,7 +27,7 @@ CREATE TABLE meta_freq_bands (
 );
 
 -- ---------- 性能参数规范 ----------
-CREATE TABLE meta_perf_specs (
+CREATE TABLE IF NOT EXISTS meta_perf_specs (
     id                 bigserial PRIMARY KEY,
     name               varchar(64)  NOT NULL UNIQUE,       -- 探测距离 | 方位分辨率 | 距离分辨率 | 发射声压级 …
     unit               varchar(32),
@@ -39,7 +39,7 @@ CREATE TABLE meta_perf_specs (
 );
 
 -- ---------- 提示词模板（版本化：同一 (stage, name) 多版本，启停切换） ----------
-CREATE TABLE meta_prompt_templates (
+CREATE TABLE IF NOT EXISTS meta_prompt_templates (
     id                 bigserial PRIMARY KEY,
     stage              varchar(32)  NOT NULL,              -- a1_requirement | a2_scheme | a3_cad | a4_validation | a5_knowledge | retrieval | general
     name               varchar(64)  NOT NULL,
@@ -50,7 +50,7 @@ CREATE TABLE meta_prompt_templates (
     created_at         timestamptz  NOT NULL DEFAULT now(),
     UNIQUE (stage, name, version)
 );
-CREATE INDEX idx_prompt_templates_active ON meta_prompt_templates (stage, name, enabled);
+CREATE INDEX IF NOT EXISTS idx_prompt_templates_active ON meta_prompt_templates (stage, name, enabled);
 
 -- ---------- 附录 D 种子（示例口径） ----------
 INSERT INTO meta_sonar_types (install_form, functional_system, description) VALUES

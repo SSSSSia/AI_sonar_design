@@ -10,7 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 职责边界：业务数据 CRUD 与状态落地；不直接调用 Agent、不做算力逻辑。
  */
 @SpringBootApplication
-@MapperScan("com.sonarcad.biz.project")
+@MapperScan({"com.sonarcad.biz.project", "com.sonarcad.biz.member", "com.sonarcad.biz.audit"})
 public class BizApplication {
 
     public static void main(String[] args) {

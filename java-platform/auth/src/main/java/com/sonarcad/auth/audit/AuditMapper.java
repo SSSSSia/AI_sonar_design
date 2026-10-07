@@ -22,10 +22,10 @@ public interface AuditMapper {
                @Param("resourceId") String resourceId, @Param("detail") String detail, @Param("ip") String ip);
 
     String SEARCH_WHERE = "<where>"
-            + " <if test='username != null'>AND COALESCE(a.username, u.username) ILIKE CONCAT('%', #{username}, '%')</if>"
-            + " <if test='action != null'>AND a.action ILIKE CONCAT(#{action}, '%')</if>"
-            + " <if test='resourceType != null'>AND a.resource_type = #{resourceType}</if>"
-            + " <if test='hours != null'>AND a.created_at &gt;= now() - make_interval(hours =&gt; #{hours})</if>"
+            + " <if test='username != null'>AND COALESCE(a.username, u.username) ILIKE ('%' || CAST(#{username} AS text) || '%')</if>"
+            + " <if test='action != null'>AND a.action ILIKE (CAST(#{action} AS text) || '%')</if>"
+            + " <if test='resourceType != null'>AND a.resource_type = CAST(#{resourceType} AS text)</if>"
+            + " <if test='hours != null'>AND a.created_at &gt;= now() - make_interval(hours =&gt; CAST(#{hours} AS int))</if>"
             + "</where>";
 
     /** 检索（admin）：LEFT JOIN users 补齐写入方未携带的用户名；detail 以文本回传（控制器转 JSON 对象）。 */

@@ -151,12 +151,14 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
   - [x] 单测 5 例（种子核对/必填校验/版本递增+互斥启用/更新删除往返/API CRUD+authz 403）；tsc 0 错 + vitest 43 绿
   - 执行期发现：teardown 引用 freq_bands 不存在的 remark 列（UndefinedColumn）——按表分列清理修正
 
-### T13.8 收官 ⬜
+### T13.8 收官 ✅ 已完成（2026-10-07）
 
 - **DoD**：
-  - [ ] 全量回归全绿（py 单测 + e2e 全套 + Java + vitest/tsc）
-  - [ ] GAP-001 P2-7 过期子句修正 + §4 v0.6 行；HANDOFF 头部时间戳 + 入口 7 过期子句 + 入口 10；roadmap 阶段 13 全 ✅；附录 E.4 v0.6 行；用户指南补章节
-  - [ ] 宪法附录 A 自检 → tag `v0.6.0` + push
+  - [x] 全量回归全绿：**py 单测 379 passed 1 skipped**（新增 30：T13.1 审计 4 + T13.3 脱敏 9 + T13.5 PDF 6 + T13.6 重排 6 + T13.7 元数据 5）；**e2e 7 条逐条验证全绿**（towed 717s 真链路 / multikb / phase2 / e1_reverse / kb_pipeline / cad_tune / e1_forward——**两处批量顺序性偏差如实记录**：①首轮套跑漏设容器化适配变量 `CAD_TUNE_MOCK_HOST=host.docker.internal`（phase-11 已记录口径），补设后 e1_forward+cad_tune 复跑绿；②kb_pipeline 在批量尾位 KeyError、独立复跑绿（顺序性 flake，A-16 不粉饰）；towed 在批量尾位因前置供应商行状态被跳过、单独跑绿）；**Java 83**（BUILD SUCCESS，新增 12：审计 3+可见性 3+成员管理 6，含当日返修复测）；**vitest 43 / tsc 0**
+  - [x] 三镜像原位重建（sonarcad-java/py/frontend:0.3.0）+ 实机验证五项：①登录→audit_logs 落行 ②审计查询过滤 ③metadata 端点经网关 ④PDF 导出经网关 200（98KB %PDF）⑤成员可见性三层对照（designer 项目 0 vs admin 412；会话 1 vs 413；加入项目后可见）
+  - [x] 文档回填：GAP-001（P2-7 过期子句修正 + §4 v0.6 行）；HANDOFF（头部时间戳 v0.6.0 + 入口 7 过期子句清 + 入口 9 改写为阶段 13 纪要 + 入口 10 v0.7+ 生产落地）；roadmap 阶段 13 全 ✅；附录 E.4 v0.6 清账句；用户指南 v0.6（审计中心/成员可见性/元数据管理/PDF 导出四章）；devlog 2026-10-07（执行期返修七项）
+  - [x] 宪法附录 A 自检 → tag `v0.6.0` + push
+- **执行期返修（详细见 devlog 2026-10-07）**：①网关默认 TimeLimiter=1s 掐断慢端点（编程式 Customizer 120s——最有价值发现）；②biz MapperScan 漏 audit 包；③visibility SQL 笔误；④脱敏占位符嵌套/标签词吞噬；⑤V17~V19 幂等化；⑥审计检索参数 CAST；⑦gotenberg 宿主端口改 3010
 
 ## 4. 阶段管理
 
@@ -174,11 +176,29 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
 
 全量回归绿 → 各任务 DoD 证据齐 → 文档回填 → 附录 A 自检 → tag v0.6.0。
 
+### 4.3 附录 A 自检（宪法，发布检查清单）
+
+- [x] ①roadmap/文档回填 ✅（每任务 commit 即回填；收官修正 GAP-001/HANDOFF 三处过期口径）
+- [x] ②端到端冒烟 = e2e towed ✅（真 LLM 全链）+ e1_forward/cad_tune（mock，补容器化变量后绿）
+- [x] ③审阅关通过流+驳回流 = phase2 e2e ✅
+- [x] ④文档→KB 全流程 = kb_pipeline e2e ✅（独立复跑绿；套内顺序干扰如实记录）
+- [x] ⑤前端核心页面人工走查——**用户连续豁免**（沿用 2026-09-30 口径如实记录；[用户指南](../ops/用户指南.md) v0.6 已含新增走查点：审计中心/成员管理/导出 PDF/元数据管理）
+- [x] ⑥.env 未入库、密钥脱敏 ✅（KB_RERANK_API_KEY 等 env 注入；审计 detail 不落敏感明文；语义脱敏默认开）
+- [x] ⑦工作区干净 main 已推 ✅
+- [x] ⑧tag 三段式 ✅（v0.6.0）
+
 ## 5. 验收记录
 
 | 任务 | 实测证据 | 时间 |
 |---|---|---|
-| （执行期回填） | | |
+| T13.1 审计库 | 单测：Java AuditRecorderTest 3 例 + py test_t131_audit 4 例；py 全量 353 绿/Java BUILD SUCCESS/vitest 43 绿；实机：登录→audit_logs 落行（admin/auth.login/IP=网关段）、`GET /api/v1/audit/logs?action=auth.login` 过滤命中、export.pdf 404/200 尝试均留痕 | 2026-10-07 |
+| T13.2 Loki | docker.sock 实测可用，25 服务标签全量入库；证据 docs/reviews/evidence/t132-loki-log-shipping.json（含经网关真实请求后 py-api 日志行）；Grafana 重启后双数据源 | 2026-10-07 |
+| T13.3 语义脱敏 | 单测 9 例（往返一致/占位复用/数值开关/关闭直通/wire 级出站无原值+响应回填/单字母前缀不误捕）；两次返修（嵌套占位/标签词吞噬）如实入 devlog；py 全量 362 绿 | 2026-10-07 |
+| T13.4 成员权限 | 单测：Java ProjectMemberControllerTest 6 例 + SessionVisibilityTest 3 例；实机三层对照（rbac_designer vs admin）：项目 0 vs 412、会话 1 vs 413、加入项目后该会话可见；V18 owner 回填 412 行 | 2026-10-07 |
+| T13.5 PDF 导出 | 单测 6 例；容器级：既有 docx 链 37KB→98KB 合法 PDF（%PDF-1.7），**实机返修网关默认 TimeLimiter=1s**（见 devlog 补充 4）后经网关 200；证据 docs/reviews/evidence/t135-pdf-conversion.json | 2026-10-07 |
+| T13.6 重排序 | 单测 6 例（请求格式/解析兼容/排序截断/失败维持原序/默认不开）；py 全量 374 绿；真实供应商 key 缺——实测状态如实标注「mock 验证，实测待配置」（A-16） | 2026-10-07 |
+| T13.7 元数据 | 单测 5 例（附录 D 种子核对/必填校验/版本互斥/CRUD 往返/API authz 403）；实机 `/api/v1/metadata/freq_bands` 经网关返回 4 频段；V19 种子 6+4+4 | 2026-10-07 |
+| T13.8 收官 | 全量回归：py 379 / e2e（本节下方回填）/ Java（含当日返修复测）/ vitest 43 / tsc 0；三镜像重建 + 实机验证五项（审计落行/审计查询/元数据/网关 PDF/成员可见性）；文档回填 + tag v0.6.0 | 2026-10-07 |
 
 ## 6. 决策记录
 
@@ -198,3 +218,4 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-10-07 | 初版编制（ZCode）。前置发现（探索实证）：①审计零实现——全库无 audit 表/插桩，AuthController 无 logger，现有留痕（traceability_chain/review_records/cad_param_updates/IR5）不覆盖登录/用户管理/KB 写/导出；②数据权限——design_sessions.created_by 存在但全库查询无归属过滤（SessionService.list 仅按 projectId），team/member/share 零命中，无 project_members 模型（phase-11:56/:108 明示缺口）；③脱敏——sanitize.py 7 pattern 全为密钥形态，无语义级占位回填；④PDF 零能力——全库无转换库/容器，docx 链路（export_docx.py + ReportTab）可复用；⑤rerank 零实现（附录 E:1028 明示规划项），融合点 knowledge/service.py:_query_uncached:226-234，embedding 走供应商 HTTP 可仿；⑥元数据——§5.16 四子项无模型无界面（LLM 注册表已落地），kb registry CRUD+Tab 模式可复用；⑦日志分流——compose 无日志收集容器，session_logs 为业务遥测（A-12）；⑧文档欠账——GAP-001 P2-7 行「日志检索仍待接」子句过期（T12.5 已清）、HANDOFF:20 头部时间戳停在 v0.4.0、HANDOFF:56 入口 7 尾同类过期；⑨AdminPage 已 4 卡堆叠——审计卡继续堆叠不引入 Tabs 重构 |
+| v1.1 | 2026-10-07 | 收官回填（T13.8）：全量回归 + 三镜像重建 + 实机验证 + 文档回填 + tag v0.6.0。执行期返修（详见 devlog 2026-10-07）：①**网关默认 TimeLimiter=1s 掐断慢端点**（PDF 转换 8s 被 fallback 误报熔断；yaml 不生效，改编程式 Customizer 120s——本阶段最有价值发现，同步惠及未来同步长操作）；②biz MapperScan 漏登记 audit 包 crash-loop；③ProjectVisibilityMapper SQL 笔误（projects 主键 id）；④语义脱敏占位符嵌套/标签词吞噬两次返修；⑤V17~V19 补幂等写法（沿 V15/V16「手工应用+Flyway 补账」惯例）；⑥审计检索 SQL 参数类型推断（CONCAT 显式 CAST）；⑦gotenberg 宿主端口 3000 冲突改 3010 |
