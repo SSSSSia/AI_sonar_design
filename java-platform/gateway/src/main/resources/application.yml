@@ -118,6 +118,17 @@ spring:
                 redis-rate-limiter.replenishRate: ${RL_NOTIFY_REPLENISH:20}
                 redis-rate-limiter.burstCapacity: ${RL_NOTIFY_BURST:60}
                 key-resolver: "#{@userKeyResolver}"
+        # T13.1 审计检索（§9.4 审计留痕查询面，auth 宿主；须在 biz 兜底路由之前）
+        - id: audit-api
+          uri: http://${AUTH_HOST:localhost}:8081
+          predicates:
+            - Path=/api/v1/audit/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_AUTH_REPLENISH:10}
+                redis-rate-limiter.burstCapacity: ${RL_AUTH_BURST:30}
+                key-resolver: "#{@userKeyResolver}"
         - id: biz
           uri: http://${BIZ_HOST:localhost}:8083
           predicates:

@@ -50,7 +50,8 @@ class UserControllerTest {
         userMapper = mock(UserMapper.class);
         userRoleMapper = mock(UserRoleMapper.class);
         PasswordEncoder encoder = new BCryptPasswordEncoder();
-        controller = new UserController(userMapper, userRoleMapper, encoder, JWT);
+        controller = new UserController(userMapper, userRoleMapper, encoder, JWT,
+                mock(com.sonarcad.auth.audit.AuditRecorder.class));
     }
 
     private String token(String... roles) {

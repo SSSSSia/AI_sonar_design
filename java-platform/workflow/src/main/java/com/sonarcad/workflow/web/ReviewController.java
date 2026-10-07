@@ -1,5 +1,6 @@
 package com.sonarcad.workflow.web;
 
+import com.sonarcad.workflow.audit.AuditRecorder;
 import com.sonarcad.workflow.session.ReviewRecordEntity;
 import com.sonarcad.workflow.session.ReviewService;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -14,16 +15,19 @@ import java.util.Map;
  *   GET  /api/v1/workflow/sessions/{sid}/reviews          裁决历史
  *
  * 裁决权限：gate:decide 在角色层落实（JWT 只带角色）——admin/reviewer，与 V2 种子的
- * 角色-权限矩阵一致（designer/viewer 403）。
+ * 角色-权限矩阵一致（designer/viewer 403）。T13.1：裁决动作落审计（§9.4「人工审阅决定」），
+ * 批注内容仍由 review_records 承担，审计 detail 只记裁决摘要。
  */
 @RestController
 @RequestMapping("/api/v1/workflow/sessions/{sid}/reviews")
 public class ReviewController {
 
     private final ReviewService reviewService;
+    private final AuditRecorder auditRecorder;
 
-    public ReviewController(ReviewService reviewService) {
+    public ReviewController(ReviewService reviewService, AuditRecorder auditRecorder) {
         this.reviewService = reviewService;
+        this.auditRecorder = auditRecorder;
     }
 
     public record DecideRequest(String decision, List<Object> annotations, String reworkStage, String kbId) {
@@ -38,8 +42,16 @@ public class ReviewController {
         if (req == null || req.decision() == null || req.decision().isBlank()) {
             throw new IllegalArgumentException("decision 不能为空（approved|rejected）");
         }
-        return ApiResponse.ok(reviewService.decide(
-                sid, gate, req.decision(), req.annotations(), req.reworkStage(), req.kbId(), reviewerId));
+        Map<String, Object> result = reviewService.decide(
+                sid, gate, req.decision(), req.annotations(), req.reworkStage(), req.kbId(), reviewerId);
+        Map<String, Object> detail = new java.util.LinkedHashMap<>();
+        detail.put("decision", req.decision());
+        if (req.reworkStage() != null) {
+            detail.put("rework_stage", req.reworkStage());
+        }
+        detail.put("annotation_count", req.annotations() == null ? 0 : req.annotations().size());
+        auditRecorder.record(reviewerId, "review.decide", "session", sid, detail, null);
+        return ApiResponse.ok(result);
     }
 
     @GetMapping

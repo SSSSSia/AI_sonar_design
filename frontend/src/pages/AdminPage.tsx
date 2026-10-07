@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { KbStatus } from '../api/kb'
 import { searchLogs, type LogRow } from '../api/logs'
+import { searchAuditLogs, type AuditLogRow } from '../api/audit'
 import { probeGet } from '../api/client'
 import { errText } from '../api/client'
 import {
@@ -76,6 +77,76 @@ function LogCenter() {
           { title: '内容', dataIndex: 'text', ellipsis: true, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
         ]}
       />
+    </Card>
+  )
+}
+
+/** 审计中心（T13.1）：§9.4 审计留痕检索（admin），/audit/logs 过滤 + 分页。 */
+function AuditCenter() {
+  const [username, setUsername] = useState('')
+  const [action, setAction] = useState('')
+  const [resourceType, setResourceType] = useState<string | undefined>(undefined)
+  const [hours, setHours] = useState<number | undefined>(undefined)
+  const [page, setPage] = useState(0)
+  const PAGE = 50
+  const query = useQuery({
+    queryKey: ['audit-center', username, action, resourceType, hours, page],
+    queryFn: () => searchAuditLogs({
+      username: username || undefined, action: action || undefined, resource_type: resourceType,
+      hours, limit: PAGE, offset: page * PAGE,
+    }),
+    refetchInterval: 60_000,
+  })
+  const rows: AuditLogRow[] = query.data?.logs ?? []
+  const total = query.data?.total ?? 0
+  const detailText = (d: AuditLogRow['detail']) => {
+    if (d == null) return '—'
+    if (typeof d === 'string') return d
+    return JSON.stringify(d)
+  }
+  return (
+    <Card
+      title="审计中心（§9.4 审计留痕）"
+      extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>GET /api/v1/audit/logs · 60s 刷新 · 共 {total} 条</Typography.Text>}
+      styles={{ body: { padding: 0 } }}
+    >
+      <div style={{ padding: '10px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Input allowClear placeholder="操作者（用户名，模糊）" style={{ width: 200 }} value={username}
+          onChange={(e) => { setUsername(e.target.value); setPage(0) }} />
+        <Input allowClear placeholder="动作（如 auth. / kb. / export.）" style={{ width: 220 }} value={action}
+          onChange={(e) => { setAction(e.target.value); setPage(0) }} />
+        <Select allowClear placeholder="资源类型" style={{ width: 150 }} value={resourceType}
+          onChange={(v) => { setResourceType(v); setPage(0) }}
+          options={['user', 'project', 'session', 'kb_document', 'kb_base', 'kb_registry', 'kb_extraction', 'llm_provider'].map((t) => ({ value: t, label: t }))} />
+        <Select allowClear placeholder="时间窗" style={{ width: 130 }} value={hours}
+          onChange={(v) => { setHours(v); setPage(0) }}
+          options={[1, 24, 168, 720].map((h) => ({ value: h, label: `近 ${h} 小时` }))} />
+      </div>
+      <Table
+        rowKey="id" size="small"
+        loading={query.isLoading}
+        dataSource={rows}
+        pagination={{ pageSize: PAGE, current: page + 1, total, showSizeChanger: false,
+          onChange: (p) => setPage(p - 1) }}
+        columns={[
+          { title: '时间', dataIndex: 'created_at', width: 165, render: (v: string) => (v ?? '').replace('T', ' ').slice(0, 19) },
+          { title: '操作者', dataIndex: 'username', width: 110, render: (v: string | null) => v || <Typography.Text type="secondary">系统</Typography.Text> },
+          { title: '动作', dataIndex: 'action', width: 170, render: (v: string) => <Typography.Text code style={{ fontSize: 11.5 }}>{v}</Typography.Text> },
+          { title: '资源', key: 'res', width: 190, ellipsis: true, render: (_: unknown, r: AuditLogRow) => (
+            <span style={{ fontSize: 11.5 }}>
+              {r.resource_type ? <Tag style={{ marginRight: 4 }}>{r.resource_type}</Tag> : null}
+              <Typography.Text code style={{ fontSize: 11 }}>{(r.resource_id ?? '').slice(0, 14)}</Typography.Text>
+            </span>
+          ) },
+          { title: '详情', key: 'detail', ellipsis: true, render: (_: unknown, r: AuditLogRow) => <span style={{ fontSize: 12 }}>{detailText(r.detail)}</span> },
+          { title: 'IP', dataIndex: 'ip', width: 110, render: (v: string | null) => <span style={{ fontSize: 11.5 }}>{v || '—'}</span> },
+        ]}
+      />
+      <div style={{ padding: '8px 16px' }}>
+        <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+          留痕范围（§9.4 口径）：登录/用户管理/项目与会话写操作/审阅裁决/知识库写/导出——Agent 调用、参数变更、知识回写由溯源体系专表承担（不重复留痕）。
+        </Typography.Text>
+      </div>
     </Card>
   )
 }
@@ -267,7 +338,7 @@ export default function AdminPage() {
         />
         <div style={{ padding: '8px 16px' }}>
           <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
-            gateway / notify / worker 等基础设施容器健康以 deploy 编排健康检查为准；日志检索后端未建，如实「待接」；备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。
+            gateway / notify / worker 等基础设施容器健康以 deploy 编排健康检查为准；日志中心与审计中心见下方卡片；备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。
           </Typography.Text>
         </div>
       </Card>
@@ -297,11 +368,13 @@ export default function AdminPage() {
         />
         <Alert
           type="info" showIcon style={{ marginTop: 10 }}
-          message="本页数字一律来自后端真实接口（A-16）；日志中心未建属如实待接，备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。"
+          message="本页数字一律来自后端真实接口（A-16）；日志中心（T12.5）与审计中心（T13.1）见下方卡片；备份恢复已交付（T11.7）：deploy/backup/backup.sh + restore.sh，演练证据见 docs/reviews/。"
         />
       </Card>
 
       <LogCenter />
+
+      <AuditCenter />
 
       <UserManagement />
     </div>

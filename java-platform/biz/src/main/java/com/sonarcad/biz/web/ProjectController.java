@@ -3,6 +3,7 @@ package com.sonarcad.biz.web;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.sonarcad.biz.audit.AuditRecorder;
 import com.sonarcad.biz.project.ProjectEntity;
 import com.sonarcad.biz.project.ProjectMapper;
 import org.springframework.http.HttpStatus;
@@ -21,15 +22,18 @@ import java.util.UUID;
  *   GET    /api/v1/projects?page=    分页（附带 session_count，2026-09-20 项目管理用）
  *   GET    /api/v1/projects/{id}
  *   DELETE /api/v1/projects/{id}     删除（admin；项目下仍有会话则 409 拒绝——先删会话）
+ * T13.1：创建/修改/删除落审计（§9.4；成员管理随 T13.4）。
  */
 @RestController
 @RequestMapping("/api/v1/projects")
 public class ProjectController {
 
     private final ProjectMapper projectMapper;
+    private final AuditRecorder auditRecorder;
 
-    public ProjectController(ProjectMapper projectMapper) {
+    public ProjectController(ProjectMapper projectMapper, AuditRecorder auditRecorder) {
         this.projectMapper = projectMapper;
+        this.auditRecorder = auditRecorder;
     }
 
     public record CreateProjectRequest(String name, String code, String description) {}
@@ -38,7 +42,8 @@ public class ProjectController {
 
     @PatchMapping("/{id}")
     @PreAuthorize("hasAnyRole('admin','designer')")
-    public ApiResponse<ProjectEntity> patch(@PathVariable String id, @RequestBody PatchProjectRequest req) {
+    public ApiResponse<ProjectEntity> patch(@PathVariable String id, @RequestBody PatchProjectRequest req,
+                                            @RequestHeader(value = "X-User-Id", required = false) String userId) {
         ProjectEntity p = projectMapper.selectById(id);
         if (p == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在: " + id);
@@ -54,6 +59,8 @@ public class ProjectController {
         if (req.description() != null) p.setDescription(req.description());
         p.setUpdatedAt(java.time.OffsetDateTime.now());
         projectMapper.updateById(p);
+        auditRecorder.record(userId, "project.patch", "project", p.getId(),
+                Map.of("name", p.getName()), null);
         return ApiResponse.ok(p);
     }
 
@@ -71,6 +78,8 @@ public class ProjectController {
         p.setOwnerId(userId);
         p.setStatus("active");
         projectMapper.insert(p);
+        auditRecorder.record(userId, "project.create", "project", p.getId(),
+                Map.of("name", p.getName()), null);
         return ApiResponse.ok(p);
     }
 
@@ -126,7 +135,8 @@ public class ProjectController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('admin')")
-    public ApiResponse<Map<String, Object>> delete(@PathVariable String id) {
+    public ApiResponse<Map<String, Object>> delete(@PathVariable String id,
+                                                   @RequestHeader(value = "X-User-Id", required = false) String userId) {
         ProjectEntity p = projectMapper.selectById(id);
         if (p == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在: " + id);
@@ -137,6 +147,8 @@ public class ProjectController {
                     "项目「" + p.getName() + "」下仍有 " + sessions + " 个会话，请先在仪表盘删除这些会话");
         }
         projectMapper.deleteById(id);
+        auditRecorder.record(userId, "project.delete", "project", id,
+                Map.of("name", p.getName()), null);
         return ApiResponse.ok(Map.of("id", id, "deleted", true, "name", p.getName()));
     }
 

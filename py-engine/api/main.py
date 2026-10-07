@@ -99,6 +99,35 @@ async def _http_metrics_middleware(request, call_next):
         metrics.observe_http(request.method, route, status, time.perf_counter() - t0)
 
 
+# ---- 审计中间件（T13.1，§9.4）：KB 写端点 + 导出端点留痕（规则表见 api/audit.py）----
+@app.middleware("http")
+async def _audit_middleware(request, call_next):
+    from api import audit as audit_mod
+
+    if not audit_mod.ENABLED:
+        return await call_next(request)
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        # 命中规则才落库（同步 psycopg 丢线程池，避免阻塞事件循环）；审计失败不影响响应
+        if audit_mod.match_rule(request.method, request.url.path) is not None:
+            import anyio.to_thread
+
+            await anyio.to_thread.run_sync(
+                lambda: audit_mod.record_request(
+                    request.method,
+                    request.url.path,
+                    request.headers,
+                    request.client.host if request.client else None,
+                    dict(request.query_params),
+                    status,
+                )
+            )
+
+
 _metrics_asgi = None
 try:
     from observability import metrics as _metrics_mod

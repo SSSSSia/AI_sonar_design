@@ -89,14 +89,15 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
 
 > 执行顺序：T13.1 → T13.2 → T13.3 → T13.4 → T13.5 → T13.6 → T13.7 → T13.8（每任务独立 commit）。
 
-### T13.1 独立审计库与留痕插桩 ⬜
+### T13.1 独立审计库与留痕插桩 ✅ 已完成（2026-10-07）
 
 - **DoD**：
-  - [ ] V17__audit_logs.sql（表+索引；dev 库 Flyway 自动应用）
-  - [ ] Java 插桩：auth login/UserController、workflow SessionController/ReviewController、biz ProjectController；AuditRecorder 失败不阻断
-  - [ ] py-engine audit_store + kb/cad 写端点插桩
-  - [ ] `GET /api/v1/audit/logs`（admin）+ gateway 路由 + AdminPage 审计卡
-  - [ ] 单测（Java 冒烟 + py audit_store）
+  - [x] V17__audit_logs.sql（表+4 索引；user_id 用 VARCHAR 兼容非 UUID 调试值；dev 库已手动应用）
+  - [x] Java 插桩：auth=login 成功/失败/禁用 + UserController 五写端点；workflow=会话创建/删除/批量删除 + gate 裁决；biz=项目创建/修改/删除；AuditRecorder 旁路（失败不阻断，detail 不落敏感明文——密码/密钥不进审计）
+  - [x] py-engine：storage/audit_store.py（psycopg+Json 适配）+ api/audit.py 规则表（21 条）+ main.py ASGI 中间件——覆盖 KB 全部写端点与导出端点；E1/微调/IR1 修订不重复留痕（cad_param_updates/cad_tune_*/ir_snapshots 专表已承担，A-12）
+  - [x] `GET /api/v1/audit/logs`（auth 宿主，admin，Bearer 二次验签）+ gateway audit-api 路由（biz 兜底前）+ AdminPage「审计中心」卡（操作者/动作/资源/详情/IP 过滤+分页；顺带清账两处遗留「日志中心未建」过期文案）
+  - [x] 单测：Java AuditRecorderTest 3 例（字段透传/空值/mapper 失败旁路）；py test_t131_audit 4 例（规则表命中/落库检索/中间件留痕含 404 尝试/未匹配不记）
+  - 执行期发现：①psycopg 查询内字面 `%` 需转义（teardown LIKE 报 placeholder 错，改参数化）；②MyBatis jsonb 列直读返回 PGobject——查询端点 SQL 里 `::text` 出参 + 控制器解析回 JSON 对象；③AdminPage 两处 v0.4 时代「日志中心未建」文案过期未随 T12.5 清理——本期顺带修正。**Java 容器级实机验证（镜像重建后登录→查审计行）统一留 T13.8 收官执行**
 
 ### T13.2 日志分流 Loki ⬜
 

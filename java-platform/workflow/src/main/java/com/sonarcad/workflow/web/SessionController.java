@@ -1,6 +1,7 @@
 package com.sonarcad.workflow.web;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.sonarcad.workflow.audit.AuditRecorder;
 import com.sonarcad.workflow.session.DesignSessionEntity;
 import com.sonarcad.workflow.session.SessionCleanupService;
 import com.sonarcad.workflow.session.SessionService;
@@ -17,6 +18,7 @@ import java.util.Map;
  *   GET  /api/v1/workflow/sessions/{id}
  *   GET  /api/v1/workflow/sessions/{id}/allowed-events  可触发事件自省
  *   POST /api/v1/workflow/sessions/{id}/events          事件驱动转移（非法 409）
+ * T13.1：创建/删除（含批量）落审计（§9.4；会话事件与裁决留痕由既有表承担，见任务书 §2.1）。
  */
 @RestController
 @RequestMapping("/api/v1/workflow/sessions")
@@ -24,10 +26,13 @@ public class SessionController {
 
     private final SessionService sessionService;
     private final SessionCleanupService cleanupService;
+    private final AuditRecorder auditRecorder;
 
-    public SessionController(SessionService sessionService, SessionCleanupService cleanupService) {
+    public SessionController(SessionService sessionService, SessionCleanupService cleanupService,
+                             AuditRecorder auditRecorder) {
         this.sessionService = sessionService;
         this.cleanupService = cleanupService;
+        this.auditRecorder = auditRecorder;
     }
 
     /** kbIds 可选（PHASE-006 会话选库；null/空 = Agent 自主决策模式）。 */
@@ -37,7 +42,8 @@ public class SessionController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin','designer')")
     public ApiResponse<DesignSessionEntity> create(@RequestBody CreateSessionRequest req,
-                                                   @RequestHeader(value = "X-User-Id", required = false) String userId) {
+                                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                   jakarta.servlet.http.HttpServletRequest request) {
         if (req.projectId() == null || req.projectId().isBlank()) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
@@ -48,8 +54,11 @@ public class SessionController {
         if (req.title().length() > 20) {
             throw new IllegalArgumentException("会话标题不能超过 20 字");
         }
-        return ApiResponse.ok(sessionService.create(req.projectId(), req.title(), req.requirement(),
-                req.kbIds(), userId));
+        DesignSessionEntity created = sessionService.create(req.projectId(), req.title(), req.requirement(),
+                req.kbIds(), userId);
+        auditRecorder.record(userId, "session.create", "session", created.getId(),
+                Map.of("title", req.title(), "project_id", req.projectId()), clientIp(request));
+        return ApiResponse.ok(created);
     }
 
     @GetMapping
@@ -91,8 +100,12 @@ public class SessionController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('admin')")
     public ApiResponse<Map<String, Object>> delete(@PathVariable String id,
-                                                   @RequestParam(defaultValue = "false") boolean force) {
-        return ApiResponse.ok(cleanupService.delete(id, force));
+                                                   @RequestParam(defaultValue = "false") boolean force,
+                                                   @RequestHeader(value = "X-User-Id", required = false) String userId) {
+        Map<String, Object> result = cleanupService.delete(id, force);
+        auditRecorder.record(userId, "session.delete", "session", id,
+                Map.of("force", force), null);
+        return ApiResponse.ok(result);
     }
 
     /**
@@ -102,7 +115,8 @@ public class SessionController {
     @DeleteMapping
     @PreAuthorize("hasRole('admin')")
     public ApiResponse<Map<String, Object>> deleteBatch(@RequestParam String ids,
-                                                        @RequestParam(defaultValue = "false") boolean force) {
+                                                        @RequestParam(defaultValue = "false") boolean force,
+                                                        @RequestHeader(value = "X-User-Id", required = false) String userId) {
         java.util.List<Map<String, Object>> results = new java.util.ArrayList<>();
         int deleted = 0;
         for (String id : ids.split(",")) {
@@ -113,6 +127,8 @@ public class SessionController {
             try {
                 cleanupService.delete(trimmed, force);
                 row.put("deleted", true);
+                auditRecorder.record(userId, "session.delete", "session", trimmed,
+                        Map.of("force", force, "batch", true), null);
                 deleted++;
             } catch (IllegalArgumentException | org.springframework.web.server.ResponseStatusException e) {
                 row.put("deleted", false);
@@ -127,5 +143,14 @@ public class SessionController {
         summary.put("deleted_count", deleted);
         summary.put("failed_count", results.size() - deleted);
         return ApiResponse.ok(summary);
+    }
+
+    /** 客户端 IP：优先网关转发的 X-Forwarded-For 首段（Spring Cloud Gateway 默认追加）。 */
+    private String clientIp(jakarta.servlet.http.HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

@@ -66,13 +66,16 @@ public class UserController {
     private final UserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final com.sonarcad.auth.audit.AuditRecorder auditRecorder;
 
     public UserController(UserMapper userMapper, UserRoleMapper userRoleMapper,
-                          PasswordEncoder passwordEncoder, JwtService jwtService) {
+                          PasswordEncoder passwordEncoder, JwtService jwtService,
+                          com.sonarcad.auth.audit.AuditRecorder auditRecorder) {
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.auditRecorder = auditRecorder;
     }
 
     public record CreateUserRequest(String username, String password, String displayName, String email, List<String> roles) {}
@@ -90,7 +93,7 @@ public class UserController {
     @Transactional
     public ApiResponse<Map<String, Object>> create(@RequestHeader(value = "Authorization", required = false) String auth,
                                                    @RequestBody CreateUserRequest req) {
-        adminGuard(auth);
+        JwtService.ParsedUser me = adminGuard(auth);
         if (req.username() == null || !USERNAME.matcher(req.username()).matches()) {
             throw new ApiException(400, "用户名需为 3-32 位字母/数字/下划线/中划线");
         }
@@ -117,6 +120,8 @@ public class UserController {
         user.setUpdatedAt(OffsetDateTime.now());
         userMapper.insert(user);
         applyRoles(user.getId(), roles);
+        auditRecorder.record(me.userId(), me.username(), "user.create", "user", user.getId(),
+                Map.of("target", user.getUsername(), "roles", roles), null);
         return ApiResponse.ok(toView(user));
     }
 
@@ -141,6 +146,8 @@ public class UserController {
         user.setStatus(req.status());
         user.setUpdatedAt(OffsetDateTime.now());
         userMapper.updateById(user);
+        auditRecorder.record(me.userId(), me.username(), "user.patch", "user", user.getId(),
+                Map.of("target", user.getUsername(), "status", req.status()), null);
         return ApiResponse.ok(toView(user));
     }
 
@@ -148,7 +155,7 @@ public class UserController {
     public ApiResponse<Map<String, Object>> resetPassword(@RequestHeader(value = "Authorization", required = false) String auth,
                                                           @PathVariable String id,
                                                           @RequestBody ResetPasswordRequest req) {
-        adminGuard(auth);
+        JwtService.ParsedUser me = adminGuard(auth);
         if (req.password() == null || req.password().length() < 6) {
             throw new ApiException(400, "密码至少 6 位");
         }
@@ -159,6 +166,8 @@ public class UserController {
         user.setPasswordHash(passwordEncoder.encode(req.password()));
         user.setUpdatedAt(OffsetDateTime.now());
         userMapper.updateById(user);
+        auditRecorder.record(me.userId(), me.username(), "user.reset_password", "user", user.getId(),
+                Map.of("target", user.getUsername()), null);
         return ApiResponse.ok(Map.of("id", user.getId(), "reset", true));
     }
 
@@ -181,6 +190,8 @@ public class UserController {
         }
         userRoleMapper.deleteAllForUser(user.getId());
         applyRoles(user.getId(), req.roles());
+        auditRecorder.record(me.userId(), me.username(), "user.set_roles", "user", user.getId(),
+                Map.of("target", user.getUsername(), "roles", req.roles()), null);
         return ApiResponse.ok(Map.of("id", user.getId(), "roles", req.roles()));
     }
 
@@ -201,6 +212,8 @@ public class UserController {
         }
         userRoleMapper.deleteAllForUser(id);
         userMapper.deleteById(id);
+        auditRecorder.record(me.userId(), me.username(), "user.delete", "user", id,
+                Map.of("target", user.getUsername()), null);
         return ApiResponse.ok(Map.of("id", id, "deleted", true));
     }
 
