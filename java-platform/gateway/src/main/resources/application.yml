@@ -107,6 +107,21 @@ spring:
               args:
                 name: pyEngine
                 fallbackUri: forward:/fallback/py-engine
+        # T13.7 基础元数据管理（§5.16；宿主 py-engine 8090）
+        - id: py-engine-metadata
+          uri: http://${PY_ENGINE_HOST:localhost}:8090
+          predicates:
+            - Path=/api/v1/metadata/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_PY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: pyEngine
+                fallbackUri: forward:/fallback/py-engine
         # T11.1 通知持久化（P2-4）：登录拉取/已读/清理，notify 服务（须在 biz 兜底路由之前）
         - id: notify-api
           uri: http://${NOTIFY_HOST:localhost}:8084

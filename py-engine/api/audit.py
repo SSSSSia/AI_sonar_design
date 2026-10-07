@@ -47,6 +47,10 @@ _RULES: list[tuple[str, re.Pattern[str], str, str | None, str | None]] = [
     ("DELETE", re.compile(r"^/api/v1/kb/llm-providers/(?P<rid>[^/]+)$"), "kb.delete_provider", "llm_provider", "rid"),
     # 图谱快照（T11.7 备份链路的人工/定时触发留痕）
     ("POST", re.compile(r"^/api/v1/kb/graph/snapshot$"), "kb.graph_snapshot", None, None),
+    # 基础元数据管理（T13.7；写端点 admin）
+    ("POST", re.compile(r"^/api/v1/metadata/(?P<kind>[a-z_]+)$"), "metadata.create", "metadata", None),
+    ("PATCH", re.compile(r"^/api/v1/metadata/(?P<kind>[a-z_]+)/(?P<rid>[^/]+)$"), "metadata.update", "metadata", "rid"),
+    ("DELETE", re.compile(r"^/api/v1/metadata/(?P<kind>[a-z_]+)/(?P<rid>[^/]+)$"), "metadata.delete", "metadata", "rid"),
     # 导出（§9.4 明列「导出操作」；GET 但语义为交付物产出）
     ("GET", re.compile(r"^/api/v1/cad/sessions/(?P<rid>[^/]+)/export/docx$"), "export.docx", "session", "rid"),
     ("GET", re.compile(r"^/api/v1/cad/sessions/(?P<rid>[^/]+)/export/pdf$"), "export.pdf", "session", "rid"),

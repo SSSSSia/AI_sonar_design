@@ -32,6 +32,7 @@ from api.authz import require_admin, require_user
 from api.cad import router as cad_router
 from api.cad_agent import router as cad_agent_router
 from api.logs import router as logs_router
+from api.metadata import router as metadata_router
 from llm.adapter import active_provider, llm_adapter, reload_providers
 from worker.celery_app import celery_app
 from worker.tasks import always_fail_task, echo_task
@@ -79,6 +80,7 @@ app.include_router(kb_router, prefix="/api/v1")
 app.include_router(cad_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
 app.include_router(cad_agent_router, prefix="/api/v1")  # gateway /api/v1/cad-agent/**（T8.3 微调）
 app.include_router(logs_router, prefix="/api/v1")  # gateway /api/v1/logs/**（会话运行日志留存回放）
+app.include_router(metadata_router, prefix="/api/v1")  # gateway /api/v1/metadata/**（T13.7 基础元数据）
 
 
 # ---- Prometheus 指标（T10.1a）：HTTP 计数/时延中间件 + /metrics 挂载 ----

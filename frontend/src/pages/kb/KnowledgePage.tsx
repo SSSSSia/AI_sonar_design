@@ -8,6 +8,7 @@ import { DocumentsTab, ExtractionsTab, NewBaseWizard } from './DocumentsTab'
 import { RegistryTab } from './RegistryTab'
 import { ProvidersTab } from './ProvidersTab'
 import { GraphTab } from './GraphTab'
+import MetadataTab from './MetadataTab'
 
 /**
  * 知识库管理（PHASE-006 多库重构）：左侧库列表（含「文档池」）+ 右侧库内管线。
@@ -207,6 +208,7 @@ export default function KnowledgePage() {
           { key: 'registry', label: '三库管理', children: <RegistryTab /> },
           { key: 'providers', label: 'LLM 供应商', children: <ProvidersTab /> },
           { key: 'graph', label: '图谱', children: <GraphTab /> },
+          { key: 'metadata', label: '元数据管理', children: <MetadataTab /> },
         ]}
       />
       <NewBaseWizard open={wizard} onClose={() => setWizard(false)} onCreated={(b) => setActiveKey(b.id)} />

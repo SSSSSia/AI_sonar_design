@@ -142,13 +142,14 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
   - [ ] service.py 挂点（top_k 放大→rerank→截断→融合；失败 degraded 如实）
   - [ ] 单测（MockTransport）+ on/off 对比记录（无 key 则如实标注实测待配置）
 
-### T13.7 基础元数据管理 ⬜
+### T13.7 基础元数据管理 ✅ 已完成（2026-10-07）
 
 - **DoD**：
-  - [ ] V19 四表 + 附录 D 种子数据
-  - [ ] metadata_store + api/metadata CRUD + gateway 路由
-  - [ ] KnowledgePage 第 5 Tab（prompt_templates 版本化+启用切换）
-  - [ ] 单测 + vitest
+  - [x] V19__metadata_tables.sql：meta_sonar_types（双维度唯一约束）/ meta_freq_bands / meta_perf_specs / meta_prompt_templates（(stage,name,version) 唯一 + 启用互斥索引）+ 附录 D 种子（6 声呐类型 + 4 频段 + 4 性能规范，示例口径如实标注）
+  - [x] storage/metadata_store.py（列白名单防任意列写、提示词模板版本自动递增 max+1、启用互斥切换）+ api/metadata.py（读=登录用户，写=admin；未知类别 404）+ gateway 路由 + 审计中间件 metadata.* 规则
+  - [x] 前端 KnowledgePage 第 5 Tab「元数据管理」：四类别切换 + 动态字段表单（select/number/textarea 按列规格）+ 启用开关 + 版本语义提示；§5.16 五子项全覆盖（LLM 注册表由「LLM 供应商」页承担，如实互链）
+  - [x] 单测 5 例（种子核对/必填校验/版本递增+互斥启用/更新删除往返/API CRUD+authz 403）；tsc 0 错 + vitest 43 绿
+  - 执行期发现：teardown 引用 freq_bands 不存在的 remark 列（UndefinedColumn）——按表分列清理修正
 
 ### T13.8 收官 ⬜
 
