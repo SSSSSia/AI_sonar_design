@@ -178,7 +178,7 @@
 | 任务 | 内容 | 状态 |
 |---|---|---|
 | T13.1 | 独立审计库：V17 audit_logs + Java/py 留痕插桩 + 审计查询端点 + AdminPage 审计卡（§9.4） | ✅ 已完成（2026-10-07，py 353 绿/Java BUILD SUCCESS/vitest 43 绿；容器级实机验证留 T13.8） |
-| T13.2 | 日志分流 Loki 轻量落地：loki+promtail+Grafana 数据源（ELK 留生产，A-14 如实） | 待开发 |
+| T13.2 | 日志分流 Loki 轻量落地：loki+promtail+Grafana 数据源（ELK 留生产，A-14 如实） | ✅ 已完成（2026-10-07，docker.sock 实测通过 25 服务入库，证据 t132-loki-log-shipping.json） |
 | T13.3 | 涉密语义脱敏完整形态：结构化敏感项提取+占位回填+A1–A5 挂点（§9.3） | 待开发 |
 | T13.4 | 成员级数据权限：V18 project_members + 会话/项目可见性过滤 + 成员管理 UI（§9.4/附录 C） | 待开发 |
 | T13.5 | PDF 导出：gotenberg 转换容器 + export/pdf 端点 + 前端按钮（§5.2） | 待开发 |

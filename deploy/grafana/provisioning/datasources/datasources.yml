@@ -7,3 +7,10 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
+  # T13.2 日志分流：容器 stdout 经 promtail 汇入 Loki（Explore 查询，{container=...}/service 标签）
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

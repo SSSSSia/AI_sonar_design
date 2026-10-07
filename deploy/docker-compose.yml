@@ -33,6 +33,7 @@ volumes:
   rabbitmq-data:
   prometheus-data:
   grafana-data:
+  loki-data:
 
 services:
   # ---------- 业务库 ----------
@@ -516,6 +517,42 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    networks: [sonar-net]
+
+  # ================= 日志分流（T13.2，§10.5「应用日志→ELK」的 Loki 轻量实现） =================
+  # 差异如实（A-14）：开发环境 Loki+Grafana 承担集中采集/检索语义，ELK 留生产替换。
+  loki:
+    image: ${DOCKER_MIRROR:-}grafana/loki:3.1.1
+    container_name: sonarcad-loki
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki:/etc/loki:ro
+      - loki-data:/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [sonar-net]
+
+  promtail:
+    image: ${DOCKER_MIRROR:-}grafana/promtail:3.1.1
+    container_name: sonarcad-promtail
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./promtail:/etc/promtail:ro
+      # docker_sd 采集容器 stdout；Docker Desktop 下 /var/run/docker.sock 挂载可用（T13.2 实测）
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${PROMTAIL_PORT:-9080}:9080"
+    depends_on:
+      loki: { condition: service_healthy }
     networks: [sonar-net]
 
   postgres-exporter:

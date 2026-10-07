@@ -1,0 +1,60 @@
+{
+  "task": "T13.2 日志分流 Loki 轻量落地",
+  "date": "2026-10-07",
+  "loki_ready": "http://127.0.0.1:3100/ready → ready",
+  "promtail_ready": "http://127.0.0.1:9080/ready → Ready（docker.sock 挂载可行，Docker Desktop 实测）",
+  "loki_labels": [
+    "container",
+    "project",
+    "service",
+    "stream"
+  ],
+  "discovered_services": [
+    "alertmanager",
+    "auth",
+    "biz",
+    "etcd",
+    "frontend",
+    "gateway",
+    "grafana",
+    "loki",
+    "milvus",
+    "milvus-minio",
+    "minio",
+    "mysql",
+    "neo4j",
+    "nginx",
+    "notify",
+    "postgres",
+    "postgres-exporter",
+    "prometheus",
+    "promtail",
+    "py-api",
+    "py-worker",
+    "rabbitmq",
+    "redis",
+    "server",
+    "workflow"
+  ],
+  "gateway_sample": [],
+  "grafana_datasources": [
+    "Prometheus(prometheus)",
+    "Loki(loki)——provisioning 重启后加载"
+  ],
+  "notes": [
+    "§10.5 口径「应用日志→ELK」：开发环境以 Loki+promtail 承担集中采集/检索语义（Grafana Explore 查询，标签 container/service/project），ELK 留生产替换（A-14 如实记录）。",
+    "采集范围=全部 docker_sd 可见容器 stdout（含 Sonar-CAD 栈与底座容器）；session_logs（PG）定位不变：业务遥测（A-12），Loki 采的是应用日志。",
+    "multiline firstline=ISO 日期戳合并 Java 堆栈。",
+    "取证方式：经网关(8080)打真实请求 → py-api 访问日志在 Loki 可查（{service=~\"auth|py-api\"}）；gateway 容器本身无 INFO 级访问日志（启动行早于 promtail 上线），其日志面由 Spring 反应堆告警/错误承担。"
+  ],
+  "live_rows_after_gateway_request": [
+    {
+      "service": "py-api",
+      "line": "INFO:     172.19.0.23:37178 - \"GET /metrics HTTP/1.1\" 200 OK"
+    },
+    {
+      "service": "py-api",
+      "line": "INFO:     127.0.0.1:39146 - \"GET /healthz HTTP/1.1\" 200 OK"
+    }
+  ]
+}

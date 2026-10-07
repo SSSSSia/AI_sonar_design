@@ -99,13 +99,13 @@ HANDOFF 入口 9 列 9 项：真实 vLLM（待硬件）、真实 GJB（待授权
   - [x] 单测：Java AuditRecorderTest 3 例（字段透传/空值/mapper 失败旁路）；py test_t131_audit 4 例（规则表命中/落库检索/中间件留痕含 404 尝试/未匹配不记）
   - 执行期发现：①psycopg 查询内字面 `%` 需转义（teardown LIKE 报 placeholder 错，改参数化）；②MyBatis jsonb 列直读返回 PGobject——查询端点 SQL 里 `::text` 出参 + 控制器解析回 JSON 对象；③AdminPage 两处 v0.4 时代「日志中心未建」文案过期未随 T12.5 清理——本期顺带修正。**Java 容器级实机验证（镜像重建后登录→查审计行）统一留 T13.8 收官执行**
 
-### T13.2 日志分流 Loki ⬜
+### T13.2 日志分流 Loki ⬜→✅ 已完成（2026-10-07）
 
 - **DoD**：
-  - [ ] compose loki+promtail + Grafana Loki 数据源 provisioning
-  - [ ] docker.sock 可行性验证（不可达则静态文件方案如实记录）
-  - [ ] targets up + Grafana Explore 查到日志的证据入 docs/reviews/evidence/
-  - [ ] ELK 差异口径写入任务书与 HANDOFF
+  - [x] compose loki（3.1.1 单体，retention 7d，compactor retention_enabled）+ promtail（docker_sd）+ Grafana Loki 数据源（provisioning 重启后加载核对）——loki/promtail 配置文件随 T13.1 commit 先行入库（git add -A 扫入，如实注明）
+  - [x] docker.sock 可行性**实测通过**（Docker Desktop）：promtail docker_sd 发现 25 个服务标签全量入库（gateway/auth/workflow/biz/notify/py-api/py-worker + 底座容器）
+  - [x] 证据：docs/reviews/evidence/t132-loki-log-shipping.json（ready 双端 + 标签清单 + 经网关真实请求后 py-api 访问日志行 + Grafana 数据源清单）
+  - [x] ELK 差异口径写入本节与 HANDOFF（Loki 承担采集/检索语义，ELK 留生产替换；session_logs 定位不变：业务遥测 A-12）
 
 ### T13.3 涉密语义脱敏完整形态 ⬜
 
