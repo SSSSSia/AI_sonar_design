@@ -1,11 +1,13 @@
 """MinIO 对象存储封装（T1.5，D-10）。
 
 桶：step-models（STEP 产物）/ cad-scripts（生成脚本）/ kb-docs（知识库原文件，T3.1）。
-IR 中只存引用 {bucket, object_key}（P3 §8.3：不直接传递大对象）。
+IR 中只存引用 {bucket, object_key[, sha256]}（P3 §8.3：不直接传递大对象）；
+T14.5 起 artifact 上传附带内容 SHA-256——历史产物不可覆盖、可独立核对（审查问题 4a）。
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 from pathlib import Path
@@ -54,20 +56,22 @@ def _ensure_buckets() -> None:
 
 
 def upload_artifact(local_path: Path, bucket: str, object_key: str) -> dict[str, str]:
-    """上传文件，返回 IR 文件引用 {bucket, object_key}。"""
+    """上传文件，返回 IR 文件引用 {bucket, object_key, sha256}（T14.5 增内容哈希）。"""
     _ensure_buckets()
     c = _get_client()
     c.fput_object(bucket, object_key, str(local_path))
-    logger.info("产物已上传 %s/%s (%s 字节)", bucket, object_key, local_path.stat().st_size)
-    return {"bucket": bucket, "object_key": object_key}
+    sha = hashlib.sha256(local_path.read_bytes()).hexdigest()
+    logger.info("产物已上传 %s/%s (%s 字节, sha256=%s)",
+                bucket, object_key, local_path.stat().st_size, sha[:12])
+    return {"bucket": bucket, "object_key": object_key, "sha256": sha}
 
 
 def upload_bytes(data: bytes, bucket: str, object_key: str, content_type: str = "application/octet-stream") -> dict[str, str]:
-    """上传字节内容（T3.1 KB 文档原文件）。"""
+    """上传字节内容（T3.1 KB 文档原文件）。返回引用附内容哈希（T14.5）。"""
     _ensure_buckets()
     c = _get_client()
     c.put_object(bucket, object_key, io.BytesIO(data), length=len(data), content_type=content_type)
-    return {"bucket": bucket, "object_key": object_key}
+    return {"bucket": bucket, "object_key": object_key, "sha256": hashlib.sha256(data).hexdigest()}
 
 
 def upload_text(text: str, bucket: str, object_key: str) -> dict[str, str]:

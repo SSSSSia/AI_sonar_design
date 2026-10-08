@@ -5,66 +5,115 @@
   "description": "CadQuery 脚本 + STEP 文件引用 + 特征参数表。A3 边界：严格继承 IR2 参数值，不擅自改数（宪法 A-08）；发现矛盾抛回 A2。PHASE-007 加法演进：features 由 STEP 实测提取构造（geometry 数值结构 + 顶层 geometry_summary + linked_param_id 可空），旧形态仍合法。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["cadquery_script", "step_file", "features"],
+  "required": [
+    "cadquery_script",
+    "step_file",
+    "features"
+  ],
   "properties": {
     "cadquery_script": {
       "type": "string",
       "description": "CadQuery 脚本（执行在 cad_engine/ 沙箱子进程，A-15；重试上限可配，A-13）"
     },
-    "step_file": { "$ref": "#/$defs/file_ref" },
+    "step_file": {
+      "$ref": "#/$defs/file_ref"
+    },
     "features": {
       "type": "array",
       "description": "特征参数表（PHASE-007 起为 STEP 实测分段，与 IR2 参数不再强绑数量；未联动参数的分段如实 null，禁止造假联动，A-16）",
-      "items": { "$ref": "#/$defs/feature" }
+      "items": {
+        "$ref": "#/$defs/feature"
+      }
     },
-    "geometry_summary": { "$ref": "#/$defs/geometry_summary" }
+    "geometry_summary": {
+      "$ref": "#/$defs/geometry_summary"
+    }
   },
   "$defs": {
     "file_ref": {
       "type": "object",
       "description": "文件引用（实体存 MinIO 分桶，IR 只存引用，P3 §8.3：不直接传递大对象）",
       "additionalProperties": false,
-      "required": ["bucket", "object_key"],
+      "required": [
+        "bucket",
+        "object_key"
+      ],
       "properties": {
-        "bucket": { "type": "string", "description": "MinIO 分桶，如 step-models / cad-scripts" },
-        "object_key": { "type": "string", "description": "对象键" }
+        "bucket": {
+          "type": "string",
+          "description": "MinIO 分桶，如 step-models / cad-scripts"
+        },
+        "object_key": {
+          "type": "string",
+          "description": "对象键"
+        },
+        "sha256": {
+          "type": "string",
+          "description": "内容 SHA-256（T14.5 产物版本化，审查问题 4a：历史产物不可覆盖、可独立下载核对；加法演进，旧快照无此字段合法）"
+        }
       }
     },
     "feature": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["feature_id", "segment", "geometry", "linked_param_id"],
+      "required": [
+        "feature_id",
+        "segment",
+        "geometry",
+        "linked_param_id"
+      ],
       "properties": {
-        "feature_id": { "type": "string", "description": "特征 ID，如 F-07" },
-        "segment": { "type": "string", "description": "所属段（实测分段如 SEG-01；旧数据为 model 等占位）" },
+        "feature_id": {
+          "type": "string",
+          "description": "特征 ID，如 F-07"
+        },
+        "segment": {
+          "type": "string",
+          "description": "所属段（实测分段如 SEG-01；旧数据为 model 等占位）"
+        },
         "geometry": {
           "type": "object",
           "description": "尺寸/位置/方向。PHASE-007 定义化数值字段（可选项，旧数据自由 object 兼容）；数值一律 mm/mm³，由 geometry_inspect 从 STEP 网格实测提取",
           "properties": {
             "bbox_mm": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": {
+                "type": "number"
+              },
               "minItems": 3,
               "maxItems": 3,
               "description": "该段包围盒 [dx, dy, dz]，mm"
             },
-            "volume_mm3": { "type": "number", "minimum": 0, "description": "该段体积，mm³" },
+            "volume_mm3": {
+              "type": "number",
+              "minimum": 0,
+              "description": "该段体积，mm³"
+            },
             "center_mm": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": {
+                "type": "number"
+              },
               "minItems": 3,
               "maxItems": 3,
               "description": "该段几何中心，mm"
             },
             "linked_dim": {
               "type": "integer",
-              "enum": [0, 1, 2],
+              "enum": [
+                0,
+                1,
+                2
+              ],
               "description": "联动 bbox 的维度下标（0/1/2），由 A3 自动联动写入；无联动时省略"
             }
           }
         },
         "linked_param_id": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "对应 IR2 的参数 id（双向联动用）；null=实测未匹配到长度类参数，如实不造假（A-16，PHASE-007 放宽）"
         }
       }
@@ -73,23 +122,41 @@
       "type": "object",
       "description": "整体几何摘要（PHASE-007 新增可选；由 STEP 实测提取，提取失败时如实无数值字段）",
       "additionalProperties": false,
-      "required": ["source"],
+      "required": [
+        "source"
+      ],
       "properties": {
         "source": {
           "type": "string",
-          "enum": ["extracted", "extraction_failed"],
+          "enum": [
+            "extracted",
+            "extraction_failed"
+          ],
           "description": "extracted=实测成功；extraction_failed=提取失败（管线降级继续，数值字段缺省）"
         },
         "bbox_mm": {
           "type": "array",
-          "items": { "type": "number" },
+          "items": {
+            "type": "number"
+          },
           "minItems": 3,
           "maxItems": 3,
           "description": "整体包围盒 [dx, dy, dz]，mm（仅 extracted 时存在）"
         },
-        "volume_mm3": { "type": "number", "minimum": 0, "description": "整体体积，mm³（仅 extracted 时存在）" },
-        "part_count": { "type": "integer", "minimum": 0, "description": "实测分段数（仅 extracted 时存在）" },
-        "detail": { "type": "string", "description": "补充说明（如失败原因、提取器信息）" }
+        "volume_mm3": {
+          "type": "number",
+          "minimum": 0,
+          "description": "整体体积，mm³（仅 extracted 时存在）"
+        },
+        "part_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "实测分段数（仅 extracted 时存在）"
+        },
+        "detail": {
+          "type": "string",
+          "description": "补充说明（如失败原因、提取器信息）"
+        }
       }
     }
   }

@@ -108,15 +108,25 @@ def get_gltf(sid: str, user: str = Depends(require_user)) -> Response:
 
 
 @router.get("/sessions/{sid}/download")
-def download(sid: str, kind: str = Query(..., pattern="^(step|script)$"), user: str = Depends(require_user)) -> dict[str, Any]:
-    ir3, version = _ir3_or_404(sid)
+def download(sid: str, kind: str = Query(..., pattern="^(step|script)$"),
+             version: int | None = Query(default=None),
+             user: str = Depends(require_user)) -> dict[str, Any]:
+    """产物下载。T14.5（审查用例 10）：可指定 IR3 版本——历史 STEP 各自独立对象
+    （a3/{token}/ 路径版本化），配合引用 sha256 可核对任意历史版本不被覆盖。"""
+    if version is not None:
+        ir3 = ir_store.get_snapshot(sid, "IR3", version)
+        if not ir3 or not ir3.get("step_file"):
+            raise HTTPException(status_code=404, detail=f"IR3 v{version} 不存在或无产物")
+    else:
+        ir3, version = _ir3_or_404(sid)
     if kind == "step":
         from datetime import timedelta
 
         ref = ir3["step_file"]
         url = _minio().presigned_get_object(ref["bucket"], ref["object_key"], expires=timedelta(minutes=15))
-        filename = ref["object_key"].split("/")[-1] or f"ir3_v{version}.step"
-        return {"url": url, "filename": filename, "expires_in": 900}
+        filename = ref["object_key"].split("/")[-1] or f"ir3_v{version or 0}.step"
+        return {"url": url, "filename": filename, "expires_in": 900,
+                "sha256": ref.get("sha256")}
     # 脚本直接用 IR3 内容（不依赖对象存储键约定）
     import urllib.parse
 

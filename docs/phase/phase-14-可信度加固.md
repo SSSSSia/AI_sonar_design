@@ -126,11 +126,12 @@
 - DoD：用例 13 ✅（case 来源参数经军标 expr 判定计数）、14 ✅（unverified → incomplete 不显示通过）；py 相关 67+9 绿、全量 421 passed 1 skipped；tsc 0/vitest 43 绿；旧两态快照 schema 兼容验证 ✅。
 - Commit：`feat(a4): T14.4 校验状态学——三态 overall/unverified 级/来源解耦/验证覆盖率（问题 2）`
 
-### T14.5 产物版本化与报告失效全覆盖 ⬜
+### T14.5 产物版本化与报告失效全覆盖 ✅ 已完成（2026-10-08）
 
-- 改动：`agents/a3_cad/agent.py`（路径+哈希）、`cad_agent/service.py`（finalize 失效+manual）、`api/cad_agent.py`（忽略/0 提案路径失效）、下载端点按快照取。
-- DoD：用例 08/10 单测（两版 STEP 独立下载+哈希一致；忽略提案后旧报告状态=invalidated）；e2e 微调链回归。
-- Commit：`fix(artifact): T14.5 产物版本化+报告失效全覆盖——STEP 按版本落桶/全路径失效（问题 4a/4b）`
+- 改动：`agents/a3_cad/agent.py`（产物上传提为 `_upload_artifacts`：`{sid}/a3/{token}/` 按次版本化，固定路径 `{sid}/sonar_model.step` 废弃）；`storage/object_store.py`（upload_artifact/upload_bytes 返回 sha256）；`contracts/ir/ir3.schema.json`（file_ref 增可选 sha256，加法演进）；`cad_agent/service.py` finalize_version（IR3 落新版本后立即 mark_invalidated(["IR4","IR5"])——对话轮与 manual 上传共用此函数，忽略提案/0 提案路径随之全覆盖）；`api/cad.py` download 增可选 version 参数（历史 IR3 按版本独立下载+哈希核对）。
+- 语义依据：get_latest_snapshot 对算力侧读过滤已失效版本——失效后旧报告不以现行身份存在；微调复审链路照旧（gate2 人工/提案确认触发重验）。
+- DoD：用例 08 ✅（finalize 即失效，不经提案应用路径）、10 ✅（两次生成对象键互异+哈希返回）；新增 test_t145 4 例；受影响面（t73/t83/t113/t142）回归绿。
+- Commit：`fix(artifact): T14.5 产物版本化+报告失效全覆盖——STEP 按版本落桶/微调定稿即失效（问题 4a/4b）`
 
 ### T14.6 审阅版本条件 ⬜
 

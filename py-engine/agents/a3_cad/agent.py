@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,21 @@ from storage import object_store
 logger = logging.getLogger("sonarcad.a3")
 
 GEOMETRY_INSPECT_CLI = Path(__file__).resolve().parents[2] / "cad_engine" / "geometry_inspect.py"
+
+
+def _upload_artifacts(session_id: str, step_file: Path, script: str) -> tuple[dict[str, str], dict[str, str]]:
+    """产物按次版本化落桶（T14.5，审查问题 4a）：{sid}/a3/{token}/ 前缀每次生成
+    唯一——旧产物不被覆盖（A-12），引用附 sha256，历史 IR3 快照各自可复现。"""
+    token = f"{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    step_ref = object_store.upload_artifact(
+        step_file, object_store.BUCKET_STEP_MODELS,
+        f"{session_id}/a3/{token}/sonar_model.step",
+    )
+    script_ref = object_store.upload_text(
+        script, object_store.BUCKET_CAD_SCRIPTS,
+        f"{session_id}/a3/{token}/generated_script.py",
+    )
+    return step_ref, script_ref
 
 
 def _metrics():
@@ -121,14 +137,11 @@ class A3Agent:
                 f"CadQuery 执行在 {self._fix_max_rounds} 轮修复后仍失败: {result['error']}"
             )
 
-        # Step 4: 产物落 MinIO（D-10；IR 只存引用）
+        # Step 4: 产物落 MinIO（D-10；IR 只存引用）。T14.5（审查问题 4a）：路径按次
+        # 版本化——历史产物不被后续生成覆盖（A-12），引用带 sha256 供独立下载核对；
+        # 旧 IR3 快照引用各自的对象，任意历史版本可完整复现。
         step_file = result["step_files"][0]
-        step_ref = object_store.upload_artifact(
-            step_file, object_store.BUCKET_STEP_MODELS, f"{session_id}/sonar_model.step"
-        )
-        script_ref = object_store.upload_text(
-            script, object_store.BUCKET_CAD_SCRIPTS, f"{session_id}/generated_script.py"
-        )
+        step_ref, script_ref = _upload_artifacts(session_id, step_file, script)
         return self._build_ir3(script, step_ref, script_ref, ir2, step_file, fix_round)
 
     # ------------------------------------------------------------------

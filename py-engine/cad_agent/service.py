@@ -346,12 +346,18 @@ def finalize_version(tune: dict[str, Any], round_no: int,
         "geometry_summary": summary,
     })
     version = ir_store.save_snapshot(session_id, "IR3", ir3, created_by="cad_tune")
+    # T14.5（审查问题 4b）：模型已变更 → 旧校验报告（IR4）/知识候选（IR5）立即失效，
+    # 不以现行身份展示（get_latest_snapshot 对算力侧读过滤已失效版本）——复审链路照旧，
+    # 由 gate2 人工复审 / 提案确认回写触发重验。
+    invalidated = ir_store.mark_invalidated(session_id, ["IR4", "IR5"])
     tune_store.update_round(rnd["id"], status="done", result_ir3_version=version)
     _notify_ir_updated(session_id, "IR3", version)
     _notify_tune(session_id, tune_id, "version_ready", round_no, version)
-    logger.info("微调版本已定稿 session=%s tune=%s r%s → IR3 v%s", session_id, tune_id, round_no, version)
+    logger.info("微调版本已定稿 session=%s tune=%s r%s → IR3 v%s（失效=%s）",
+                session_id, tune_id, round_no, version, invalidated)
     _generate_param_proposals(tune, round_no, ir3, version)
-    return {"ir_version": version, "geometry_summary": summary, "step_ref": step_ref}
+    return {"ir_version": version, "geometry_summary": summary, "step_ref": step_ref,
+            "invalidated": invalidated}
 
 
 def _generate_param_proposals(tune: dict[str, Any], round_no: int, new_ir3: dict[str, Any],
