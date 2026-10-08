@@ -190,7 +190,7 @@ export default function SessionPage() {
           },
           {
             key: 'report',
-            label: <span>校验报告{ir4Data?.overall === 'fail' ? <Tag color="error" style={{ marginLeft: 6, marginInlineEnd: 0 }}>fail</Tag> : ir4Data ? <Tag color="success" style={{ marginLeft: 6, marginInlineEnd: 0 }}>pass</Tag> : ''}</span>,
+            label: <span>校验报告{ir4Data?.overall === 'fail' ? <Tag color="error" style={{ marginLeft: 6, marginInlineEnd: 0 }}>fail</Tag> : ir4Data?.overall === 'incomplete' ? <Tag color="warning" style={{ marginLeft: 6, marginInlineEnd: 0 }}>incomplete</Tag> : ir4Data ? <Tag color="success" style={{ marginLeft: 6, marginInlineEnd: 0 }}>pass</Tag> : ''}</span>,
             children: (
               <ReportTab
                 sessionId={session.id}

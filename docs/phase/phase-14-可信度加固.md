@@ -119,10 +119,11 @@
 - DoD：用例 01 ✅（20 mm/2 cm/0.02 m 同归一值、f_beam 均 37500——审查原始探针复现用例转绿）；未知单位/范围拒绝 ✅；新增 test_t143 19 例；**py 全量 410 passed 1 skipped 零破坏**。
 - Commit：`feat(solver): T14.3 单位统一模块——量纲解析换算收口+公式单位登记（问题 1）`
 
-### T14.4 校验状态学与验证覆盖率 ⬜
+### T14.4 校验状态学与验证覆盖率 ✅ 已完成（2026-10-08）
 
-- 改动：`contracts/ir/ir4.schema.json`、`agents/a4_validation/agent.py`（unverified/incomplete/来源解耦/coverage）、`docgen/export_docx.py`（状态列+覆盖率行）、frontend ReportTab/ParamTable、相关 Java 展示字段（如有）。
-- DoD：用例 13/14 单测（case 来源受军标核对；缺输入不显示 pass）；schema 兼容性验证（旧快照两态可读）；前端 vitest；既有断言 info 的测试逐个更新并 devlog 记录。
+- 改动：`contracts/ir/ir4.schema.json`（overall 三态/severity 四级/coverage 字段，加法演进）；`agents/a4_validation/agent.py`（unverified 升级族/来源解耦/coverage 统计器/overall 优先级 error>unverified）；`solver/standards.py`（check_param 增逐条目 entries verdict）；`docgen/export_docx.py`（三态结论+覆盖率行+未验证标签）；frontend（workflow.ts 类型/ReportTab 三态徽标+覆盖率+SEVERITY_META/SessionPage 页签/空方案文案）；编排层消费面核查——overall 仅日志级别与前端展示，incomplete 不卡管线。
+- 既有测试语义更新 11 处逐个记录于 [devlog 2026-10-08](../devlog/2026-10-08.md)；新增 test_t144 5 例。
+- DoD：用例 13 ✅（case 来源参数经军标 expr 判定计数）、14 ✅（unverified → incomplete 不显示通过）；py 相关 67+9 绿、全量 421 passed 1 skipped；tsc 0/vitest 43 绿；旧两态快照 schema 兼容验证 ✅。
 - Commit：`feat(a4): T14.4 校验状态学——三态 overall/unverified 级/来源解耦/验证覆盖率（问题 2）`
 
 ### T14.5 产物版本化与报告失效全覆盖 ⬜

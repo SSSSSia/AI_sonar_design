@@ -23,7 +23,7 @@ SOURCE_TYPE_LABEL = {
     "standard": "军标",
     "estimated": "约束内提议",
 }
-SEVERITY_LABEL = {"error": "错误", "warning": "警告", "info": "提示"}
+SEVERITY_LABEL = {"error": "错误", "warning": "警告", "info": "提示", "unverified": "未验证"}
 
 
 def _docx():
@@ -149,10 +149,19 @@ def _add_validation_chapter(doc: Any, ir4: dict[str, Any] | None) -> None:
         doc.add_paragraph("IR4 校验报告尚未生成（如实说明）。")
         return
     overall = str(ir4.get("overall") or "unknown")
-    doc.add_paragraph(f"总体结论：{'通过' if overall == 'pass' else '未通过' if overall == 'fail' else overall}")
+    overall_text = {"pass": "通过", "fail": "未通过",
+                    "incomplete": "不完整（存在应检未检项）"}.get(overall, overall)
+    doc.add_paragraph(f"总体结论：{overall_text}")
     csr = ir4.get("csr")
     if csr is not None:
         doc.add_paragraph(f"约束满足率（CSR）：{csr} / 100")
+    coverage = ir4.get("coverage")
+    if coverage:
+        ratio = coverage.get("ratio")
+        ratio_text = "—" if ratio is None else f"{ratio}%"
+        doc.add_paragraph(f"验证覆盖率：{ratio_text}"
+                          f"（已检 {coverage.get('checked', 0)} / 适用必检 {coverage.get('applicable', 0)} 项；"
+                          "必检项=公式复算+适用军标条目+几何联动期望，未验证项计入分母）")
     issues = ir4.get("issues") or []
     if not issues:
         doc.add_paragraph("无校验问题项。")

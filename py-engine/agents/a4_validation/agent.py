@@ -50,39 +50,63 @@ class A4Agent:
         # 结构完整性错误（引用悬空/特征重复/产物缺失）属产物完整性而非约束满足，由 overall=fail 体现，不计入 CSR；
         # 无任何有效检查（全 skip / 空方案）→ csr=None（A-16 无数据不造假，前端显示「—」）。
         stats: dict[str, int] = {"pass": 0, "violation": 0}
+        # 覆盖率统计器（T14.4，审查问题 2d）：applicable=适用必检项（formula 参数复算 +
+        # 适用军标 expr 条目 + 已联动几何期望比对；已登记无表达式条目不计入），checked=已产出
+        # 确定性判定的项数。与 CSR 分母口径不同：未验证项计入 coverage 分母、不计入 CSR。
+        cov: dict[str, int] = {"applicable": 0, "checked": 0}
 
         issues: list[dict[str, Any]] = []
-        issues += self._check_formula(params, stats)
+        issues += self._check_formula(params, stats, cov)
         issues += self._check_case(params)
-        issues += self._check_standard(params, stats)
+        issues += self._check_standard(params, stats, cov)
         issues += self._check_estimated(params)
-        issues += self._check_geometry(ir2, ir3 or {}, stats)
+        issues += self._check_geometry(ir2, ir3 or {}, stats, cov)
         issues += self._check_document(ir2, params)
 
         total = stats["pass"] + stats["violation"]
         csr = round(stats["pass"] / total * 100, 2) if total > 0 else None
+        coverage = None
+        if cov["applicable"] > 0:
+            coverage = {
+                "checked": cov["checked"],
+                "applicable": cov["applicable"],
+                "ratio": round(cov["checked"] / cov["applicable"] * 100, 2),
+            }
+        # overall 三态（T14.4，审查问题 2c）：error → fail；无 error 但应检未检
+        # （unverified 级问题存在）→ incomplete——不允许"部分未验证"伪装成完整通过；
+        # warning/info 不影响总体结论（与 v0.6 前一致）。
+        has_unverified = any(i["severity"] == "unverified" for i in issues)
+        overall = (
+            "fail" if any(i["severity"] == "error" for i in issues)
+            else "incomplete" if has_unverified
+            else "pass"
+        )
         ir4 = {
-            "overall": "fail" if any(i["severity"] == "error" for i in issues) else "pass",
+            "overall": overall,
             "issues": issues,
             "csr": csr,
+            "coverage": coverage,
         }
         return validate_ir("IR4", ir4)
 
     # ------------------------------------------------------------------
-    def _check_formula(self, params: list[dict[str, Any]], stats: dict[str, int]) -> list[dict[str, Any]]:
-        """formula 参数：SymPy 复算。定位顺序：solver REGISTRY → kb_formulas 业务库（T3.3）；
-        都无法定位的出 info 请人工复核，不硬失败。"""
+    def _check_formula(self, params: list[dict[str, Any]], stats: dict[str, int],
+                       cov: dict[str, int]) -> list[dict[str, Any]]:
+        """formula 参数：SymPy 复算。定位顺序：solver REGISTRY → kb_formulas 业务库（T3.3）。
+        无法定位/缺代入值/输入不全 → unverified（T14.4 升级，原 info）——应检未检，
+        驱动 overall=incomplete，不再以提示性 info 混入"通过"。"""
         issues: list[dict[str, Any]] = []
         for p in params:
             if p.get("source_type") != "formula":
                 continue
+            cov["applicable"] += 1  # formula 参数复算 = 必检项
             key = recompute.resolve_formula_key(p.get("source_ref", ""))
             db_row = None
             if key is None:
                 db_row = self._match_db_formula(p)
                 if db_row is None:
                     issues.append(_issue(
-                        "CHK-FORMULA-RECOMPUTE", "info",
+                        "CHK-FORMULA-RECOMPUTE", "unverified",
                         f"formula 参数「{p.get('name')}」无法定位注册公式"
                         f"（source_ref={p.get('source_ref')}），未复算，请人工复核",
                         [p["id"]]))
@@ -90,7 +114,7 @@ class A4Agent:
             inputs = recompute.parse_inputs_from_derivation(p.get("derivation", ""))
             if not inputs:
                 issues.append(_issue(
-                    "CHK-FORMULA-RECOMPUTE", "info",
+                    "CHK-FORMULA-RECOMPUTE", "unverified",
                     f"formula 参数「{p.get('name')}」的 derivation 未记录代入值，无法复算，请人工复核",
                     [p["id"]]))
                 continue
@@ -106,10 +130,11 @@ class A4Agent:
                     )
             except KeyError as exc:
                 issues.append(_issue(
-                    "CHK-FORMULA-RECOMPUTE", "info",
+                    "CHK-FORMULA-RECOMPUTE", "unverified",
                     f"formula 参数「{p.get('name')}」复算输入不全（{exc}），请人工复核",
                     [p["id"]]))
                 continue
+            cov["checked"] += 1  # 复算已产出确定性判定
             value = _first_number(p.get("value"))
             if value is None:
                 stats["violation"] += 1
@@ -183,13 +208,24 @@ class A4Agent:
         return issues
 
     # ------------------------------------------------------------------
-    def _check_standard(self, params: list[dict[str, Any]], stats: dict[str, int]) -> list[dict[str, Any]]:
-        """standard 参数：军标核对（T9.3：库内 expr 条目自动求值；A-16 空库/未覆盖如实待补）。"""
+    def _check_standard(self, params: list[dict[str, Any]], stats: dict[str, int],
+                        cov: dict[str, int]) -> list[dict[str, Any]]:
+        """军标核对（T9.3 expr 求值；T14.4 来源解耦，审查问题 2a）：
+
+        - 适用性按规则 applies_to 对**全部参数**核对（不再按 source_type=standard
+          分流）——case/estimated 来源的参数同样受军标约束，来源仅用于追溯展示；
+        - coverage：适用 expr 条目计入 applicable，pass/violation 计入 checked
+          （uncovered=应检未检；无表达式条目不计入分母，出 info 提示性核对）；
+        - A-16 空库/未覆盖如实待补——standard 来源参数无适用条目出 unverified
+          （军标核对是它的应尽义务），非 standard 参数无适用条目不产 issue。
+        """
         issues: list[dict[str, Any]] = []
         for p in params:
-            if p.get("source_type") != "standard":
-                continue
             result = standards.check_param(p, all_params=params)
+            entries = result.get("entries") or []
+            cov["applicable"] += sum(1 for e in entries if e.get("has_expr"))
+            cov["checked"] += sum(1 for e in entries
+                                  if e.get("has_expr") and e.get("verdict") in ("pass", "violation"))
             if result["status"] == "violation":
                 stats["violation"] += 1
                 issues.append(_issue(
@@ -198,14 +234,16 @@ class A4Agent:
             elif result["status"] == "pass":
                 stats["pass"] += 1  # 军标核对通过：静默（不产 issue），计入 CSR
             elif result["status"] == "uncovered":
-                # 条目引用符号在 IR2 无对应值：如实提示未覆盖，不算违反（A-16）
+                # 条目引用符号在 IR2 无对应值：应检未检（T14.4 升级，原 info）
                 issues.append(_issue(
-                    "CHK-STD-UNCOVERED", "info",
+                    "CHK-STD-UNCOVERED", "unverified",
                     f"参数「{p.get('name')}」：{result['message']}", [p["id"]]))
             elif result["status"] == "pending":
-                issues.append(_issue(
-                    "CHK-STD-PENDING", "info",
-                    f"参数「{p.get('name')}」：{result['message']}", [p["id"]]))
+                if p.get("source_type") == "standard":
+                    issues.append(_issue(
+                        "CHK-STD-PENDING", "unverified",
+                        f"参数「{p.get('name')}」：{result['message']}", [p["id"]]))
+                # 非 standard 来源、无适用条目：无可核对内容，不产 issue
         return issues
 
     # ------------------------------------------------------------------
@@ -221,7 +259,7 @@ class A4Agent:
 
     # ------------------------------------------------------------------
     def _check_geometry(self, ir2: dict[str, Any], ir3: dict[str, Any],
-                        stats: dict[str, int]) -> list[dict[str, Any]]:
+                        stats: dict[str, int], cov: dict[str, int]) -> list[dict[str, Any]]:
         """几何自洽：特征-参数引用完整、feature_id 唯一、STEP/脚本引用非空
         ＋ 数值级复核（T7.4：linked 参数 vs 实测 bbox 维度）。"""
         issues: list[dict[str, Any]] = []
@@ -256,7 +294,7 @@ class A4Agent:
                 "IR3 缺少 CadQuery 脚本",
                 [], [], suggestion="back_to_A3"))
 
-        issues += self._check_geometry_numeric(ir2, ir3, stats)
+        issues += self._check_geometry_numeric(ir2, ir3, stats, cov)
         return issues
 
     # ------------------------------------------------------------------
@@ -293,14 +331,15 @@ class A4Agent:
         return issues
 
     def _check_geometry_numeric(self, ir2: dict[str, Any], ir3: dict[str, Any],
-                                stats: dict[str, int]) -> list[dict[str, Any]]:
+                                stats: dict[str, int], cov: dict[str, int]) -> list[dict[str, Any]]:
         """数值级几何复核（T7.4，PHASE-007）。确定性无 LLM；A-09 只报告不改参数。
 
         - extracted：逐个「已联动」特征比对 bbox[linked_dim] vs 参数值（换算 mm），
           相对偏差 ≤ CAD_GEO_NUM_TOL_PCT（默认 2%，对齐 mockup 06 口径）→ info；超容差 → error；
         - 退化几何（part_count=0 或体积 ≤0）→ CHK-GEO-DEGENERATE error；
-        - 提取失败 / 无特征 / 旧版本快照（features 无实测数值）→ CHK-GEO-NUM-SKIP info，
-          如实说明未执行数值复核，不阻断（A-16）。
+        - 提取失败 / 无特征 / 旧版本快照（features 无实测数值）→ CHK-GEO-NUM-SKIP
+          **unverified**（T14.4 升级，原 info）——几何复核是应检项，未执行即应检未检；
+        - coverage：每个已联动的可比对特征计 1 项 applicable，产出判定后计 checked。
         """
         issues: list[dict[str, Any]] = []
         summary = ir3.get("geometry_summary") or {}
@@ -312,16 +351,16 @@ class A4Agent:
             if source == "extraction_failed":
                 detail = str(summary.get("detail") or "")
                 issues.append(_issue(
-                    "CHK-GEO-NUM-SKIP", "info",
+                    "CHK-GEO-NUM-SKIP", "unverified",
                     f"几何数值复核未执行：STEP 实测提取未成功{'（' + detail + '）' if detail else ''}，"
                     "本轮仅完成引用完整性校验"))
             elif not features:
                 issues.append(_issue(
-                    "CHK-GEO-NUM-SKIP", "info",
+                    "CHK-GEO-NUM-SKIP", "unverified",
                     "IR3 无特征（降级产物），几何数值复核未执行，仅完成引用完整性校验"))
             else:
                 issues.append(_issue(
-                    "CHK-GEO-NUM-SKIP", "info",
+                    "CHK-GEO-NUM-SKIP", "unverified",
                     "旧版本快照无数值几何（features 未携带实测 bbox），仅完成引用完整性校验"))
             return issues
 
@@ -349,14 +388,16 @@ class A4Agent:
             dim = geometry.get("linked_dim")
             if p is None or not isinstance(bbox, list) or dim not in (0, 1, 2) or len(bbox) <= dim:
                 continue  # 悬空引用已由引用完整性检查覆盖；缺数值按旧快照口径由上方兜底提示
+            cov["applicable"] += 1  # 已联动的可比对期望 = 必检项
             factor = UNIT_TO_MM.get(str(p.get("unit", "")).strip().lower())
             value = _first_number(p.get("value"))
             if factor is None or value is None or value <= 0:
                 issues.append(_issue(
-                    "CHK-GEO-NUM-SKIP", "info",
+                    "CHK-GEO-NUM-SKIP", "unverified",
                     f"参数 {linked}「{p.get('name')}」单位/取值非长度数值，未做数值复核",
                     [linked], [fid]))
                 continue
+            cov["checked"] += 1  # 比对已产出确定性判定
             expected_mm = value * factor
             measured = float(bbox[dim])
             dev_pct = abs(measured - expected_mm) / expected_mm * 100.0
@@ -377,8 +418,9 @@ class A4Agent:
                     [linked], [fid], suggestion="back_to_A3"))
         if not linked_any:
             issues.append(_issue(
-                "CHK-GEO-NUM-SKIP", "info",
-                "几何为实测提取，但无已联动的长度类参数可做数值复核（联动容差内无匹配）"))
+                "CHK-GEO-NUM-SKIP", "unverified",
+                "几何为实测提取，但无已联动的长度类参数可做数值复核（联动容差内无匹配）——"
+                "关键尺寸未经实测核对，请人工复核或回 A3 建立参数联动"))
         return issues
 
 

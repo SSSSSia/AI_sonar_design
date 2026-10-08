@@ -175,9 +175,10 @@ def test_phase2_full_gate_loop(stack):
     ir3_v1 = _ir(headers, sid, "IR3")
     assert ir3_v1["content"]["step_file"]["bucket"]
     ir4_v1 = _ir(headers, sid, "IR4")
-    assert ir4_v1["content"]["overall"] in ("pass", "fail")
+    # T14.4 三态：incomplete=应检未检（军标待补/几何未联动）也是合法结论
+    assert ir4_v1["content"]["overall"] in ("pass", "fail", "incomplete")
     severities = {i["severity"] for i in ir4_v1["content"]["issues"]}
-    assert severities <= {"error", "warning", "info"}, "IR4 severity 超出三级风险"
+    assert severities <= {"error", "warning", "info", "unverified"}, "IR4 severity 超出四级风险"
     # T9.2：IR4 必带 csr 字段（数值 0–100 或 null=无有效检查，A-16）
     csr_v1 = ir4_v1["content"].get("csr", "__missing__")
     assert csr_v1 is None or (isinstance(csr_v1, (int, float)) and 0 <= csr_v1 <= 100), \

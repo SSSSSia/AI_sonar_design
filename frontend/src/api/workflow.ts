@@ -90,7 +90,7 @@ export interface Ir3 {
 }
 
 // ---- IR4 ----
-export type Severity = 'error' | 'warning' | 'info'
+export type Severity = 'error' | 'warning' | 'info' | 'unverified'
 export interface Ir4Issue {
   constraint_id: string
   severity: Severity
@@ -100,10 +100,13 @@ export interface Ir4Issue {
   suggestion?: 'back_to_A2' | 'back_to_A3'
 }
 export interface Ir4 {
-  overall: 'pass' | 'fail'
+  /** T14.4 三态：pass / fail / incomplete（应检未检）；旧快照两态仍合法 */
+  overall: 'pass' | 'fail' | 'incomplete'
   issues: Ir4Issue[]
   /** CSR 约束满足率（T9.2）：旧快照无此字段；无有效检查时为 null（显示「—」） */
   csr?: number | null
+  /** 验证覆盖率（T14.4）：旧快照无此字段；无必检项时为 null */
+  coverage?: { checked: number; applicable: number; ratio: number | null } | null
 }
 
 // ---- IR5 ----

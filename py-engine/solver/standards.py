@@ -191,18 +191,23 @@ def check_param(param: dict[str, Any],
     passed: list[str] = []
     uncovered: list[str] = []
     registered: list[str] = []
+    entries: list[dict[str, Any]] = []  # T14.4：逐条目 verdict（coverage 计数用）
     for spec in matched:
         if spec.check is not None:  # 引擎侧内存规则（旧接口，保留兼容）
             issue = spec.check(param)
             if issue:
                 violations.append(f"{spec.code}《{spec.name}》：{issue}")
+                entries.append({"code": spec.code, "verdict": "violation", "has_expr": False})
             else:
                 passed.append(spec.code)
+                entries.append({"code": spec.code, "verdict": "pass", "has_expr": False})
             continue
         if not spec.expr:
             registered.append(f"{spec.code}《{spec.name}》已登记（无判定表达式，提示性核对）")
+            entries.append({"code": spec.code, "verdict": "registered", "has_expr": False})
             continue
         verdict, detail = _evaluate(spec.expr, table)
+        entries.append({"code": spec.code, "verdict": verdict, "has_expr": True})
         if verdict == "pass":
             passed.append(spec.code)
         elif verdict == "violation":
@@ -212,18 +217,22 @@ def check_param(param: dict[str, Any],
         else:
             registered.append(f"{spec.code}《{spec.name}》{detail}")
 
+    result: dict[str, Any] = {"standards": [s.code for s in matched], "entries": entries}
     if violations:
-        return {"status": "violation", "message": "；".join(violations),
-                "standards": [s.code for s in matched]}
+        result.update({"status": "violation", "message": "；".join(violations)})
+        return result
     if passed:
         msg = f"已按 {', '.join(passed)} 判定通过"
         if uncovered:
             msg += "；" + "；".join(uncovered)
-        return {"status": "pass", "message": msg, "standards": [s.code for s in matched]}
+        result.update({"status": "pass", "message": msg})
+        return result
     if uncovered:
-        return {"status": "uncovered",
-                "message": f"参数「{name}」：" + "；".join(uncovered),
-                "standards": [s.code for s in matched]}
+        result.update({"status": "uncovered",
+                       "message": f"参数「{name}」：" + "；".join(uncovered)})
+        return result
     if registered:
-        return {"status": "pending", "message": f"参数「{name}」：" + "；".join(registered)}
-    return {"status": "pending", "message": f"参数「{name}」：无有效核对条目"}
+        result.update({"status": "pending", "message": f"参数「{name}」：" + "；".join(registered)})
+        return result
+    result.update({"status": "pending", "message": f"参数「{name}」：无有效核对条目"})
+    return result

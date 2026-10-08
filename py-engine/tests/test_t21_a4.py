@@ -65,14 +65,49 @@ def _first(issues, constraint_id):
     return next(i for i in issues if i["constraint_id"] == constraint_id)
 
 
+@pytest.fixture()
+def no_standards(monkeypatch):
+    """隔离业务库军标条目（demo 条目 applies_to 命中会引入环境耦合）。"""
+    from solver import standards
+
+    monkeypatch.setattr(standards, "REGISTRY_STANDARDS", [])
+    monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])
+
+
 # ----------------------------------------------------------------------
 # formula 分流
 # ----------------------------------------------------------------------
 
-def test_formula_correct_value_passes():
+def test_formula_correct_value_passes(no_standards):
+    """基线（T14.4 语义）：DI 复算通过无 error；standard 待补＋几何未联动 →
+    overall=incomplete（应检未检不得伪装通过，审查验收 14）——CSR 只含已判定项
+    仍 100%，coverage 只数自动可检项（待补/未联动不进分母，以 unverified 呈现）。"""
     ir4 = A4Agent().run(_ir2(_good_params()), _ir3())
-    assert ir4["overall"] == "pass"
     assert "error" not in [i["severity"] for i in ir4["issues"]]
+    assert ir4["overall"] == "incomplete"
+    assert ir4["csr"] == 100.0
+    # coverage 只数自动可检项（formula 复算 1 项，已判定）；standard 待补/几何未联动
+    # 走 unverified issue + overall 表达，不进 coverage 分母（口径注释见 agent）
+    assert ir4["coverage"] == {"checked": 1, "applicable": 1, "ratio": 100.0}
+
+
+def test_full_green_report_is_pass(no_standards):
+    """全部必检项已判定且无未验证 → 才是 pass（几何实测联动+判定通过）。"""
+    param = _param("P-001", "湿端段直径", 54, "case", "K-1", "案例登记 d=54mm", unit="mm")
+    ir3 = {
+        "cadquery_script": "import cadquery as cq",
+        "step_file": {"bucket": "step-models", "object_key": "s/m.step"},
+        "features": [{"feature_id": "F-001", "segment": "SEG-01",
+                      "geometry": {"bbox_mm": [54.5, 54.5, 480.0], "volume_mm3": 1.0,
+                                   "center_mm": [0, 0, 0], "linked_dim": 0},
+                      "linked_param_id": "P-001"}],
+        "geometry_summary": {"source": "extracted", "bbox_mm": [54.5, 54.5, 480.0],
+                             "volume_mm3": 1.0, "part_count": 1},
+    }
+    ir4 = A4Agent().run(_ir2([param]), ir3)
+    assert ir4["overall"] == "pass"
+    assert ir4["csr"] == 100.0
+    assert ir4["coverage"] == {"checked": 1, "applicable": 1, "ratio": 100.0}
 
 
 def test_formula_tampered_value_is_error_back_to_a2():
@@ -87,14 +122,16 @@ def test_formula_tampered_value_is_error_back_to_a2():
     assert "复算不符" in issue["message"]
 
 
-def test_formula_unresolvable_source_ref_is_info_not_error():
-    """无法定位注册公式的 formula 参数：info 请人工复核，不硬失败（注册表会增长）。"""
+def test_formula_unresolvable_source_ref_is_unverified(no_standards):
+    """无法定位注册公式的 formula 参数：unverified 应检未检（T14.4 升级，原 info）——
+    不硬失败（注册表会增长），但驱动 overall=incomplete，不得以"通过"收场。"""
     params = _good_params()
     params[2]["source_ref"] = "自定义手册#某公式"
     params[2]["name"] = "自定义指标"  # 避开 kb_formulas 现网行名（环境耦合：名称精确匹配会命中真库公式）
     ir4 = A4Agent().run(_ir2(params), _ir3())
-    assert _severity(ir4["issues"], "CHK-FORMULA-RECOMPUTE") == ["info"]
-    assert ir4["overall"] == "pass"
+    assert _severity(ir4["issues"], "CHK-FORMULA-RECOMPUTE") == ["unverified"]
+    assert ir4["overall"] == "incomplete"
+    assert ir4["coverage"] == {"checked": 0, "applicable": 1, "ratio": 0.0}
 
 
 def test_formula_non_numeric_value_is_error():
@@ -108,7 +145,7 @@ def test_formula_non_numeric_value_is_error():
 # case 分流
 # ----------------------------------------------------------------------
 
-def test_case_interval_violation_is_warning():
+def test_case_interval_violation_is_warning(no_standards):
     """违例注入：DI 复算自洽（n=100）但案例候选只支持 n=32 → 区间外 warning。"""
     params = [
         _param("P-001", "阵元总数", 32, "case", "KB 案例：32 阵元",
@@ -119,8 +156,9 @@ def test_case_interval_violation_is_warning():
     ]
     ir4 = A4Agent().run(_ir2(params), _ir3())
     assert _severity(ir4["issues"], "CHK-CASE-INTERVAL") == ["warning"]
-    # 复算自洽所以无 error
-    assert ir4["overall"] == "pass"
+    # 复算自洽所以无 error；几何未联动 → incomplete（T14.4 应检未检）
+    assert "error" not in [i["severity"] for i in ir4["issues"]]
+    assert ir4["overall"] == "incomplete"
 
 
 def test_case_conflict_detected():
@@ -148,15 +186,33 @@ def test_case_close_candidates_no_conflict():
 # standard / estimated 分流
 # ----------------------------------------------------------------------
 
-def test_standard_empty_registry_reports_pending_info(monkeypatch):
+def test_standard_empty_registry_reports_pending_unverified(monkeypatch):
+    """空军标库：standard 来源参数的核对义务无法履行 → unverified（T14.4 升级，
+    原 info）——军标待补是应检未检，不是低风险提示。"""
     from solver import standards
 
     # 空库视图（T9.3 后库内有 demo 条目，空库语义需隔离验证）
     monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])
     ir4 = A4Agent().run(_ir2(_good_params()), _ir3())
     issue = _first(ir4["issues"], "CHK-STD-PENDING")
-    assert issue["severity"] == "info"
+    assert issue["severity"] == "unverified"
     assert "待补" in issue["message"]
+
+
+def test_case_source_param_also_checked_by_standard(monkeypatch):
+    """T14.4 来源解耦（审查验收 13）：case 来源参数同样接受适用军标条目核对。"""
+    from solver import standards
+
+    spec = standards.StandardSpec(code="DEMO-C", name="间距下限", applies_to="阵元间距",
+                                  expr="value >= 0.5")
+    monkeypatch.setattr(standards, "REGISTRY_STANDARDS", [spec])
+    monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])
+    params = [_param("P-002", "阵元间距", 0.2, "case", "KB 案例", "案例登记 0.2m", unit="m")]
+    ir4 = A4Agent().run(_ir2(params), _ir3())
+    # case 来源参数经军标条目判定通过（value 长度族换算 mm=200 ≥ 0.5）：
+    # 若仍按 source_type=standard 分流，此处 csr 将为 None（无任何确定性检查）
+    assert ir4["csr"] == 100.0
+    assert ir4["coverage"] == {"checked": 1, "applicable": 1, "ratio": 100.0}
 
 
 def test_estimated_summary_is_info_with_all_params():
@@ -166,11 +222,13 @@ def test_estimated_summary_is_info_with_all_params():
     assert issue["related_params"] == ["P-001"]
 
 
-def test_info_only_report_is_pass():
+def test_info_only_and_unverified_report_is_incomplete(no_standards):
+    """T14.4：unverified 存在 → incomplete；info/unverified 级问题不允许携带回环
+    建议（suggestion 仅 error 级）。"""
     ir4 = A4Agent().run(_ir2(_good_params()), _ir3())
-    assert ir4["overall"] == "pass"
-    # info 级问题不允许携带回环建议（suggestion 可选性的业务面）
-    assert all("suggestion" not in i for i in ir4["issues"] if i["severity"] == "info")
+    assert ir4["overall"] == "incomplete"
+    assert all("suggestion" not in i
+               for i in ir4["issues"] if i["severity"] in ("info", "unverified"))
 
 
 # ----------------------------------------------------------------------
@@ -223,7 +281,10 @@ def test_valid_ir2_ir3_produce_valid_ir4_contract():
 
 
 def test_no_params_empty_report():
-    """T7.4 后：空 IR3 如实提示数值复核未执行（CHK-GEO-NUM-SKIP info，不阻断）。"""
+    """T7.4 后：空 IR3 如实提示数值复核未执行；T14.4 升级为 unverified →
+    overall=incomplete；无必检项 coverage=None、无有效检查 csr=None（A-16）。"""
     ir4 = A4Agent().run(_ir2([]), _ir3())
-    assert ir4["overall"] == "pass"
-    assert [(i["constraint_id"], i["severity"]) for i in ir4["issues"]] == [("CHK-GEO-NUM-SKIP", "info")]
+    assert ir4["overall"] == "incomplete"
+    assert [(i["constraint_id"], i["severity"]) for i in ir4["issues"]] == [("CHK-GEO-NUM-SKIP", "unverified")]
+    assert ir4["csr"] is None
+    assert ir4["coverage"] is None

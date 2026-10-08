@@ -13,6 +13,7 @@ import { gateLabel, WRITEBACK_LABEL, checkLabel } from '../../lib/stageLabel'
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
   error: { label: '错误', color: 'error' },
   warning: { label: '警告', color: 'warning' },
+  unverified: { label: '未验证', color: 'default' },
   info: { label: '提示', color: 'default' },
 }
 
@@ -22,6 +23,19 @@ const CSR_TOOLTIP =
   '计数对象为 A4 确定性检查：公式复算 / 军标核对 / 几何数值复核；' +
   'warning（存疑）与 info（提示）不计入分母；' +
   '无任何有效检查时显示「—」（不显示 0% 或 100%）。'
+
+/** 覆盖率口径（T14.4，与 A4 agent coverage 注释同文案） */
+const COVERAGE_TOOLTIP =
+  '验证覆盖率 = 已产出确定性判定的必检项数 ÷ 适用必检项总数 × 100。' +
+  '必检项 = 公式参数复算 + 适用军标表达式条目 + 已联动几何期望比对；' +
+  '跳过/未验证项计入本指标分母（与 CSR 分母口径不同，两者并列互补）。'
+
+/** overall 三态徽标（T14.4）：incomplete=应检未检，不得显示为绿色通过 */
+function OVERALL_TAG({ overall }: { overall: Ir4['overall'] }) {
+  if (overall === 'fail') return <Tag color="error">总体结论 fail</Tag>
+  if (overall === 'incomplete') return <Tag color="warning">总体结论 incomplete（应检未检）</Tag>
+  return <Tag color="success">总体结论 pass</Tag>
+}
 
 export function ReportTab({
   sessionId,
@@ -152,7 +166,7 @@ export function ReportTab({
         title={<>IR4 合规校验报告 {ir4Version ? <Typography.Text code style={{ fontSize: 12 }}>v{ir4Version}</Typography.Text> : null}</>}
         extra={
           <Space size={8}>
-            {ir4 ? <Tag color={ir4.overall === 'fail' ? 'error' : 'success'}>{ir4.overall === 'fail' ? '总体结论 fail' : '总体结论 pass'}</Tag> : null}
+            {ir4 ? <OVERALL_TAG overall={ir4.overall} /> : null}
             <Button size="small" loading={exporting} onClick={() => void exportDocx()}>导出 Word</Button>
             <Button size="small" loading={exportingPdf} onClick={() => void exportPdf()}>导出 PDF</Button>
           </Space>
@@ -166,20 +180,35 @@ export function ReportTab({
               <Alert
                 type="warning" showIcon style={{ marginBottom: 12 }}
                 message="本次校验基于空参数方案"
-                description="IR2 参数方案为 0 项（LLM 不可用时降级生成），A4 无实质检查项——「pass」仅表示无可校验内容，不代表设计合规。建议到「审阅与参数」页签驳回并回退 A2，待 LLM 恢复后重算。"
+                description="IR2 参数方案为 0 项（LLM 不可用时降级生成），A4 无实质检查项——总体结论为 incomplete（应检未检），不代表设计合规。建议到「审阅与参数」页签驳回并回退 A2，待 LLM 恢复后重算。"
               />
             )}
-            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <Typography.Text type="secondary">CSR 约束满足率</Typography.Text>
-              <Tooltip title={CSR_TOOLTIP}>
-                <Typography.Text strong style={{ fontSize: 22, cursor: 'help' }}>
-                  {ir4.csr == null ? '—' : `${ir4.csr.toFixed(2)}%`}
-                </Typography.Text>
-              </Tooltip>
-              {ir4.csr == null && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  （无有效检查项，A-16 不显示 0%/100%）
-                </Typography.Text>
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <Typography.Text type="secondary">CSR 约束满足率</Typography.Text>
+                <Tooltip title={CSR_TOOLTIP}>
+                  <Typography.Text strong style={{ fontSize: 22, cursor: 'help' }}>
+                    {ir4.csr == null ? '—' : `${ir4.csr.toFixed(2)}%`}
+                  </Typography.Text>
+                </Tooltip>
+                {ir4.csr == null && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    （无有效检查项，A-16 不显示 0%/100%）
+                  </Typography.Text>
+                )}
+              </div>
+              {ir4.coverage != null && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <Typography.Text type="secondary">验证覆盖率</Typography.Text>
+                  <Tooltip title={COVERAGE_TOOLTIP}>
+                    <Typography.Text strong style={{ fontSize: 22, cursor: 'help' }}>
+                      {ir4.coverage.ratio == null ? '—' : `${ir4.coverage.ratio.toFixed(2)}%`}
+                    </Typography.Text>
+                  </Tooltip>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    （{ir4.coverage.checked}/{ir4.coverage.applicable} 必检项）
+                  </Typography.Text>
+                </div>
               )}
             </div>
             <IssueGroups issues={ir4.issues} />
@@ -284,7 +313,7 @@ function SpaceForButtons({ children }: { children: React.ReactNode }) {
 }
 
 function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
-  const order: Ir4Issue['severity'][] = ['error', 'warning', 'info']
+  const order: Ir4Issue['severity'][] = ['error', 'warning', 'unverified', 'info']
   const groups = order
     .map((sev) => ({ sev, items: issues.filter((i) => i.severity === sev) }))
     .filter((g) => g.items.length > 0)
@@ -300,7 +329,7 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
           </Typography.Text>
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {g.items.map((i) => (
-              <div key={i.constraint_id} style={{ border: '1px solid #f0f1f3', borderLeft: `3px solid ${g.sev === 'error' ? '#c92a2a' : g.sev === 'warning' ? '#d97706' : '#d1d5db'}`, borderRadius: 6, padding: '8px 12px' }}>
+              <div key={i.constraint_id} style={{ border: '1px solid #f0f1f3', borderLeft: `3px solid ${g.sev === 'error' ? '#c92a2a' : g.sev === 'warning' ? '#d97706' : g.sev === 'unverified' ? '#8b949e' : '#d1d5db'}`, borderRadius: 6, padding: '8px 12px' }}>
                 <div style={{ fontSize: 12.5 }}>
                   <Tag color={SEVERITY_META[g.sev].color} style={{ marginInlineEnd: 6 }}>{checkLabel(i.constraint_id)}</Tag>
                   <span className="mono" style={{ fontSize: 10.5, color: '#8b949e', marginRight: 6 }}>{i.constraint_id}</span>

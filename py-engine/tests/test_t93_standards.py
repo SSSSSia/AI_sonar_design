@@ -125,14 +125,17 @@ def test_a4_standard_violation_counts_into_csr():
         assert "outer_diameter=350" in issue["message"]
 
 
-def test_a4_standard_uncovered_is_info_not_counted():
+def test_a4_standard_uncovered_is_unverified_not_counted(monkeypatch):
     spec = StandardSpec(code="DEMO-T", name="外径演示", applies_to="外径", expr="outer_diameter <= 325")
+    monkeypatch.setattr(standards, "load_enabled_standards", lambda max_age_s=30: [])  # 隔离真库条目
     with _with_spec(spec):
         params = [_param("P-1", "声呐罩外径", 300)]  # 无符号 → uncovered
         ir4 = A4Agent().run(_ir2(params), _ir3())
         assert ir4["csr"] is None, "未覆盖不算违反也不算通过，无有效检查 → null"
-        assert any(i["constraint_id"] == "CHK-STD-UNCOVERED" and i["severity"] == "info"
-                   for i in ir4["issues"])
+        assert any(i["constraint_id"] == "CHK-STD-UNCOVERED" and i["severity"] == "unverified"
+                   for i in ir4["issues"]), "T14.4：应检未检驱动 incomplete"
+        assert ir4["overall"] == "incomplete"
+        assert ir4["coverage"] == {"checked": 0, "applicable": 1, "ratio": 0.0}
 
 
 def test_a4_symbol_from_other_param_derivation():

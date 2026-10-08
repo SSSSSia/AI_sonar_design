@@ -45,8 +45,11 @@ def test_a4_uses_db_formula_when_registry_misses(monkeypatch):
     ir3 = {"cadquery_script": "import cadquery as cq\n", "step_file":
            {"bucket": "step-models", "object_key": "s/x.step"}, "features": []}
     ir4 = A4Agent().run(ir2, ir3)
-    assert ir4["overall"] == "pass"  # 库内公式复算一致 → 无 error
+    # 库内公式复算一致 → 无 error；几何未联动 → unverified → incomplete（T14.4）
     assert not [i for i in ir4["issues"] if i["severity"] == "error"]
+    assert ir4["overall"] == "incomplete"
+    assert ir4["csr"] == 100.0
+    assert ir4["coverage"] == {"checked": 1, "applicable": 1, "ratio": 100.0}
 
 
 def test_a4_db_formula_tampered_value_still_error(monkeypatch):

@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sonarcad.local/contracts/ir/ir4.schema.json",
   "title": "IR4 校验报告（A4 输出）",
-  "description": "总体结论 + 逐条问题清单。A4 边界：只出报告不改参数（宪法 A-09）；不通过由编排层触发局部回环（A-11）。军标 0 条时如实标\"待补\"（A-16）。三级风险：error=高 / warning=中 / info=低。T9.2 增补可空 csr 字段（加法演进，旧快照无此字段合法）。",
+  "description": "总体结论 + 逐条问题清单 + 验证覆盖率。A4 边界：只出报告不改参数（宪法 A-09）；不通过由编排层触发局部回环（A-11）。军标 0 条时如实标\"待补\"（A-16）。四级风险：error=高 / warning=中 / info=低 / unverified=应检未检（T14.4）。T9.2 增补可空 csr；T14.4 增补 incomplete 总体态与 coverage 覆盖率（加法演进，旧快照无新字段合法、两态 overall 仍合法）。",
   "type": "object",
   "additionalProperties": false,
   "required": ["overall", "issues"],
   "properties": {
     "overall": {
-      "enum": ["pass", "fail"],
-      "description": "总体结论（存在任一 error 即 fail）"
+      "enum": ["pass", "fail", "incomplete"],
+      "description": "总体结论（T14.4 三态）：存在任一 error → fail；无 error 但存在 unverified 问题（应检未检：公式无法定位/缺代入值/几何未联动/军标待补）→ incomplete；否则 pass"
     },
     "issues": {
       "type": "array",
@@ -20,7 +20,18 @@
       "type": ["number", "null"],
       "minimum": 0,
       "maximum": 100,
-      "description": "CSR 约束满足率（T9.2）= 通过/(通过+违反)×100，两位小数。计数对象：formula 复算 / 军标核对 / 几何数值复核等确定性检查；warning 与 info 不计入分母；结构完整性错误不计入（由 overall 体现）；无有效检查时为 null（A-16）"
+      "description": "CSR 约束满足率（T9.2）= 通过/(通过+违反)×100，两位小数。计数对象：formula 复算 / 军标核对 / 几何数值复核等确定性检查；warning 与 info 不计入分母；结构完整性错误不计入（由 overall 体现）；无有效检查时为 null（A-16）。口径保持不变（D14-2）"
+    },
+    "coverage": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["checked", "applicable"],
+      "properties": {
+        "checked": { "type": "integer", "minimum": 0, "description": "已产出确定性判定（pass/violation）的必检项数" },
+        "applicable": { "type": "integer", "minimum": 0, "description": "适用必检项总数：formula 参数复算 + 适用军标 expr 条目 + 已联动几何期望比对；已登记无表达式的军标条目不计入（无法自动核对，出 info 提示）" },
+        "ratio": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "验证覆盖率 = checked/applicable×100 两位小数；applicable=0 时为 null（A-16 不造数）" }
+      },
+      "description": "验证覆盖率（T14.4，审查问题 2d）：与 CSR 并列展示、分母口径不同——CSR 分母只含已判定项，coverage 分母含全部适用必检项（跳过/未验证项计入分母）"
     }
   },
   "$defs": {
@@ -31,8 +42,8 @@
       "properties": {
         "constraint_id": { "type": "string", "description": "违反/触发的检查项 ID（CHK-FORMULA-* / CHK-CASE-* / CHK-STD-* / CHK-EST-* / CHK-GEO-*，可反查检查规则）" },
         "severity": {
-          "enum": ["error", "warning", "info"],
-          "description": "三级风险：error=高（必须回环整改）/ warning=中（来源冲突或存疑）/ info=低（提示性，如估算未经验证、军标待补）"
+          "enum": ["error", "warning", "info", "unverified"],
+          "description": "四级风险（T14.4）：error=高（必须回环整改）/ warning=中（来源冲突或存疑）/ info=低（提示性，如估算未经验证）/ unverified=应检未检（无法定位公式、缺代入值、几何未联动、军标待补——驱动 overall=incomplete，不允许被当作已验证通过）"
         },
         "message": {
           "type": "string",
