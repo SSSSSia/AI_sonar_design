@@ -120,6 +120,7 @@ export function ReviewTab({
   ir3,
   ir4,
   reviews,
+  versions,
   onGoReport,
   onDecided,
 }: {
@@ -131,6 +132,8 @@ export function ReviewTab({
   ir3: Ir3 | null
   ir4: Ir4 | null
   reviews: ReviewRecord[]
+  /** T14.6 审阅版本条件：审阅人实际查看的各 IR 版本（缺省不携带=旧客户端行为） */
+  versions?: { IR1?: number; IR2?: number; IR3?: number; IR4?: number; IR5?: number }
   onGoReport?: () => void
   onDecided: () => void
 }) {
@@ -179,10 +182,14 @@ export function ReviewTab({
   async function doSubmit() {
     setSubmitting(true)
     try {
+      // T14.6（审查用例 09）：携带审阅人实际查看的快照版本——后台生成新版本后
+      // 旧页面提交会被 409 SNAPSHOT_STALE 拒绝，提示刷新复核，不自动代批。
+      const expected = gate === 'gate1' ? versions?.IR2 : gate === 'gate2' ? versions?.IR3 : versions?.IR5
       const effects = await postReview(sessionId, gate ?? 'gate1', {
         decision,
         annotations: annotations.trim() ? [annotations.trim()] : [],
         reworkStage: decision === 'rejected' ? reworkStage : undefined,
+        expectedSnapshotVersion: expected,
       })
       message.success(
         decision === 'approved'

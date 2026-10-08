@@ -56,11 +56,13 @@ public class ReviewService {
         this.userLookupMapper = userLookupMapper;
     }
 
-    /** 裁决入口。gate ∈ gate1|gate2|knowledge；decision ∈ approved|rejected。 */
+    /** 裁决入口。gate ∈ gate1|gate2|knowledge；decision ∈ approved|rejected。
+     *  T14.6：expectedSnapshotVersion 非空时做乐观版本条件（审查问题 4c）——与被审
+     *  快照最新版本不符 → 409 SNAPSHOT_STALE，不允许旧页面批准新模型。 */
     @Transactional
     public Map<String, Object> decide(String sessionId, String gate, String decision,
                                       List<Object> annotations, String reworkStage, String kbId,
-                                      String reviewerId) {
+                                      String reviewerId, Integer expectedSnapshotVersion) {
         validateGate(gate);
         if (!"approved".equals(decision) && !"rejected".equals(decision)) {
             throw new IllegalArgumentException("decision 只允许 approved|rejected: " + decision);
@@ -79,7 +81,8 @@ public class ReviewService {
         };
 
         if ("knowledge".equals(gate)) {
-            decideKnowledgeGate(sessionId, session, status, decision, annotations, kbId, reviewerId, effects);
+            decideKnowledgeGate(sessionId, session, status, decision, annotations, kbId,
+                    reviewerId, expectedSnapshotVersion, effects);
             return effects;
         }
 
@@ -93,6 +96,7 @@ public class ReviewService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     gate + " 缺少被审快照 " + snapshotIrType);
         }
+        assertExpectedVersion(snapshotIrType, expectedSnapshotVersion, snapshot.getVersion());
 
         String rework = null;
         List<String> invalidated = List.of();
@@ -129,9 +133,19 @@ public class ReviewService {
     }
 
     // ------------------------------------------------------------------
+    /** T14.6 乐观版本条件（审查问题 4c）：审阅人看到的版本 ≠ 当前最新 → 409。 */
+    private void assertExpectedVersion(String irType, Integer expected, int latest) {
+        if (expected != null && expected != latest) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "SNAPSHOT_STALE: 您审阅的 " + irType + " v" + expected
+                            + " 已不是最新（当前 v" + latest + "），请刷新复核后重新裁决");
+        }
+    }
+
     private void decideKnowledgeGate(String sessionId, DesignSessionEntity session,
                                      PipelineStatus status, String decision,
                                      List<Object> annotations, String kbId, String reviewerId,
+                                     Integer expectedSnapshotVersion,
                                      Map<String, Object> effects) {
         if (status != PipelineStatus.completed) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -141,6 +155,7 @@ public class ReviewService {
         if (ir5 == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "缺少 IR5 快照");
         }
+        assertExpectedVersion("IR5", expectedSnapshotVersion, ir5.getVersion());
         String wbStatus = readJsonField(ir5.getContent(), "writeback_status");
         if ("rejected".equals(decision)) {
             // 跳过=显式终态：IR5 pending→skipped（幂等校验在此，重复点击 409，不再堆裁决记录）

@@ -203,7 +203,15 @@ export function listReviews(sid: string) {
 export function postReview(
   sid: string,
   gate: 'gate1' | 'gate2' | 'knowledge',
-  body: { decision: 'approved' | 'rejected'; annotations: unknown[]; reworkStage?: string; kbId?: string },
+  body: {
+    decision: 'approved' | 'rejected'
+    annotations: unknown[]
+    reworkStage?: string
+    kbId?: string
+    /** T14.6 审阅版本条件（外部审查问题 4c）：审阅人实际查看的快照版本——
+     * 与裁决时刻最新不符时后端 409 SNAPSHOT_STALE（旧页面不能批准新模型）。 */
+    expectedSnapshotVersion?: number
+  },
 ) {
   return post<ReviewEffects>(`/workflow/sessions/${sid}/reviews/${gate}`, body)
 }

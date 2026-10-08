@@ -178,6 +178,7 @@ export default function SessionPage() {
                 ir3={ir3Data}
                 ir4={ir4Data}
                 reviews={reviewsQuery.data ?? []}
+                versions={{ IR1: ir1.data?.version, IR2: ir2.data?.version, IR3: ir3.data?.version, IR4: ir4.data?.version, IR5: ir5.data?.version }}
                 onGoReport={() => setActiveTab('report')}
                 onDecided={() => {
                   void queryClient.invalidateQueries({ queryKey: ['session', id] })

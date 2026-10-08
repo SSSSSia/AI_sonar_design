@@ -30,7 +30,13 @@ public class ReviewController {
         this.auditRecorder = auditRecorder;
     }
 
-    public record DecideRequest(String decision, List<Object> annotations, String reworkStage, String kbId) {
+    /**
+     * T14.6（外部审查问题 4c）：expectedSnapshotVersion = 审阅人实际查看的快照版本——
+     * 与裁决时刻最新版本不符时 409 SNAPSHOT_STALE（旧页面不能批准新模型）。
+     * 可选字段：缺省（旧客户端/脚本）保持现行为。
+     */
+    public record DecideRequest(String decision, List<Object> annotations, String reworkStage,
+                                String kbId, Integer expectedSnapshotVersion) {
     }
 
     @PostMapping("/{gate}")
@@ -43,7 +49,8 @@ public class ReviewController {
             throw new IllegalArgumentException("decision 不能为空（approved|rejected）");
         }
         Map<String, Object> result = reviewService.decide(
-                sid, gate, req.decision(), req.annotations(), req.reworkStage(), req.kbId(), reviewerId);
+                sid, gate, req.decision(), req.annotations(), req.reworkStage(), req.kbId(),
+                reviewerId, req.expectedSnapshotVersion());
         Map<String, Object> detail = new java.util.LinkedHashMap<>();
         detail.put("decision", req.decision());
         if (req.reworkStage() != null) {

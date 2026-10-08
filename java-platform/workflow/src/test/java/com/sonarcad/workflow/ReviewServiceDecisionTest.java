@@ -71,7 +71,7 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate1"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR2", 1, "{}"));
 
-        Map<String, Object> effects = service.decide("s1", "gate1", "approved", null, null, null, "reviewer-1");
+        Map<String, Object> effects = service.decide("s1", "gate1", "approved", null, null, null, "reviewer-1", null);
 
         verify(sessionService).resumeFromGate("s1", "A3");
         verify(taskPublisher).publishA3Task("s1");
@@ -101,7 +101,7 @@ class ReviewServiceDecisionTest {
                 .thenReturn(snapshot("IR3", 1, "{}"))   // 被审主快照
                 .thenReturn(snapshot("IR4", 1, ir4));   // 驳回目标推断
 
-        service.decide("s1", "gate2", "rejected", List.of("参数不合理"), null, null, "reviewer-1");
+        service.decide("s1", "gate2", "rejected", List.of("参数不合理"), null, null, "reviewer-1", null);
 
         verify(sessionService).resumeFromGate("s1", "A2");
         verify(irSnapshotMapper).markInvalidated(eq("s1"), eq(List.of("IR2", "IR3", "IR4", "IR5")));
@@ -117,7 +117,7 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate2"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR3", 2, "{}"));
 
-        Map<String, Object> effects = service.decide("s1", "gate2", "rejected", null, "A3", null, "reviewer-1");
+        Map<String, Object> effects = service.decide("s1", "gate2", "rejected", null, "A3", null, "reviewer-1", null);
 
         verify(sessionService).resumeFromGate("s1", "A3");
         verify(irSnapshotMapper).markInvalidated(eq("s1"), eq(List.of("IR3", "IR4", "IR5")));
@@ -130,7 +130,7 @@ class ReviewServiceDecisionTest {
         when(sessionMapper.selectById("s1")).thenReturn(session("running", "A2"));
 
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "gate1", "approved", null, null, null, "r"));
+                () -> service.decide("s1", "gate1", "approved", null, null, null, "r", null));
         verify(taskPublisher, never()).publishA3Task(any());
     }
 
@@ -140,7 +140,7 @@ class ReviewServiceDecisionTest {
         when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR3", 1, "{}"));
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.decide("s1", "gate2", "rejected", null, "A1", null, "r"));
+                () -> service.decide("s1", "gate2", "rejected", null, "A1", null, "r", null));
     }
 
     @Test
@@ -150,7 +150,7 @@ class ReviewServiceDecisionTest {
                 snapshot("IR5", 1, "{\"writeback_status\": \"pending\"}"));
         when(writebackClient.writeback("s1", null)).thenReturn(Map.of("written", Map.of("written", 2)));
 
-        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r");
+        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r", null);
 
         verify(writebackClient).writeback("s1", null);
         assertEquals(effects.get("writeback"), Map.of("written", Map.of("written", 2)));
@@ -168,7 +168,7 @@ class ReviewServiceDecisionTest {
                 snapshot("IR5", 1, "{\"writeback_status\": \"pending\"}"));
         when(writebackClient.writeback("s1", null)).thenThrow(new RuntimeException("Neo4j down"));
 
-        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r");
+        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r", null);
 
         assertEquals("failed", effects.get("writeback"));
         ArgumentCaptor<ReviewRecordEntity> record = ArgumentCaptor.forClass(ReviewRecordEntity.class);
@@ -182,7 +182,7 @@ class ReviewServiceDecisionTest {
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 1, "{\"writeback_status\": \"pending\"}"));
 
-        service.decide("s1", "knowledge", "rejected", null, null, null, "r");
+        service.decide("s1", "knowledge", "rejected", null, null, null, "r", null);
 
         // 跳过=显式终态：调 py-engine 将 IR5 pending→skipped（面板随之收敛，可补做）
         verify(writebackClient).skip("s1");
@@ -198,7 +198,7 @@ class ReviewServiceDecisionTest {
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 2, "{\"writeback_status\": \"skipped\"}"));
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "knowledge", "rejected", null, null, null, "r"));
+                () -> service.decide("s1", "knowledge", "rejected", null, null, null, "r", null));
         verifyNoInteractions(writebackClient);
         verify(reviewRecordMapper, never()).insert(any(ReviewRecordEntity.class));
     }
@@ -210,7 +210,7 @@ class ReviewServiceDecisionTest {
                 snapshot("IR5", 2, "{\"writeback_status\": \"skipped\"}"));
         when(writebackClient.writeback("s1", null)).thenReturn(Map.of("ir_version", 3));
 
-        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r");
+        Map<String, Object> effects = service.decide("s1", "knowledge", "approved", null, null, null, "r", null);
 
         verify(writebackClient).writeback("s1", null);
         assertEquals(effects.get("writeback"), Map.of("ir_version", 3));
@@ -220,20 +220,58 @@ class ReviewServiceDecisionTest {
     void knowledgeGateRequiresCompletedSessionAndPendingIr5() {
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate1"));
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "knowledge", "approved", null, null, null, "r"));
+                () -> service.decide("s1", "knowledge", "approved", null, null, null, "r", null));
 
         when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
         when(irSnapshotMapper.selectOne(any())).thenReturn(
                 snapshot("IR5", 2, "{\"writeback_status\": \"written\"}"));
         assertThrows(ResponseStatusException.class,
-                () -> service.decide("s1", "knowledge", "approved", null, null, null, "r"));
+                () -> service.decide("s1", "knowledge", "approved", null, null, null, "r", null));
     }
 
     @Test
     void invalidDecisionOrGateRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.decide("s1", "gate1", "maybe", null, null, null, "r"));
+                () -> service.decide("s1", "gate1", "maybe", null, null, null, "r", null));
         assertThrows(IllegalArgumentException.class,
-                () -> service.decide("s1", "gate9", "approved", null, null, null, "r"));
+                () -> service.decide("s1", "gate9", "approved", null, null, null, "r", null));
+    }
+
+    // ------------------------------------------------------------------
+    // T14.6 审阅版本条件（外部审查问题 4c）：旧页面不能批准新模型
+    // ------------------------------------------------------------------
+    @Test
+    void staleExpectedVersionConflicts409() {
+        // 审阅人看到 IR2 v1，后台已生成 v2 → 裁决 409 SNAPSHOT_STALE
+        when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate1"));
+        when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR2", 2, "{}"));
+
+        ResponseStatusException exc = assertThrows(ResponseStatusException.class,
+                () -> service.decide("s1", "gate1", "approved", null, null, null, "r", 1));
+        assertTrue(exc.getReason().contains("SNAPSHOT_STALE"), exc.getReason());
+        assertTrue(exc.getReason().contains("v1") && exc.getReason().contains("v2"));
+        verify(taskPublisher, never()).publishA3Task(any());
+        verify(reviewRecordMapper, never()).insert(any(ReviewRecordEntity.class));
+    }
+
+    @Test
+    void matchingExpectedVersionPassesThrough() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate1"));
+        when(irSnapshotMapper.selectOne(any())).thenReturn(snapshot("IR2", 2, "{}"));
+
+        service.decide("s1", "gate1", "approved", null, null, null, "r", 2);
+
+        verify(sessionService).resumeFromGate("s1", "A3");
+    }
+
+    @Test
+    void knowledgeGateAlsoGuardsExpectedVersion() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("completed", "A5"));
+        when(irSnapshotMapper.selectOne(any())).thenReturn(
+                snapshot("IR5", 2, "{\"writeback_status\": \"pending\"}"));
+
+        assertThrows(ResponseStatusException.class,
+                () -> service.decide("s1", "knowledge", "rejected", null, null, null, "r", 1));
+        verifyNoInteractions(writebackClient);
     }
 }

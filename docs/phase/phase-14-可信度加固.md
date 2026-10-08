@@ -133,11 +133,12 @@
 - DoD：用例 08 ✅（finalize 即失效，不经提案应用路径）、10 ✅（两次生成对象键互异+哈希返回）；新增 test_t145 4 例；受影响面（t73/t83/t113/t142）回归绿。
 - Commit：`fix(artifact): T14.5 产物版本化+报告失效全覆盖——STEP 按版本落桶/微调定稿即失效（问题 4a/4b）`
 
-### T14.6 审阅版本条件 ⬜
+### T14.6 审阅版本条件 ✅ 已完成（2026-10-08）
 
-- 改动：`java-platform/workflow` ReviewController/ReviewService（expected 校验+409 SNAPSHOT_STALE）、`frontend/src/api/workflow.ts` + ReviewTab（记录/提交/冲突提示）。
-- DoD：Java 单测（旧页面批准新模型被拒；expected 缺省兼容）；前端构建过。
-- Commit：`feat(review): T14.6 审阅版本条件——expected_snapshot_id 乐观绑定（问题 4c）`
+- 改动：Java `ReviewController.DecideRequest` 增 `expectedSnapshotVersion`（可选）；`ReviewService.decide` 乐观版本条件——被审快照（gate1→IR2 / gate2→IR3 / knowledge→IR5）最新版本与审阅人所见不符 → 409 `SNAPSHOT_STALE`（消息带两个版本号）；前端 `postReview` 增 `expectedSnapshotVersion`，ReviewTab 接收 `versions` props 按 gate 携带（gate1→IR2 / gate2→IR3 / knowledge→IR5）。
+- 决策 D14-6：用**版本号**而非快照 uuid 做条件——IrEnvelope 已暴露 version，前端零新增读侧面；字段可选，缺省（旧客户端/脚本）保持现行为。
+- DoD：审查用例 09 ✅（旧页面批准新模型被拒 409、不落裁决记录不派发任务；版本匹配照常通过；knowledge 关同样设防）——新增 Java 测试 3 例，workflow 42 绿；tsc 0/vitest 43 绿。
+- Commit：`feat(review): T14.6 审阅版本条件——expectedSnapshotVersion 乐观绑定 409 SNAPSHOT_STALE（问题 4c）`
 
 ### T14.7 公式依赖声明与按依赖重算 ⬜
 
@@ -192,6 +193,7 @@
 | D14-3 | 依赖重算采用"直接更新+留痕"而非"生成二级提案" | A4 复算兜底存在（复算不符即 error），直接更新+修订段留痕链路最短；无法定位/超范围才升级提案 |
 | D14-4 | IR4 severity 用新枚举 unverified 而非复用 info | 语义正交：info=提示，unverified=应检未检——是 overall=incomplete 的判定依据，混用会回到老问题 |
 | D14-5 | T14.1 目标锁定采用插件本地锁（import_step/上轮 result 登记 + 失效回退标注），不扩服务端任务协议 | 锁的生命周期与 3D 视口文档绑定（含手动调整/快照恢复），服务端无从感知；本地锁零协议改动达成同一正确性目标，`target_fallback` 附加键回传如实标注 |
+| D14-6 | T14.6 乐观条件用快照版本号（expectedSnapshotVersion）而非 uuid（expected_snapshot_id） | IrEnvelope 已暴露 version，前端零新增读侧接口；版本号 per (session, ir_type) 唯一，语义与 uuid 等价且可读（409 消息带 vN） |
 
 ## 7. 阶段 15 立账（承诺项，非本期范围）
 
