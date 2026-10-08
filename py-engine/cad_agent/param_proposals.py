@@ -190,6 +190,66 @@ def _fmt(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else str(round(v, 4))
 
 
+def cascade_dependents(ir2: dict[str, Any], changed_ids: list[str],
+                       note_prefix: str) -> list[dict[str, Any]]:
+    """按依赖图受控重算被改参数的下游 formula 参数（T14.7，审查问题 8/用例 17）。
+
+    原地更新 new_ir2 中下游参数的 value + derivation（留「依赖重算」修订段——
+    D14-3：直接更新而非二级提案，A4 复算兜底存在）；输入从**当前参数快照**取
+    （solver.deps.snapshot_inputs，经单位换算）。registry 无命中的动态公式/
+    必需输入缺失 → 跳过并记入 skips（调用方如实提示，不静默、不阻断主变更）。
+    返回 cascaded 明细列表。
+    """
+    from solver import deps
+    from solver.recompute import recompute
+
+    params = ir2.get("parameters") or []
+    by_id = {str(p.get("id")): p for p in params}
+    cascaded: list[dict[str, Any]] = []
+    for pid in deps.downstream_order(params, [str(c) for c in changed_ids]):
+        p = by_id.get(pid)
+        if p is None:
+            continue
+        key = _formula_key_of(p)
+        spec = None if key is None else _registry_spec(key)
+        if spec is None:
+            continue  # 动态业务公式依赖未登记——不自动重算（deps 口径，A-16）
+        inputs = deps.snapshot_inputs(params, p, spec)
+        if inputs is None:
+            continue
+        try:
+            result = recompute(key, inputs)
+        except Exception:  # KeyError（缺符号）/求值异常：跳过如实
+            continue
+        old_value = p.get("value")
+        p["value"] = round(result.value, 4)
+        inputs_text = ", ".join(f"{s}={inputs[s]}" for s in spec.symbols)
+        p["derivation"] = (
+            f"{result.derivation}"  # 结构化重建（推导文本不再承担事实存储）
+            f"\n\n> {note_prefix} 依赖重算：上游 {inputs_text} → {spec.name} "
+            f"{_fmt(float(old_value)) if isinstance(old_value, (int, float)) else old_value}"
+            f" → {_fmt(result.value)} {spec.unit}"
+        )
+        cascaded.append({
+            "param_id": pid, "param_name": str(p.get("name") or pid),
+            "formula_key": key, "old_value": old_value, "new_value": p["value"],
+            "inputs": inputs,
+        })
+    return cascaded
+
+
+def _formula_key_of(p: dict[str, Any]) -> str | None:
+    from solver.recompute import resolve_formula_key
+
+    return resolve_formula_key(p.get("source_ref", ""))
+
+
+def _registry_spec(key: str):
+    from solver.formulas import REGISTRY
+
+    return REGISTRY.get(key)
+
+
 def apply_proposals(ir2: dict[str, Any], applied: list[dict[str, Any]], round_no: int) -> dict[str, Any]:
     """确认回写：按提案改 value + derivation，design_document 追加修订段。返回新 IR2 content。
 

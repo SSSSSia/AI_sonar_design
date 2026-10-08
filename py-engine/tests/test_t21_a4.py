@@ -146,7 +146,8 @@ def test_formula_non_numeric_value_is_error():
 # ----------------------------------------------------------------------
 
 def test_case_interval_violation_is_warning(no_standards):
-    """违例注入：DI 复算自洽（n=100）但案例候选只支持 n=32 → 区间外 warning。"""
+    """案例候选区间冲突 → warning；（T14.7 取数源切换后）采纳值与上游快照不一致
+    同时暴露为 error——存疑与确定性结论分层呈现，过期公式参数不被旧 derivation 掩护。"""
     params = [
         _param("P-001", "阵元总数", 32, "case", "KB 案例：32 阵元",
                "检索知识明确给出的案例参数：32 阵元"),
@@ -156,9 +157,11 @@ def test_case_interval_violation_is_warning(no_standards):
     ]
     ir4 = A4Agent().run(_ir2(params), _ir3())
     assert _severity(ir4["issues"], "CHK-CASE-INTERVAL") == ["warning"]
-    # 复算自洽所以无 error；几何未联动 → incomplete（T14.4 应检未检）
-    assert "error" not in [i["severity"] for i in ir4["issues"]]
-    assert ir4["overall"] == "incomplete"
+    # 快照取数 n=32 → 复算 15.05 ≠ 采纳值 20（derivation 里的 n=100 不再作数）
+    err = [i for i in ir4["issues"] if i["constraint_id"] == "CHK-FORMULA-RECOMPUTE"
+           and i["severity"] == "error"]
+    assert len(err) == 1 and "参数快照" in err[0]["message"]
+    assert ir4["overall"] == "fail"
 
 
 def test_case_conflict_detected():

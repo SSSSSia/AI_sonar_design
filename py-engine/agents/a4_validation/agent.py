@@ -5,7 +5,8 @@
 Agent 管线签名一致而保留，未使用）。
 
 按 source_type 分流校验 + 几何自洽：
-  formula  → solver.recompute：SymPy 精确代入复算（derivation 解析代入值，容差比对）
+  formula  → solver.recompute：SymPy 精确代入复算（T14.7 取数源：优先 IR2 参数快照
+             按符号别名解析+单位换算，derivation 文本解析降为兜底——推导只承担展示）
   case     → solver.intervals：候选池区间传播 + 同符号候选冲突检测
   standard → solver.standards：军标核对（空库如实"待补"，A-16）
   estimated → 汇总 info：未经公式验证，请人工复核
@@ -25,7 +26,7 @@ from typing import Any
 from agents.a3_cad.geometry_link import UNIT_TO_MM
 from app_config import CAD_GEO_NUM_TOL_PCT
 from ir_contract import validate_ir
-from solver import intervals, recompute, standards
+from solver import deps, intervals, recompute, standards
 from solver.formulas import REGISTRY, _first_number
 from solver.recompute import ABS_TOL
 
@@ -111,11 +112,22 @@ class A4Agent:
                         f"（source_ref={p.get('source_ref')}），未复算，请人工复核",
                         [p["id"]]))
                     continue
-            inputs = recompute.parse_inputs_from_derivation(p.get("derivation", ""))
+            # T14.7 取数源切换（审查问题 8）：输入优先取 IR2 参数快照（按符号别名解析、
+            # 单位换算），推导文本解析降为兜底——推导文本只承担展示，不再当事实存储；
+            # 快照输入与登记值不一致会以 error 暴露（过期公式参数不再被旧 derivation 掩护）。
+            spec = REGISTRY.get(key) if key is not None else None
+            snap_inputs = deps.snapshot_inputs(params, p, spec) if spec is not None else None
+            if snap_inputs is not None:
+                inputs = snap_inputs
+                source_note = "（输入取自参数快照）"
+            else:
+                inputs = recompute.parse_inputs_from_derivation(p.get("derivation", ""))
+                source_note = ""
             if not inputs:
                 issues.append(_issue(
                     "CHK-FORMULA-RECOMPUTE", "unverified",
-                    f"formula 参数「{p.get('name')}」的 derivation 未记录代入值，无法复算，请人工复核",
+                    f"formula 参数「{p.get('name')}」无复算输入（快照无上游符号映射且 "
+                    "derivation 未记录代入值），无法复算，请人工复核",
                     [p["id"]]))
                 continue
             try:
@@ -146,7 +158,7 @@ class A4Agent:
                 stats["violation"] += 1
                 issues.append(_issue(
                     "CHK-FORMULA-RECOMPUTE", "error",
-                    f"复算不符：参数「{p.get('name')}」登记值 {p.get('value')} {p.get('unit')}，"
+                    f"复算不符{source_note}：参数「{p.get('name')}」登记值 {p.get('value')} {p.get('unit')}，"
                     f"{result.derivation}（依据 {p.get('source_ref')}）",
                     [p["id"]], suggestion="back_to_A2"))
             else:

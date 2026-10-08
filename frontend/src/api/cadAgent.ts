@@ -96,6 +96,8 @@ export function updateParameter(sid: string, pid: string, body: { value: number;
     invalidated: string[]
     depth: number
     a3_redispatched: boolean
+    /** T14.7 依赖重算：受影响下游公式参数明细（旧值→新值） */
+    cascaded?: { param_id: string; param_name: string; formula_key: string; old_value: number | null; new_value: number }[]
     note: string
   }>(`/cad-agent/sessions/${sid}/parameters/${pid}/update`, body)
 }

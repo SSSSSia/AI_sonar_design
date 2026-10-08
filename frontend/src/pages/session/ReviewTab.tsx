@@ -407,7 +407,8 @@ export function ReviewTab({
           }
           try {
             const r = await updateParameter(sessionId, editParam.id, { value: Number(values.value), reason: values.reason })
-            message.success(`已回写 IR2 v${r.ir2_version}（深度 ${r.depth}），A3 将按新参数重新建模，完成后回到审阅关②复审`)
+            const casc = r.cascaded?.length ? `，依赖重算 ${r.cascaded.length} 项下游公式参数` : ''
+            message.success(`已回写 IR2 v${r.ir2_version}（深度 ${r.depth}${casc}），A3 将按新参数重新建模，完成后回到审阅关②复审`)
             setEditParam(null)
             void queryClient.invalidateQueries({ queryKey: ['ir', sessionId] })
             void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })

@@ -318,7 +318,7 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
     T14.2：同参数多轮提案先归并（每参数只应用最新一条，旧提案标 superseded）——
     "全部应用"不再发生旧值反向覆盖（审查问题 5a）。"""
     from storage import proposal_store
-    from cad_agent.param_proposals import apply_proposals, merge_by_param
+    from cad_agent.param_proposals import apply_proposals, cascade_dependents, merge_by_param
 
     rows = proposal_store.list_for_session(sid, "proposed")
     if body.proposal_ids:
@@ -355,6 +355,8 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
         raise HTTPException(status_code=404, detail="IR2 快照缺失，无法回写")
     round_no = max(int(r["round_no"]) for r in rows)  # 修订段标注最新轮次
     new_ir2 = apply_proposals(ir2, rows, round_no)
+    cascaded = cascade_dependents(new_ir2, [str(r["param_id"]) for r in rows],
+                                  f"微调 r{round_no} 回写")  # T14.7 依赖重算
     from ir_contract import validate_ir
 
     try:
@@ -392,7 +394,7 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
                 sid, ir2_version, invalidated, len(applied_ids), len(superseded_ids))
     return {"applied": len(applied_ids), "ir2_version": ir2_version,
             "invalidated": invalidated, "redispatched": True,
-            "superseded": superseded_ids,
+            "superseded": superseded_ids, "cascaded": cascaded,
             **({"note": f"{len(superseded_ids)} 条旧轮次提案被最新提案取代，未应用"}
                if superseded_ids else {})}
 
@@ -437,13 +439,14 @@ class ParamUpdateBody(BaseModel):
 @router.post("/sessions/{sid}/parameters/{pid}/update")
 def update_parameter(sid: str, pid: str, body: ParamUpdateBody,
                      user: str = Depends(require_writer)) -> dict[str, Any]:
-    """E1 正向联动：修改 IR2 参数 → A3 重新建模 → gate2 复审（局部回环，不回 A1/A2）。
+    """E1 正向联动：修改 IR2 参数 → 下游公式依赖重算（T14.7）→ A3 重新建模 →
+    gate2 复审（局部回环，不回 A1/A2）。
 
     变更抑制（系统实施方案 Origin Lock/Max Depth=3 的务实落地）：
     ①仅 paused@gate2 可发起（单飞行窗口，串行化）；②传播深度 >3 拒绝；③A3 重算后
     几何若仍与参数有偏差，反向提案照常生成但挂起待人工确认（确认制=回写拦截器）。"""
     from storage import param_update_store
-    from cad_agent.param_proposals import apply_forward_update
+    from cad_agent.param_proposals import apply_forward_update, cascade_dependents
 
     session = _session_or_404(sid)
     if not (session.get("pipeline_status") == "paused" and session.get("current_stage") == "gate2"):
@@ -469,6 +472,7 @@ def update_parameter(sid: str, pid: str, body: ParamUpdateBody,
 
     old_value = param.get("value")
     new_ir2 = apply_forward_update(ir2, pid, body.value, body.reason)
+    cascaded = cascade_dependents(new_ir2, [str(pid)], f"E1 正向更新（{pid}）")  # T14.7 依赖重算
     from ir_contract import validate_ir
 
     try:
@@ -492,9 +496,9 @@ def update_parameter(sid: str, pid: str, body: ParamUpdateBody,
             status_code=503,
             detail=f"IR2 v{ir2_version} 已回写、IR3/IR4/IR5 已失效，但 A3 重派失败（{exc}）；"
                    "请稍后以相同参数值重试（将追加新版本，历史留痕）") from exc
-    logger.info("E1 正向更新 session=%s %s: %s→%s（depth=%s, IR2 v%s），已重派 A3",
-                sid, pid, old_value, body.value, depth, ir2_version)
+    logger.info("E1 正向更新 session=%s %s: %s→%s（depth=%s, IR2 v%s, 依赖重算 %d 项），已重派 A3",
+                sid, pid, old_value, body.value, depth, ir2_version, len(cascaded))
     return {"ir2_version": ir2_version, "param_id": pid, "old_value": old_value,
             "new_value": body.value, "invalidated": invalidated, "depth": depth,
-            "a3_redispatched": True,
+            "a3_redispatched": True, "cascaded": cascaded,
             "note": "A3 将按新参数重新建模并重算 A4，完成后自动回到审阅关②复审"}

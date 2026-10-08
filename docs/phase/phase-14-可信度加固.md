@@ -140,11 +140,12 @@
 - DoD：审查用例 09 ✅（旧页面批准新模型被拒 409、不落裁决记录不派发任务；版本匹配照常通过；knowledge 关同样设防）——新增 Java 测试 3 例，workflow 42 绿；tsc 0/vitest 43 绿。
 - Commit：`feat(review): T14.6 审阅版本条件——expectedSnapshotVersion 乐观绑定 409 SNAPSHOT_STALE（问题 4c）`
 
-### T14.7 公式依赖声明与按依赖重算 ⬜
+### T14.7 公式依赖声明与按依赖重算 ✅ 已完成（2026-10-08）
 
-- 改动：Flyway V20（kb_formulas 增 depends_on）、`storage/registry_store.py`、`solver/formulas.py` + `solver/recompute.py`（依赖图）、`cad_agent/param_proposals.py` + `api/cad_agent.py`（下游受控重算+pending 提案）、`agents/a4_validation/agent.py`（复算取数源切换）。
-- DoD：用例 17 单测（n 16→32 → DI 自动重算且 A4 用新值）；取数源切换后复算一致；迁移幂等。
-- Commit：`feat(solver): T14.7 公式依赖重算——depends_on 声明+下游受控重算+复算取数源切换（问题 8）`
+- 改动：新 `solver/deps.py`（依赖图纯函数：参数名经 SYMBOL_ALIASES 映射公式符号——**会话内现算，无需迁移表**；registry 无命中的动态公式不建边不重算，A-16 如实；BFS 拓扑+环保护+深度上限）；`cad_agent/param_proposals.py` cascade_dependents（下游 formula 参数直接更新 value+derivation（结构化重建+「依赖重算」留痕，D14-3），输入从当前快照取经单位换算）；`api/cad_agent.py` 正向更新/提案确认两入口接线（响应增 cascaded 明细）；A4 `_check_formula` 取数源切换（快照优先，derivation 解析降为兜底并在 error 消息标注「输入取自参数快照」）。
+- 口径：改 n=16→32 → DI 12.0412→15.0515 自动重算；过期公式参数（上游已变、落库值未变）被 A4 以 error 暴露——不再被旧 derivation 掩护。
+- DoD：用例 17 ✅（级联重算+A4 用新值）；新增 test_t147 6 例；全量 py 427 passed 1 skipped；tsc 0/vitest 43 绿。语义更新（test_case_interval：采纳值 vs 上游不一致同时暴露 error）入 devlog。
+- Commit：`feat(solver): T14.7 公式依赖重算——deps 依赖图+下游受控重算+A4 复算取数源切换（问题 8）`
 
 ### T14.8 小项清账 ⬜
 
@@ -194,6 +195,7 @@
 | D14-4 | IR4 severity 用新枚举 unverified 而非复用 info | 语义正交：info=提示，unverified=应检未检——是 overall=incomplete 的判定依据，混用会回到老问题 |
 | D14-5 | T14.1 目标锁定采用插件本地锁（import_step/上轮 result 登记 + 失效回退标注），不扩服务端任务协议 | 锁的生命周期与 3D 视口文档绑定（含手动调整/快照恢复），服务端无从感知；本地锁零协议改动达成同一正确性目标，`target_fallback` 附加键回传如实标注 |
 | D14-6 | T14.6 乐观条件用快照版本号（expectedSnapshotVersion）而非 uuid（expected_snapshot_id） | IrEnvelope 已暴露 version，前端零新增读侧接口；版本号 per (session, ir_type) 唯一，语义与 uuid 等价且可读（409 消息带 vN） |
+| D14-7 | T14.7 依赖图不做 kb_formulas 表结构变更（V20 不落）：依赖边按 SYMBOL_ALIASES 会话内现算 | IR2 参数 id 每会话动态生成，静态 depends_on 登记无处落锚；别名映射与 A2 取数同序、随参数表版本重建，正确性等价且零迁移；kb_formulas 动态公式符号语义未登记——不建边不重算，如实跳过（A-16） |
 
 ## 7. 阶段 15 立账（承诺项，非本期范围）
 
