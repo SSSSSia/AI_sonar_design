@@ -314,9 +314,11 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
     """确认回写（E1 核心闭环）：IR2 追加新版本（value+derivation 同步+修订段）→
     IR4/IR5 定向失效 → 重派 a4_task → STAGE_DONE 后自动重挂 gate2 复审（复用
     pauseAtGate 乐观条件：paused+A4 ≠ gate2 命中更新）。仅 paused 会话可回写
-    （completed 无复审链路，如实 409）；全部提案已 applied 时视为重派重试（幂等）。"""
+    （completed 无复审链路，如实 409）；全部提案已 applied 时视为重派重试（幂等）。
+    T14.2：同参数多轮提案先归并（每参数只应用最新一条，旧提案标 superseded）——
+    "全部应用"不再发生旧值反向覆盖（审查问题 5a）。"""
     from storage import proposal_store
-    from cad_agent.param_proposals import apply_proposals
+    from cad_agent.param_proposals import apply_proposals, merge_by_param
 
     rows = proposal_store.list_for_session(sid, "proposed")
     if body.proposal_ids:
@@ -335,6 +337,12 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
                     "redispatched": True, "note": "提案已应用过，本次仅重派 A4（上轮派发可能失败）"}
         raise HTTPException(status_code=400, detail="无可应用的提案")
 
+    winners, superseded_rows = merge_by_param(rows)
+    superseded_ids = [str(r["id"]) for r in superseded_rows]
+    if superseded_ids:
+        proposal_store.mark(superseded_ids, "superseded", user)
+    rows = winners
+
     session = _session_or_404(sid)
     if session.get("pipeline_status") != "paused":
         raise HTTPException(
@@ -345,7 +353,7 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
     ir2 = ir_store.get_latest_snapshot(sid, "IR2")
     if ir2 is None:
         raise HTTPException(status_code=404, detail="IR2 快照缺失，无法回写")
-    round_no = int(rows[0]["round_no"])
+    round_no = max(int(r["round_no"]) for r in rows)  # 修订段标注最新轮次
     new_ir2 = apply_proposals(ir2, rows, round_no)
     from ir_contract import validate_ir
 
@@ -380,10 +388,13 @@ def confirm_param_proposals(sid: str, body: ConfirmProposalsBody,
         raise HTTPException(
             status_code=503,
             detail=f"IR2 v{ir2_version} 已回写、IR4/IR5 已失效，但 A4 重派失败（{exc}）；请重试确认") from exc
-    logger.info("E1 回写完成 session=%s: IR2 v%s, 失效=%s, 提案 %d 条, 重派 A4",
-                sid, ir2_version, invalidated, len(applied_ids))
+    logger.info("E1 回写完成 session=%s: IR2 v%s, 失效=%s, 提案 %d 条（取代 %d 条）, 重派 A4",
+                sid, ir2_version, invalidated, len(applied_ids), len(superseded_ids))
     return {"applied": len(applied_ids), "ir2_version": ir2_version,
-            "invalidated": invalidated, "redispatched": True}
+            "invalidated": invalidated, "redispatched": True,
+            "superseded": superseded_ids,
+            **({"note": f"{len(superseded_ids)} 条旧轮次提案被最新提案取代，未应用"}
+               if superseded_ids else {})}
 
 
 @router.post("/param-proposals/{proposal_id}/ignore")

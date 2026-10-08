@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 
 from app_config import DATABASE_URL
 
-_PROPOSAL_STATUS = {"proposed", "applied", "ignored"}
+_PROPOSAL_STATUS = {"proposed", "applied", "ignored", "superseded"}
 
 
 def _connect() -> psycopg.Connection:
@@ -80,8 +80,9 @@ def get(proposal_id: str) -> dict[str, Any] | None:
 
 def mark(proposal_ids: list[str], status: str, decided_by: str,
          applied_ir2_version: int | None = None) -> int:
-    """置状态（proposed → applied/ignored）。只允许从 proposed 迁移（applied 不可回退）。"""
-    if status not in {"applied", "ignored"}:
+    """置状态（proposed → applied/ignored/superseded）。只允许从 proposed 迁移
+    （applied/superseded 不可回退；T14.2 superseded=同参数被更新轮次取代）。"""
+    if status not in {"applied", "ignored", "superseded"}:
         raise ValueError(f"非法目标状态: {status}")
     with _connect() as conn, conn.cursor() as cur:
         cur.execute(

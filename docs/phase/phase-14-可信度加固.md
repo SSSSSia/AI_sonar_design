@@ -106,10 +106,10 @@
 - 决策：目标锁定为插件本地锁（D14-5），服务端协议零改动。
 - Commit：`fix(cad): T14.1 FreeCAD 执行链修复——导入真 bug/目标锁定/result 严格校验（外部审查问题 6）`
 
-### T14.2 提案应用正确性与确认幂等 ⬜
+### T14.2 提案应用正确性与确认幂等 ✅ 已完成（2026-10-08）
 
-- 改动：`cad_agent/param_proposals.py`（归并+符号同步）、`storage/proposal_store.py`（superseded 终态+归并查询）、`api/cad_agent.py`（确认端点归并+幂等）。
-- DoD：用例 05/06/11 单测（多轮终值、同值不串改、重复确认幂等）；既有 E1 测试回归绿。
+- 改动：`param_proposals.py`（`merge_by_param` 归并 / `sync_derivation` 目标符号定位：亲缘符号精确匹配→单值回退→同值歧义不内联只留痕 / `_own_symbol` 参数 id 亲缘解析）、`proposal_store.py`（superseded 终态）、`api/cad_agent.py`（confirm 端点归并+取代标注+round 取最新）。
+- DoD：用例 05（100→120→140 终值 140）✅、06（width/length 同值只改目标）✅、11（重复确认走重试路径不追加 IR2 版本）✅——新增 test_t142 12 例，E1 既有 27 例回归绿。
 - Commit：`fix(e1): T14.2 提案应用正确性——多轮取代/按符号同步推导/确认幂等（问题 5/11）`
 
 ### T14.3 单位统一模块 ⬜
