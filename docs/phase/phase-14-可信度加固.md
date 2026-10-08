@@ -99,11 +99,12 @@
 
 ## 3. 任务分解（T14.1–T14.9）
 
-### T14.1 FreeCAD 插件执行链修复 ⬜
+### T14.1 FreeCAD 插件执行链修复 ⬜→✅ 已完成（2026-10-08）
 
-- 改动：`clients/freecad-plugin/SonarCADLink/sonarlink/cad/executor.py`（导入/目标锁定/_as_shape/result 校验）、`api/cad_agent.py` + `cad_agent/service.py`（任务协议 target_object_name 透传）、插件 panel（记录/回传主实体 Name）。
-- DoD：stub 形状替身单测——连续切削→打孔作用于同一演进对象；result=42 → ok=False；语法/导入静态检查过；真机冒烟不可行则任务书如实标待联调。
-- Commit：`fix(cad): T14.1 FreeCAD 执行链修复——导入路径/目标锁定/result 严格校验（外部审查问题 6）`
+- 改动：`executor.py`（顶层导入 snapshot_lite 修真 bug / `_TARGET` 目标锁定+`_resolve_model` 回退标注 / `_as_shape` 严格化 + result 空形体与实体非空校验 / `import_step` 登记主实体 / `_update_lock` 滚动锁定）；新增 `tests/test_t141_executor.py` 7 例（桩形体替身）。
+- DoD：连续切削→打孔作用于同一演进对象 ✅（test_edit_ok_and_lock_continuity）；result=42 → ok=False ✅；插件套件 18 绿 ✅；真机冒烟待联调（本机无 FreeCAD，A-16 如实）。
+- 决策：目标锁定为插件本地锁（D14-5），服务端协议零改动。
+- Commit：`fix(cad): T14.1 FreeCAD 执行链修复——导入真 bug/目标锁定/result 严格校验（外部审查问题 6）`
 
 ### T14.2 提案应用正确性与确认幂等 ⬜
 
@@ -187,6 +188,7 @@
 | D14-2 | CSR 口径保持不变，另加 coverage 并列展示 | CSR 已文档化且前端/导出广泛引用；覆盖率补"验证了多少"维度，两者分母不同语义互补，不混单指标 |
 | D14-3 | 依赖重算采用"直接更新+留痕"而非"生成二级提案" | A4 复算兜底存在（复算不符即 error），直接更新+修订段留痕链路最短；无法定位/超范围才升级提案 |
 | D14-4 | IR4 severity 用新枚举 unverified 而非复用 info | 语义正交：info=提示，unverified=应检未检——是 overall=incomplete 的判定依据，混用会回到老问题 |
+| D14-5 | T14.1 目标锁定采用插件本地锁（import_step/上轮 result 登记 + 失效回退标注），不扩服务端任务协议 | 锁的生命周期与 3D 视口文档绑定（含手动调整/快照恢复），服务端无从感知；本地锁零协议改动达成同一正确性目标，`target_fallback` 附加键回传如实标注 |
 
 ## 7. 阶段 15 立账（承诺项，非本期范围）
 

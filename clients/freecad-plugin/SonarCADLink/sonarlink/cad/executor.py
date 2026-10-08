@@ -1,12 +1,13 @@
 """工具执行器（T8.4）——服务端 AgentLoop 下发的 execute_edit_code 在 FreeCAD 内落地。
 
 流程（改编自 CadAgent agent/tools.py 的 execute_code，收敛为编辑契约）：
-  strip_markdown → compile 语法预检 → 定位/确保文档 → 注入 model（当前主实体）→
-  执行前快照（安全网）→ 受限 builtins exec → 质量门禁（quality.py）→ 结构化结果。
+  strip_markdown → compile 语法预检 → 定位/确保文档 → 注入 model（锁定目标对象，
+  失效才回退最大体积）→ 执行前快照（安全网）→ 受限 builtins exec →
+  result 严格校验（类型/空形体/实体非空）→ 质量门禁（quality.py）→ 结构化结果。
 
-返回契约（与服务端 cad_agent/loop.py 的 tool_executor 对齐）：
+返回契约（与服务端 cad_agent/loop.py 的 tool_executor 对齐；target_fallback 为附加键）：
   {ok: bool, stdout: str|None, quality: {status: pass|warn|fail, issues: [code: message]},
-   doc_summary: str|None, error: str|None}
+   doc_summary: str|None, error: str|None, target_fallback: bool}
 
 诚实边界：FreeCAD 主线程内执行无法强制超时（架构固有面，与业界 MCP 先例一致）——
 缓解 = 语法预检 + 面板 Stop 中断标志 + 服务端工具等待超时（PHASE-008 §2.4）。
@@ -22,6 +23,7 @@ import traceback
 import FreeCAD
 import Part
 
+from sonarlink.cad import snapshot_lite
 from sonarlink.cad.cad_helpers import (
     cq_show,
     ensure_doc,
@@ -58,6 +60,10 @@ SAFE_BUILTINS = {
 
 # 跨工具调用存活的用户变量（含形状对象；换会话/恢复快照后由 _clean_stale 清理）
 _EXEC_NAMESPACE: dict = {}
+
+# 目标锁定（T14.1，外部审查问题 6b）：import_step / 上轮成功编辑登记主实体对象 Name，
+# 后续编辑优先按名取——修"切削后体积变小、下轮按最大体积选回原模型"。
+_TARGET = {"name": None}
 _BUILTIN_NAMES = frozenset({
     "FreeCAD", "FreeCADGui", "Part", "math", "doc", "model", "__builtins__",
     "extract_solid", "safe_fuse", "safe_cut", "make_hollow_cylinder", "make_ring",
@@ -92,16 +98,70 @@ def import_step(step_path: str) -> str:
     doc.recompute()
     if not main_model_shape(doc):
         raise RuntimeError("STEP 导入后文档中没有实体——请确认版本产物有效")
+    host = _main_host_object(doc)
+    _TARGET["name"] = host.Name if host is not None else None
     return doc.Name
 
 
 def _as_shape(x):
-    """Workplane / 文档对象 / Shape 统一转 Shape。"""
+    """Workplane / 文档对象 / Shape 严格转 Shape。
+
+    T14.1：只接受三类形体载体，其余（数值/字符串等）一律抛 ValueError——
+    旧实现原样返回任意输入，导致 result=42 也能通过"编辑必须产出新形体"契约。
+    """
     if hasattr(x, "solid") and callable(x.solid):
         return x.solid()
     if hasattr(x, "Shape") and not callable(x.Shape):
         return x.Shape
-    return x
+    if hasattr(x, "ShapeType") and hasattr(x, "isNull"):
+        return x
+    raise ValueError(f"{type(x).__name__} 不是可接受的形体（Shape/文档对象/Workplane）")
+
+
+def _main_host_object(doc):
+    """主实体宿主对象（体积最大的含 Solid 对象）——import_step 登记锁定用。"""
+    best, best_vol = None, -1.0
+    for obj in doc.Objects:
+        shape = getattr(obj, "Shape", None)
+        if shape is None:
+            continue
+        try:
+            if not shape.Solids:
+                continue
+            vol = shape.Volume
+        except Exception:
+            continue
+        if vol > best_vol:
+            best, best_vol = obj, vol
+    return best
+
+
+def _resolve_model(doc):
+    """解析本轮编辑的 model：优先锁定对象，锁定失效才回退最大体积（返回 fallback 标记）。"""
+    name = _TARGET.get("name")
+    if name:
+        obj = doc.getObject(name)
+        shape = getattr(obj, "Shape", None) if obj is not None else None
+        try:
+            if shape is not None and not shape.isNull() and shape.Solids:
+                return shape, False
+        except Exception:
+            pass
+    return main_model_shape(doc), True
+
+
+def _update_lock(doc, result) -> None:
+    """成功编辑后滚动锁定：优先 cq_show 约定的 "Edit" 对象（复用同 Label 并清 stale），
+    其次 result 本身是文档对象；都拿不到则维持原锁。"""
+    try:
+        objs = doc.getObjectsByLabel("Edit")
+    except Exception:
+        objs = []
+    if objs:
+        _TARGET["name"] = objs[-1].Name
+        return
+    if hasattr(result, "Name") and hasattr(result, "Shape") and not callable(result.Shape):
+        _TARGET["name"] = result.Name
 
 
 def main_model_shape(doc):
@@ -171,13 +231,11 @@ def _execute_edit_inner(code: str, label: str) -> dict:
     if doc is None:
         doc = ensure_doc("SonarModel")
     _clean_stale()
-    model = main_model_shape(doc)
+    model, target_fallback = _resolve_model(doc)
     if model is None:
         return _err("当前文档没有实体模型——请先点『拉取模型』导入平台版本（再执行编辑）")
 
-    from snapshot_lite import take
-
-    take(doc)  # 安全网快照（尽力而为）
+    snapshot_lite.take(doc)  # 安全网快照（尽力而为）
 
     namespace = {
         "FreeCAD": FreeCAD, "Part": Part, "math": math,
@@ -206,15 +264,27 @@ def _execute_edit_inner(code: str, label: str) -> dict:
 
     _save_user_vars(namespace)
 
-    # result 契约校验（编辑必须产出新形体）
+    # result 契约校验（编辑必须产出新形体；T14.1 严格化：类型/空形体/实体非空）
     result = namespace.get("result")
     if result is None:
         return _err("脚本未赋值 result——编辑契约要求最后一行 result = <单一实体 Shape>",
                     stdout_capture.getvalue() or None)
     try:
-        _as_shape(result)
+        shape = _as_shape(result)
     except Exception as exc:
         return _err(f"result 不是有效形体：{exc}", stdout_capture.getvalue() or None)
+    if shape is None or (hasattr(shape, "isNull") and shape.isNull()):
+        return _err("result 是空形体（null）——请检查布尔/建模步骤是否得到有效几何",
+                    stdout_capture.getvalue() or None)
+    try:
+        solids = shape.Solids or []
+    except Exception:
+        solids = []
+    if not solids:
+        return _err(f"result 未包含实体（ShapeType={getattr(shape, 'ShapeType', '?')}）"
+                    "——编辑契约要求单一实体 Solid",
+                    stdout_capture.getvalue() or None)
+    _update_lock(doc, result)
 
     # 质量门禁（quality.py 结构化报告 → 协议 quality dict；severity ok→pass 归一）
     report = analyze_document_quality(doc)
@@ -224,7 +294,7 @@ def _execute_edit_inner(code: str, label: str) -> dict:
                    for i in report.issues],
     }
     return {"ok": True, "stdout": stdout_capture.getvalue() or None, "quality": quality,
-            "doc_summary": _doc_state(doc), "error": None}
+            "doc_summary": _doc_state(doc), "error": None, "target_fallback": target_fallback}
 
 
 def _doc_state(doc) -> str | None:
