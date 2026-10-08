@@ -189,6 +189,13 @@ class GraphRAGService:
         degraded: list[str] = []
         scoped = kb_ids is not None
         doc_scope = self._scope_doc_ids(kb_ids) if scoped else None
+        if scoped and not doc_scope:
+            # T14.8（审查问题 9a 边界残留）：范围解析为空集（选定库无归属文档）——
+            # 与文本级同口径如实 unavailable；不得把空列表传给 Milvus 退化成全库检索
+            # （vector_store 语义「空列表=不过滤」）。
+            return RetrievalResult(
+                "选定知识库范围内无可检索知识（未归库不参与检索）", "unavailable", degraded
+            )
         if scoped and self.sdk is not None:
             # D6-5：SDK 是单一全局索引，无法按库范围过滤——定向检索如实跳过
             degraded.append("sdk_kb_scope_unsupported")
@@ -374,23 +381,24 @@ class GraphRAGService:
     # PHASE-006 D6-3：Agent 库路由（会话不选库时自主圈定相关知识库，依据留痕 IR1.kb_selection）
     # ------------------------------------------------------------------
     def route_bases(self, queries: list[str]) -> dict[str, Any]:
-        """逐库轻量探测相关度：首条子查询在每库范围内检索，命中数 > 0 的库入选。
+        """逐库轻量探测相关度：探测查询逐条在每库范围内检索，命中数 > 0 的库入选。
 
-        返回 kb_selection 契约结构：
+        T14.8（审查问题 9c）：修复只探测首条子查询的偏差——各条查询独立计 hit，
+        任一条命中即计入该库（hit 数合并）。返回 kb_selection 契约结构：
           {mode: "auto", bases: [{kb_id, kb_name, hits, selected}]}
         全部零命中 → 兜底"全部库"（各库 selected=true + 兜底标注，A-16 如实）。
         """
         from storage import kb_store
 
         bases = kb_store.list_bases()
-        probe = queries[0] if queries else ""
+        probes = [q for q in (queries or []) if q][:5]  # 探测上限：前 5 条（组合爆炸保护）
         rows: list[dict[str, Any]] = []
         for b in bases:
             hits = 0
-            if probe:
+            for probe in probes:
                 try:
                     r = self.query(probe, kb_ids=[str(b["id"])])
-                    hits = len(r.refs) if r.ok else 0
+                    hits += len(r.refs) if r.ok else 0
                 except Exception as exc:
                     logger.warning("库路由探测失败 base=%s: %s", b["id"], exc)
             rows.append({"kb_id": str(b["id"]), "kb_name": b["name"], "hits": hits})

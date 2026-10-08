@@ -47,6 +47,9 @@ _RULES: list[tuple[str, re.Pattern[str], str, str | None, str | None]] = [
     ("DELETE", re.compile(r"^/api/v1/kb/llm-providers/(?P<rid>[^/]+)$"), "kb.delete_provider", "llm_provider", "rid"),
     # 图谱快照（T11.7 备份链路的人工/定时触发留痕）
     ("POST", re.compile(r"^/api/v1/kb/graph/snapshot$"), "kb.graph_snapshot", None, None),
+    # 知识回写（§9.4 明列「知识回写」；T14.8 补——端点无 /api/v1 前缀，此前漏覆盖）
+    ("POST", re.compile(r"^/knowledge/writeback/skip$"), "knowledge.skip", "session", None),
+    ("POST", re.compile(r"^/knowledge/writeback$"), "knowledge.writeback", "session", None),
     # 基础元数据管理（T13.7；写端点 admin）
     ("POST", re.compile(r"^/api/v1/metadata/(?P<kind>[a-z_]+)$"), "metadata.create", "metadata", None),
     ("PATCH", re.compile(r"^/api/v1/metadata/(?P<kind>[a-z_]+)/(?P<rid>[^/]+)$"), "metadata.update", "metadata", "rid"),

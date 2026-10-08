@@ -147,10 +147,10 @@
 - DoD：用例 17 ✅（级联重算+A4 用新值）；新增 test_t147 6 例；全量 py 427 passed 1 skipped；tsc 0/vitest 43 绿。语义更新（test_case_interval：采纳值 vs 上游不一致同时暴露 error）入 devlog。
 - Commit：`feat(solver): T14.7 公式依赖重算——deps 依赖图+下游受控重算+A4 复算取数源切换（问题 8）`
 
-### T14.8 小项清账 ⬜
+### T14.8 小项清账 ✅ 已完成（2026-10-08）
 
-- 改动：`storage/cache.py`、`worker/tasks.py`、`knowledge/service.py`、`agents/a5_knowledge/agent.py` + prompts、`storage/metadata_store.py`（ir5 source_refs 如涉及）、`api/audit.py`。
-- DoD：用例 15/16 单测（范围缓存隔离；LLM 路径滤 error 参数）；选库时序调整后 e2e 检索链回归绿。
+- 改动：`storage/cache.py` kb_cache_key 范围语义入键（None=unscoped 与 []/库列表=scoped 不再同键，用例 15）；`knowledge/service.py`（scoped 解析空集 → 与文本级同口径 unavailable，不传空列表给 Milvus 退化全库；route_bases 逐条查询探测合并 hits，修只测首条）；`worker/tasks.py`（auto 选库**先于检索**——IR0 原文切段逐库探测圈定范围，A1 检索在选定范围内进行，留痕=真实使用范围，检索后留痕废弃）；`agents/a5_knowledge/agent.py`（LLM 整理路径排除 error 点名参数——与兜底同规则；候选 payload 绑 source_refs={ir2_version, ir4_version}，worker 传入）；`api/audit.py`（/knowledge/writeback 与 /knowledge/writeback/skip 纳入审计规则表——v0.6 无 /api/v1 前缀漏覆盖面）。
+- DoD：用例 15 ✅（缓存键隔离+空集不越界）、16 ✅（LLM 路径排除污点参数+版本绑定）；新增 test_t148 9 例；语义更新（t62 route_bases hits 合并计数）入 devlog；全量 py 435 passed 1 skipped。
 - Commit：`fix(kb): T14.8 检索范围缓存/选库时序/A5 候选过滤/审计覆盖清账（问题 9/10）`
 
 ### T14.9 收官 + tag v0.7.0 ⬜

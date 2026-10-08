@@ -45,11 +45,12 @@ class A5Agent:
         ir1: dict[str, Any] | None,
         ir2: dict[str, Any],
         ir4: dict[str, Any] | None = None,
+        source_refs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         params = ir2.get("parameters", [])
         error_param_ids = self._error_param_ids(ir4)
 
-        candidates, llm_ok = self._draft_candidates(ir1, ir2, ir4)
+        candidates, llm_ok = self._draft_candidates(ir1, ir2, ir4, error_param_ids)
         if not candidates:
             candidates = self._fallback_candidates(params, error_param_ids)
             if candidates:
@@ -58,6 +59,13 @@ class A5Agent:
             logger.warning("A5：LLM 不可用且无结构化事实可兜底，产出空候选（如实）")
         candidates = candidates[:MAX_CANDIDATES]
         candidates = self._dedup(candidates)
+        if source_refs:
+            # T14.8（审查问题 10）：候选绑定来源方案/校验报告版本——旧报告对应的参数
+            # 不能借新报告入库，审阅人可核对候选产出时点（A-12 溯源语义）。
+            candidates = [
+                {**c, "payload": {**c["payload"], "source_refs": source_refs}}
+                for c in candidates
+            ]
 
         ir5 = {"candidates": candidates, "writeback_status": "pending"}
         return validate_ir("IR5", ir5)
@@ -78,8 +86,10 @@ class A5Agent:
         ir1: dict[str, Any] | None,
         ir2: dict[str, Any],
         ir4: dict[str, Any] | None,
+        error_param_ids: set[str] | None = None,
     ) -> tuple[list[dict[str, Any]], bool]:
-        """LLM 整理候选。返回 (candidates, llm_ok)；候选 payload 的 params 值回核对 IR2 原表。"""
+        """LLM 整理候选。返回 (candidates, llm_ok)；候选 payload 的 params 值回核对 IR2 原表，
+        被 error 点名参数一律排除（T14.8，与兜底同规则）。"""
         if self._llm is None:
             return [], False
         param_table = "\n".join(
@@ -112,21 +122,42 @@ class A5Agent:
             data = parse_llm_json(raw)
             if not data or not isinstance(data.get("candidates"), list):
                 raise ValueError("LLM 输出缺少 candidates 数组")
-            out = self._sanitize(data["candidates"], ir2)
+            out = self._sanitize(data["candidates"], ir2, error_param_ids)
             return out, True
         except Exception as exc:
             logger.warning("A5 LLM 候选整理失败，转兜底: %s", exc)
             return [], False
 
-    def _sanitize(self, items: Any, ir2: dict[str, Any]) -> list[dict[str, Any]]:
-        """LLM 候选清洗：类型白名单 + payload 结构校验 + case 数值与 IR2 原表核对。"""
+    def _sanitize(self, items: Any, ir2: dict[str, Any],
+                  error_param_ids: set[str] | None = None) -> list[dict[str, Any]]:
+        """LLM 候选清洗：类型白名单 + payload 结构校验 + case 数值与 IR2 原表核对
+        + 被 error 点名参数排除（T14.8，审查问题 10——此前只过滤兜底路径）。"""
         by_name = {str(p.get("name")): p for p in ir2.get("parameters", [])}
+        error_ids = error_param_ids or set()
+        error_names = {str(p.get("name")) for p in ir2.get("parameters", [])
+                       if str(p.get("id")) in error_ids}
+
+        def _touches_error(pl: dict[str, Any]) -> bool:
+            names: list[str] = []
+            if pl.get("name"):
+                names.append(str(pl["name"]))
+            for p in pl.get("params", []) or []:
+                if p.get("name"):
+                    names.append(str(p["name"]))
+            for side in ("from", "to"):
+                if (pl.get(side) or {}).get("name"):
+                    names.append(str(pl[side]["name"]))
+            return any(n in error_names for n in names)
+
         out: list[dict[str, Any]] = []
         for item in items[:MAX_CANDIDATES]:
             if not isinstance(item, dict) or item.get("type") not in ("relation", "case", "constraint"):
                 continue
             payload = item.get("payload")
             if not isinstance(payload, dict):
+                continue
+            if _touches_error(payload):
+                logger.info("A5 LLM 候选排除：引用被校验 error 点名的参数（type=%s）", item["type"])
                 continue
             if item["type"] == "case":
                 checked: list[dict[str, Any]] = []

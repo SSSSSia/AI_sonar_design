@@ -133,7 +133,8 @@ def test_route_bases_selects_hit_bases(svc, monkeypatch):
     sel = svc.route_bases(["拖曳线列阵", "波束"])
     assert sel["mode"] == "auto"
     by_id = {b["kb_id"]: b for b in sel["bases"]}
-    assert by_id["kb-a"]["selected"] is True and by_id["kb-a"]["hits"] == 1
+    # T14.8 逐条查询探测：两条查询都在 kb-a 命中 → hits 合并计数（此前只测首条=1）
+    assert by_id["kb-a"]["selected"] is True and by_id["kb-a"]["hits"] == 2
     assert by_id["kb-b"]["selected"] is False
 
 

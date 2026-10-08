@@ -141,7 +141,14 @@ def llm_cache_key(provider_tag: str, messages: list[dict[str, str]], kwargs: dic
 
 
 def kb_cache_key(query: str, kb_ids: list[str] | None) -> str:
-    return f"cache:kb:query:{fingerprint(query, sorted(kb_ids or []))}"
+    """T14.8（审查问题 9b）：范围语义入键——None=不过滤（unscoped，SDK 全局索引可达）
+    与 []/库列表=scoped（仅归属文档）检索语义不同，此前 `kb_ids or []` 把两者合并成
+    同一缓存键，TTL 内先入者污染另一语义（审查用例 15）。键内含排序后的范围集合。"""
+    if kb_ids is None:
+        scope = "unscoped"
+    else:
+        scope = f"scoped:{','.join(sorted(str(k) for k in kb_ids))}" or "scoped:all-owned"
+    return f"cache:kb:query:{fingerprint(query, scope)}"
 
 
 def codegen_cache_key(ir2: dict[str, Any], provider_tag: str = "") -> str:

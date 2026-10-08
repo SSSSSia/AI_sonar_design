@@ -208,10 +208,22 @@ def a1_task(self, session_id: str) -> dict:
             raise RuntimeError(f"session {session_id} 缺少 IR0 快照，无法执行 A1")
         kb_ids = session_meta.get_kb_ids(session_id)
         svc = get_knowledge_service()
+        # T14.8（审查问题 9c）：auto 模式选库**先于检索**——用 IR0 需求文本逐库探测
+        # 圈定范围，A1 检索在选定范围内进行；留痕即本次真正使用的范围（此前检索后才
+        # route_bases 纯留痕，路由结果不约束检索，范围审计语义失真）。
+        auto_selection: dict | None = None
+        if not kb_ids:
+            try:
+                auto_selection = svc.route_bases(_probe_queries(ir0))
+                picked = [b["kb_id"] for b in auto_selection.get("bases", []) if b.get("selected")]
+                kb_ids = picked or None  # 全部零命中兜底=全部库（fallback_all 已在留痕标注）
+            except Exception as exc:
+                logger.warning("session %s 库路由失败（退化为无范围检索，留痕缺失如实）: %s",
+                               session_id, exc)
         if kb_ids:
-            _publish_log(session_id, "info", f"A1 开始：读取 IR0，检索选定知识库（{len(kb_ids)} 个）并解析需求")
+            _publish_log(session_id, "info", f"A1 开始：读取 IR0，检索知识库范围（{len(kb_ids)} 个）并解析需求")
         else:
-            _publish_log(session_id, "info", "A1 开始：读取 IR0，检索知识库（未选库，Agent 自主圈定）并解析需求")
+            _publish_log(session_id, "info", "A1 开始：读取 IR0，无可用知识库范围，无范围检索并解析需求")
 
         agent = A1Agent(llm=llm_adapter, kb_batch=svc.query_batch)
         try:
@@ -220,19 +232,16 @@ def a1_task(self, session_id: str) -> dict:
             # 契约失败不重试（重试也是同样输出）——如实失败
             raise RuntimeError(f"A1 输出未过 IR1 契约: {exc}") from exc
 
-        # 库选择留痕（A-02/A-16）：manual 用会话选定；auto 用路由依据（零命中兜底全部库）
-        if kb_ids:
+        # 库选择留痕（A-02/A-16）：manual 用会话选定；auto 用检索前路由结果（与真实
+        # 使用范围一致）；auto 路由失败 → 留痕缺失如实（不伪造）
+        if auto_selection is not None:
+            ir1["kb_selection"] = auto_selection
+        elif kb_ids:
             ir1["kb_selection"] = {
                 "mode": "manual",
                 "bases": [{"kb_id": k, "kb_name": _kb_name(k), "hits": -1, "selected": True}
                           for k in kb_ids],
             }
-        else:
-            try:
-                sub_queries = ir1.get("sub_queries") or []
-                ir1["kb_selection"] = svc.route_bases(sub_queries)
-            except Exception as exc:
-                logger.warning("session %s 库路由失败（不阻塞管线，留痕缺失如实）: %s", session_id, exc)
 
         version = ir_store.save_snapshot(session_id, "IR1", ir1, created_by="A1")
         ir_store.update_stage(session_id, "A1")
@@ -256,6 +265,14 @@ def _kb_name(kb_id: str) -> str:
         return base["name"] if base else kb_id[:8]
     except Exception:
         return kb_id[:8]
+
+
+def _probe_queries(ir0: dict) -> list[str]:
+    """auto 选库探测查询（T14.8）：IR0 原始需求文本切段——检索发生在 A1 之前，
+    此时还没有 sub_queries，用需求原文逐段探测（每段独立计 hit，合并圈定范围）。"""
+    raw = str((ir0 or {}).get("raw_text") or "")
+    segments = [s.strip() for s in raw.replace("。", "\n").replace("；", "\n").split("\n")]
+    return [s for s in segments if len(s) >= 6][:5] or ([raw.strip()] if raw.strip() else [])
 
 
 @shared_task(bind=True, name="sonarcad.a2", max_retries=TASK_MAX_RETRIES)
@@ -422,9 +439,14 @@ def a5_task(self, session_id: str) -> dict:
             _publish_log(session_id, "info", "A5 开始：从 IR1/IR2/IR4 提炼知识候选（pending，不入图）")
 
         try:
+            # T14.8（审查问题 10）：候选绑定来源版本（旧报告对应的参数不能借新报告入库）
+            source_refs = {
+                "ir2_version": ir_store.get_latest_version(session_id, "IR2"),
+                "ir4_version": ir_store.get_latest_version(session_id, "IR4"),
+            }
             ir5 = A5Agent(
                 llm=llm_adapter, kb=get_knowledge_service(), graph=graph,
-            ).run(ir1, ir2, ir4)
+            ).run(ir1, ir2, ir4, source_refs=source_refs)
         except IrContractError as exc:
             raise RuntimeError(f"A5 输出未过 IR5 契约: {exc}") from exc
 
