@@ -131,7 +131,7 @@ def test_multikb_flow(stack):
         # ---- 4. 会话选库 A（manual）：IR1 引用必须全部归属库 A ----
         project = httpx.get(f"{GATEWAY}/api/v1/projects?page=1&size=1", headers=headers, timeout=15).json()["data"]["records"][0]
         r = httpx.post(f"{GATEWAY}/api/v1/workflow/sessions", headers=headers, json={
-            "projectId": project["id"], "title": f"multikb-manual-{suffix}",
+            "projectId": project["id"], "title": f"mk-manual-{suffix}",  # ≤20 字（workflow 权威校验，2026-09-24）
             "requirement": REQUIREMENT, "kbIds": [base_a],
         }, timeout=30)
         assert r.status_code == 200, r.text
