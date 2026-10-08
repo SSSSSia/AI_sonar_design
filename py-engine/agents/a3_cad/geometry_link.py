@@ -14,8 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from solver.formulas import _first_number
-
-UNIT_TO_MM = {"mm": 1.0, "cm": 10.0, "dm": 100.0, "m": 1000.0}
+from solver.units import LENGTH_TO_MM as UNIT_TO_MM  # T14.3：长度族因子收口单点维护
 
 
 def length_params_mm(params: list[dict[str, Any]]) -> list[tuple[dict[str, Any], float]]:

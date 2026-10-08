@@ -112,10 +112,11 @@
 - DoD：用例 05（100→120→140 终值 140）✅、06（width/length 同值只改目标）✅、11（重复确认走重试路径不追加 IR2 版本）✅——新增 test_t142 12 例，E1 既有 27 例回归绿。
 - Commit：`fix(e1): T14.2 提案应用正确性——多轮取代/按符号同步推导/确认幂等（问题 5/11）`
 
-### T14.3 单位统一模块 ⬜
+### T14.3 单位统一模块 ✅ 已完成（2026-10-08）
 
-- 改动：新 `solver/units.py`、`solver/formulas.py`（symbols 两态+换算+范围）、`solver/recompute.py`、`agents/a4_validation/agent.py`（复算换算）、`cad_agent/param_proposals.py` 与 `agents/a3_cad/geometry_link.py`（收口引 units）、`solver/standards.py`（注释兑现+入口接入）。
-- DoD：用例 01 单测（三写法同结果）；未知单位 → UnresolvableQuantity → 上游"未验证"消息；既有公式测试回归绿。
+- 改动：新 `solver/units.py`（Quantity 解析 + 同族换算 + UnresolvableQuantity；length/frequency/level/speed/dimensionless 五族，节=kn 按 1852m/h 精确注册）；`formulas.py`（symbols 升级 `{"desc","unit"}` 机器可读登记、available_inputs 单位感知、min/max 字段预留暂不造数）；`intervals.py`（候选池单位感知）；`geometry_link.py` UNIT_TO_MM 收口至 `units.LENGTH_TO_MM`；`standards.py` 长度族 value 绑定统一换算 mm（「单位换算列二期」注释兑现）。
+- 口径（A-14/A-16 如实）：裸数值按符号登记单位直取（v0.6 前契约兼容）；带单位同族换算；未知单位/范围表达/数字后未识别内容一律 UnresolvableQuantity→候选剔除。**本期修"产出侧"（A2 公式计算/区间传播/军标 value 绑定）；"验证侧"（A4 复算取数源）随 T14.7 切换**。
+- DoD：用例 01 ✅（20 mm/2 cm/0.02 m 同归一值、f_beam 均 37500——审查原始探针复现用例转绿）；未知单位/范围拒绝 ✅；新增 test_t143 19 例；**py 全量 410 passed 1 skipped 零破坏**。
 - Commit：`feat(solver): T14.3 单位统一模块——量纲解析换算收口+公式单位登记（问题 1）`
 
 ### T14.4 校验状态学与验证覆盖率 ⬜

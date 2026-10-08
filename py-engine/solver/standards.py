@@ -11,7 +11,9 @@ T9.3 求值口径（PHASE-009 §2.3）：
   解析/求值失败 → 按"登记待补"如实降级，不硬失败。
 - 符号表 = IR2 各参数 derivation 的 "符号=数值" 记录（与公式复算同源，
   solver/recompute.parse_inputs_from_derivation）+ value（命中参数的登记值）。
-  单位由条目录入者自行对齐（demo 条目已对齐；单位换算接入列二期）。
+  T14.3 兑现「单位换算接入」：长度族参数的 value 换算到 mm 再绑定（demo 条目
+  长度口径为 mm，"0.02 m" 不再被当成 0.02mm 参与判定）；其余族/裸值按原值——
+  推导文本符号仍为原始数值（T14.7 切换取数源后一并结构化）。
 - 求值安全：parse_expr 限定受限 global_dict（禁 builtins/禁 import），只放行数学函数。
 """
 
@@ -22,6 +24,7 @@ from typing import Any, Callable
 
 import sympy
 
+from solver import units
 from solver.recompute import parse_inputs_from_derivation
 
 
@@ -126,7 +129,12 @@ def _symbol_table(param: dict[str, Any], all_params: list[dict[str, Any]]) -> di
         table[sym] = val  # 命中参数自身登记覆盖
     own = _num(param.get("value"))
     if own is not None:
-        table["value"] = own
+        unit = str(param.get("unit") or "").strip().lower()
+        try:
+            # T14.3：长度族登记值统一换算到 mm 再绑定（demo 条目长度口径 mm）
+            table["value"] = units.convert(own, unit, "mm") if units.unit_kind(unit) == "length" else own
+        except units.UnresolvableQuantity:
+            table["value"] = own  # 未知单位按原值绑定（覆盖面边界如实，A-16）
     return table
 
 

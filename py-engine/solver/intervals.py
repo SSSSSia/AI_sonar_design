@@ -10,7 +10,8 @@ from __future__ import annotations
 from itertools import product
 from typing import Any
 
-from solver.formulas import REGISTRY, SYMBOL_ALIASES, _first_number
+from solver import units
+from solver.formulas import REGISTRY, SYMBOL_ALIASES
 
 # 组合爆炸保护：候选组合超过该值时按符号均匀截断
 MAX_COMBOS = 500
@@ -22,16 +23,19 @@ def candidate_pools(params: list[dict[str, Any]]) -> dict[str, list[dict[str, An
     """从 IR2 参数表中归拢 case/estimated 数值候选：符号 -> [{value, param_id, source_type}]。
 
     formula/standard 参数不进候选池（formula 是被校验对象，standard 不提供数值）。
+    T14.3 单位感知：值带单位按符号登记单位换算；不可解析/量纲冲突剔除（宁缺勿错）。
     """
     pools: dict[str, list[dict[str, Any]]] = {}
     for p in params or []:
         if p.get("source_type") not in ("case", "estimated"):
             continue
-        value = _first_number(p.get("value"))
-        if value is None:
-            continue
         symbol = SYMBOL_ALIASES.get(p.get("name") or "", p.get("name"))
         if symbol not in _ALL_SYMBOLS:
+            continue
+        spec = next((sp for sp in REGISTRY.values() if symbol in sp.symbols), None)
+        try:
+            value = units.to_symbol_unit(p.get("value"), spec.symbol_unit(symbol) if spec else "")
+        except units.UnresolvableQuantity:
             continue
         pools.setdefault(symbol, []).append({
             "value": value,
