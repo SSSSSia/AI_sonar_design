@@ -13,6 +13,7 @@ import type { DesignSession } from '../api/types'
 import { useSessionSockets } from '../hooks/useSessionSockets'
 import { useProgressStore, useWsStatusStore, type SessionProgress } from '../stores/progressStore'
 import { useAuthStore } from '../stores/authStore'
+import { searchLogs, type LogRow } from '../api/logs'
 import { stageLabel } from '../lib/stageLabel'
 import EChart, { CHART_COLORS } from '../components/EChart'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -72,6 +73,67 @@ function StatCard({ title, value, suffix, orb, valueStyle }: {
         }}
       />
       <Statistic title={title} value={value} suffix={suffix} valueStyle={valueStyle} />
+    </Card>
+  )
+}
+
+/** U3.11 Agent 执行日志面板（admin）：跨会话最近运行日志（T12.5 /logs/search 为
+ *  admin-only 跨会话遥测，非 admin 不渲染本面板——A-16 不展示无权内容）。
+ *  30s 轮询（mockup 原设想 WS 为会话级通道，跨会话聚合走 API 轮询，如实说明）。 */
+const LOG_LEVEL_COLOR: Record<string, string> = {
+  ok: 'green', info: 'default', warn: 'orange', error: 'red',
+}
+
+function AgentLogPanel() {
+  const navigate = useNavigate()
+  const q = useQuery({
+    queryKey: ['dash-agent-logs'],
+    queryFn: () => searchLogs({ limit: 15, hours: 24 * 7 }),
+    refetchInterval: 30_000,
+    retry: false,
+  })
+  const rows: LogRow[] = q.data?.logs ?? []
+  return (
+    <Card
+      title="Agent 执行日志"
+      extra={
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          跨会话最近执行 · 30s 刷新 · 点击直达会话
+        </Typography.Text>
+      }
+      styles={{ body: { padding: '4px 0' } }}
+      style={{ marginBottom: 16 }}
+    >
+      {q.isError ? (
+        <Typography.Text type="secondary" style={{ display: 'block', padding: 16, fontSize: 12 }}>
+          日志服务暂不可达（跨会话日志为 admin 遥测能力，故障不仪表盘其余部分）
+        </Typography.Text>
+      ) : rows.length === 0 ? (
+        <Typography.Text type="secondary" style={{ display: 'block', padding: 16, fontSize: 12 }}>
+          近 7 天无 Agent 运行日志（日志留存功能上线前的历史会话无记录，如实为空）
+        </Typography.Text>
+      ) : (
+        rows.map((r) => (
+          <div
+            key={r.id}
+            onClick={() => navigate(`/sessions/${r.session_id}`)}
+            style={{
+              display: 'flex', alignItems: 'baseline', gap: 8, padding: '7px 16px',
+              borderBottom: '1px solid var(--hairline)', cursor: 'pointer', fontSize: 12.5,
+            }}
+          >
+            <Tag color={LOG_LEVEL_COLOR[r.level] ?? 'default'} style={{ marginInlineEnd: 0, flex: 'none', fontSize: 11 }}>
+              {r.kind || r.level}
+            </Tag>
+            <span style={{ color: 'var(--text-2)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.text}
+            </span>
+            <span className="mono" style={{ marginLeft: 'auto', flex: 'none', color: 'var(--text-3)', fontSize: 11 }}>
+              {r.created_at ? dayjs(r.created_at).format('MM-DD HH:mm:ss') : ''}
+            </span>
+          </div>
+        ))
+      )}
     </Card>
   )
 }
@@ -436,6 +498,8 @@ export default function DashboardPage() {
           </Card>
         </div>
       )}
+
+      {isAdmin && <AgentLogPanel />}
 
       <Card
         title="设计会话"
