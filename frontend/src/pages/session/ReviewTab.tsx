@@ -603,7 +603,7 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
             locale={{ emptyText: '无特征（降级产物）' }}
           />
           {summary?.source === 'extracted' && summary.bbox_mm && (
-            <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f0f0', fontSize: 12.5, color: '#595959' }}>
+            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12.5, color: 'var(--text-2)' }}>
               整体：{summary.part_count ?? '—'} 段 · 总包围盒{' '}
               {summary.bbox_mm.map((v) => fmtMm(v)).join(' × ')} mm
               {typeof summary.volume_mm3 === 'number' && summary.volume_mm3 > 0 ? ` · ${fmtVol(summary.volume_mm3)}` : ''}
