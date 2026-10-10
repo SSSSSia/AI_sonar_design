@@ -42,9 +42,9 @@ function BaseListPane({ bases, activeKey, onPick, loading, onCreate }: {
           }}
         >
           <div style={{ fontWeight: activeKey === 'pool' ? 600 : 400 }}>文档池</div>
-          <div style={{ fontSize: 11, color: '#8b949e' }}>全部文档与未归库</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>全部文档与未归库</div>
         </div>
-        {loading && <div style={{ padding: 10, fontSize: 12, color: '#8b949e' }}>加载中…</div>}
+        {loading && <div style={{ padding: 10, fontSize: 12, color: 'var(--text-3)' }}>加载中…</div>}
         {bases.map((b) => (
           <div
             key={b.id}
@@ -60,7 +60,7 @@ function BaseListPane({ bases, activeKey, onPick, loading, onCreate }: {
               </span>
               {b.is_default && <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>默认</Tag>}
             </div>
-            <div style={{ fontSize: 11, color: '#8b949e' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
               {b.documents ?? 0} 份文档 · {(b.indexed ?? 0) === (b.documents ?? 0) && (b.documents ?? 0) > 0 ? '全部入索引' : `已入索引 ${b.indexed ?? 0}`}
             </div>
           </div>
@@ -74,7 +74,7 @@ function BaseDetail({ base, onEdit }: { base: KbBase | null; onEdit: (b: KbBase)
   if (!base) {
     return (
       <Card size="small">
-        <div style={{ padding: 40, textAlign: 'center', color: '#8b949e', fontSize: 13 }}>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
           未归库文档不参与检索——左侧选择知识库查看其内容，或把文档归入知识库以恢复检索。
         </div>
       </Card>

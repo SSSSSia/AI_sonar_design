@@ -37,11 +37,11 @@ export function CandidateContent({ candidate }: { candidate: Ir5Candidate }) {
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12.5 }}>
           <b>{from.name ?? '？'}</b>
-          <span style={{ color: '#57606a', margin: '0 6px' }}>—{relLabel(relation)}→</span>
+          <span style={{ color: 'var(--text-2)', margin: '0 6px' }}>—{relLabel(relation)}→</span>
           <b>{to.name ?? '？'}</b>
         </div>
         {context && (
-          <div style={{ fontSize: 11.5, color: '#8b949e', marginTop: 2, overflowWrap: 'anywhere' }}>└ {context}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2, overflowWrap: 'anywhere' }}>└ {context}</div>
         )}
       </div>
     )
@@ -58,8 +58,8 @@ export function CandidateContent({ candidate }: { candidate: Ir5Candidate }) {
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 12.5, fontWeight: 500 }}>{name || '（未命名）'}</div>
-      {expr && <div className="mono" style={{ fontSize: 11, color: '#57606a', marginTop: 2 }}>{expr}</div>}
-      {sub && <div style={{ fontSize: 11.5, color: '#8b949e', marginTop: 2, overflowWrap: 'anywhere' }}>└ {sub}</div>}
+      {expr && <div className="mono" style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>{expr}</div>}
+      {sub && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2, overflowWrap: 'anywhere' }}>└ {sub}</div>}
     </div>
   )
 }
