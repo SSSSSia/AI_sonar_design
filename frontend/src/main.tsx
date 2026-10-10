@@ -4,7 +4,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { App as AntdApp, ConfigProvider } from 'antd'
+import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd'
 import type { ThemeConfig } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
@@ -15,68 +15,75 @@ import './styles/theme.css'
 
 dayjs.locale('zh-cn')
 
-// 风格基线（宪法 §7.3 + PHASE-004 §2.5）：浅色中性生产力美学；
-// 主蓝仅用于交互语义元素，语义色/灰阶与 docs/mockups/mockup.css 同源。
+// 风格基线（宪法 §7.3 + ADR-011，2026-10-10 起）：深色海洋科技风；
+// 交互 accent 青 #06b6d4 仅用于可操作语义元素，语义四色不用于装饰。
+// token 与 docs/mockups/mockup.css 及 styles/theme.css 同源。
 const theme: ThemeConfig = {
+  algorithm: antdTheme.darkAlgorithm,
   token: {
-    colorPrimary: '#2563eb',
-    colorInfo: '#2563eb',
-    colorLink: '#2563eb',
-    colorSuccess: '#2b8a3e',
-    colorWarning: '#d97706',
-    colorError: '#c92a2a',
-    colorText: '#1f2329',
-    colorTextSecondary: '#57606a',
-    colorTextTertiary: '#8b949e',
-    colorTextQuaternary: '#8b949e',
-    colorBorder: '#e5e7eb',
-    colorBorderSecondary: '#f0f1f3',
-    colorSplit: '#f0f1f3',
-    colorBgLayout: '#f5f6f8',
-    colorBgContainer: '#ffffff',
+    colorPrimary: '#06b6d4',
+    colorInfo: '#06b6d4',
+    colorLink: '#06b6d4',
+    colorSuccess: '#10b981',
+    colorWarning: '#f59e0b',
+    colorError: '#ef4444',
+    colorText: '#e2e8f0',
+    colorTextSecondary: '#94a3b8',
+    colorTextTertiary: '#64748b',
+    colorTextQuaternary: '#475569',
+    colorBorder: 'rgba(148, 163, 184, .30)',
+    colorBorderSecondary: 'rgba(148, 163, 184, .14)',
+    colorSplit: 'rgba(255, 255, 255, .05)',
+    colorBgLayout: '#070f1e',
+    colorBgContainer: '#0f2035',
+    colorBgElevated: '#14263f',
     borderRadius: 6,
     fontFamily:
       "-apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif",
     fontSize: 13,
     controlHeight: 30,
-    boxShadow: '0 4px 14px rgba(31, 35, 41, .08), 0 1px 3px rgba(31, 35, 41, .05)',
-    boxShadowSecondary: '0 8px 24px rgba(31, 35, 41, .10)',
+    boxShadow: '0 4px 14px rgba(0, 0, 0, .4), 0 1px 3px rgba(0, 0, 0, .3)',
+    boxShadowSecondary: '0 8px 24px rgba(0, 0, 0, .5)',
   },
   components: {
-    Layout: { siderBg: '#fafbfc', headerBg: '#ffffff', headerHeight: 52, bodyBg: '#f5f6f8' },
+    Layout: { siderBg: 'transparent', headerBg: 'rgba(7, 15, 30, .9)', headerHeight: 52, bodyBg: '#070f1e' },
     Menu: {
       itemBg: 'transparent',
-      itemColor: '#57606a',
-      itemHoverBg: '#f0f1f3',
-      itemHoverColor: '#1f2329',
-      itemSelectedBg: '#eef2fe',
-      itemSelectedColor: '#2563eb',
+      itemColor: '#94a3b8',
+      itemHoverBg: 'rgba(255, 255, 255, .05)',
+      itemHoverColor: '#e2e8f0',
+      itemSelectedBg: 'rgba(6, 182, 212, .14)',
+      itemSelectedColor: '#06b6d4',
       itemHeight: 34,
       itemMarginInline: 8,
       itemBorderRadius: 6,
     },
     Table: {
-      headerBg: '#fcfcfd',
-      headerColor: '#57606a',
+      headerBg: '#0a1628',
+      headerColor: '#94a3b8',
       headerSplitColor: 'transparent',
-      rowHoverBg: '#f7f9fd',
-      borderColor: '#f0f1f3',
+      rowHoverBg: 'rgba(6, 182, 212, .06)',
+      borderColor: 'rgba(255, 255, 255, .05)',
       cellPaddingBlock: 9,
     },
     Card: { headerFontSize: 13.5 },
     Statistic: { titleFontSize: 12, contentFontSize: 22 },
     Tabs: {
       titleFontSize: 13,
-      inkBarColor: '#2563eb',
-      itemSelectedColor: '#1f2329',
-      itemColor: '#57606a',
-      itemHoverColor: '#1f2329',
+      inkBarColor: '#06b6d4',
+      itemSelectedColor: '#e2e8f0',
+      itemColor: '#94a3b8',
+      itemHoverColor: '#e2e8f0',
     },
-    Tag: { defaultBg: '#f0f1f3' },
+    Tag: { defaultBg: 'rgba(148, 163, 184, .12)', defaultColor: '#94a3b8' },
     Badge: { fontSize: 11 },
-    Button: { primaryShadow: 'none', defaultShadow: 'none', dangerShadow: 'none' },
-    Progress: { remainingColor: '#edeff2' },
-    Input: { activeShadow: '0 0 0 2px rgba(37, 99, 235, .12)' },
+    Button: {
+      primaryShadow: '0 0 12px rgba(6, 182, 212, .30)',
+      defaultShadow: 'none',
+      dangerShadow: 'none',
+    },
+    Progress: { remainingColor: 'rgba(255, 255, 255, .08)' },
+    Input: { activeShadow: '0 0 0 2px rgba(6, 182, 212, .18)' },
   },
 }
 
