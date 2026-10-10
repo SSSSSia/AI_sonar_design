@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { App, Badge, Button, Card, Empty, Grid, List, Popconfirm, Progress, Select, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { App, Badge, Button, Card, Empty, Grid, List, Popconfirm, Progress, Select, Space, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -14,6 +14,8 @@ import { useSessionSockets } from '../hooks/useSessionSockets'
 import { useProgressStore, useWsStatusStore, type SessionProgress } from '../stores/progressStore'
 import { useAuthStore } from '../stores/authStore'
 import { stageLabel } from '../lib/stageLabel'
+import EChart, { CHART_COLORS } from '../components/EChart'
+import type { EChartsCoreOption } from 'echarts/core'
 
 dayjs.extend(relativeTime)
 
@@ -51,12 +53,37 @@ function StatusTag({ row }: { row: Row }) {
   )
 }
 
+/** 统计卡（ADR-011）：渐变卡底 + 右上角彩色模糊光斑（装饰限定于统计卡，语义色由数值区表达） */
+function StatCard({ title, value, suffix, orb, valueStyle }: {
+  title: string
+  value: string | number
+  suffix?: React.ReactNode
+  /** 光斑色（装饰）；仅取语义/交互色，不做随机色 */
+  orb: string
+  valueStyle?: React.CSSProperties
+}) {
+  return (
+    <Card styles={{ body: { padding: '14px 16px', position: 'relative', overflow: 'hidden' } }} style={{ background: 'var(--card-grad)', borderColor: 'var(--border)' }}>
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute', top: -18, right: -18, width: 76, height: 76, borderRadius: '50%',
+          background: orb, opacity: .13, filter: 'blur(22px)', pointerEvents: 'none',
+        }}
+      />
+      <Statistic title={title} value={value} suffix={suffix} valueStyle={valueStyle} />
+    </Card>
+  )
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate()
   const screens = useBreakpoint()
   const { message } = App.useApp()
   const queryClient = useQueryClient()
   const isAdmin = useAuthStore((s) => s.roles.includes('admin'))
+  const displayName = useAuthStore((s) => s.displayName)
+  const username = useAuthStore((s) => s.username)
   const [refreshKey, setRefreshKey] = useState(0)
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([])
@@ -153,20 +180,101 @@ export default function DashboardPage() {
     return { tone: 'default' as const, text: 'WS 未连接 · 轮询对账中' }
   }, [activeSids, wsStatus])
 
-  // 会话行：WS 进度比列表快照新时用实时值覆盖展示
-  const rows: Row[] = sessions.map((s) => {
+  // 会话行：WS 进度比列表快照新时用实时值覆盖展示。
+  // useMemo 必须稳定（rows 是图表 option 的依赖）：否则每次渲染都新建 option，
+  // EChart 的 notMerge setOption 会反复重启饼图入场动画（实测弧段停在起始小扇区）。
+  const rows: Row[] = useMemo(() => sessions.map((s) => {
     const live = liveProgress[s.id]
     if (live && live.updatedAt > dayjs(s.updatedAt).valueOf()) {
       return { ...s, live, displayStatus: live.status }
     }
     return { ...s, displayStatus: s.pipelineStatus }
-  })
+  }), [sessions, liveProgress])
 
   // 状态筛选（审查 P1-3）：全部/进行中/待审阅/已完成/失败
   const filtered: Row[] = statusFilter === 'all' ? rows : rows.filter((r) => r.displayStatus === statusFilter)
   // 运行中但长时间无进展：如实标注，不臆断失败（审查 P1-3）
   const staleHour = 1
   const isStale = (r: Row) => r.displayStatus === 'running' && !r.live && dayjs().diff(dayjs(r.updatedAt), 'hour') >= staleHour
+
+  // ---- ADR-011 图表（全部由真实会话记录聚合，无 mock 数据；A-16） ----
+  // 近 7 天活动趋势：按 updatedAt 逐日聚合并同时统计其中完成数（客户端口径，如实展示）
+  const trend = useMemo(() => {
+    const days: { day: string; updates: number; completed: number }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = dayjs().subtract(i, 'day')
+      const key = d.format('YYYY-MM-DD')
+      days.push({
+        day: d.format('MM-DD'),
+        updates: sessions.filter((s) => dayjs(s.updatedAt).format('YYYY-MM-DD') === key).length,
+        completed: sessions.filter((s) => s.pipelineStatus === 'completed' && dayjs(s.updatedAt).format('YYYY-MM-DD') === key).length,
+      })
+    }
+    return days
+  }, [sessions])
+
+  const trendOption: EChartsCoreOption = {
+    // 20s 轮询会触发 setOption：关动画避免折线反复重画（仪器面板求稳）
+    animation: false,
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['会话更新', '其中完成'], textStyle: { color: CHART_COLORS.text2 }, top: 0, itemWidth: 14, itemHeight: 8 },
+    grid: { left: 36, right: 16, top: 34, bottom: 26 },
+    xAxis: {
+      type: 'category', data: trend.map((d) => d.day), boundaryGap: false,
+      axisLine: { lineStyle: { color: CHART_COLORS.split } }, axisLabel: { color: CHART_COLORS.text3 },
+    },
+    yAxis: {
+      type: 'value', minInterval: 1,
+      splitLine: { lineStyle: { color: CHART_COLORS.split } }, axisLabel: { color: CHART_COLORS.text3 },
+    },
+    series: [
+      {
+        name: '会话更新', type: 'line', smooth: true, symbolSize: 6,
+        data: trend.map((d) => d.updates), itemStyle: { color: CHART_COLORS.accent },
+        areaStyle: { color: 'rgba(6, 182, 212, .12)' },
+      },
+      {
+        name: '其中完成', type: 'line', smooth: true, symbolSize: 6,
+        data: trend.map((d) => d.completed), itemStyle: { color: CHART_COLORS.ok },
+      },
+    ],
+  }
+
+  // 状态分布（环形）：会话五态 + 降级，0 值项不显示
+  const statusDist = useMemo(() => {
+    const order: [string, string, string][] = [
+      ['pending', '待启动', CHART_COLORS.text3],
+      ['running', '运行中', CHART_COLORS.accent],
+      ['paused', '待审阅', CHART_COLORS.warn],
+      ['completed', '已完成', CHART_COLORS.ok],
+      ['failed', '失败', CHART_COLORS.err],
+      ['degraded', '降级完成', CHART_COLORS.info],
+    ]
+    return order
+      .map(([k, name, color]) => ({
+        name,
+        value: rows.filter((r) => r.displayStatus === k).length,
+        itemStyle: { color },
+      }))
+      .filter((d) => d.value > 0)
+  }, [rows])
+
+  const distOption: EChartsCoreOption = {
+    // 静态状态卡：关入场动画（配合 option 引用稳定，杜绝动画重启导致的空弧/小扇区瞬态）
+    animation: false,
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, textStyle: { color: CHART_COLORS.text2 }, itemWidth: 10, itemHeight: 10, icon: 'circle' },
+    series: [{
+      type: 'pie',
+      // 像素半径（相对容器 230px 高定值），不随容器量测时序漂移
+      radius: [52, 78],
+      center: ['50%', '45%'],
+      label: { color: CHART_COLORS.text2, formatter: '{b} {c}' },
+      labelLine: { lineStyle: { color: CHART_COLORS.split } },
+      itemStyle: { borderColor: '#0f2035', borderWidth: 2 },
+      data: statusDist,
+    }],
+  }
 
   const columns: TableProps<Row>['columns'] = [
     {
@@ -209,7 +317,7 @@ export default function DashboardPage() {
             />
           )}
           {isStale(r) && (
-            <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>长时间无进展 · 最近更新 {dayjs(r.updatedAt).fromNow()}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>长时间无进展 · 最近更新 {dayjs(r.updatedAt).fromNow()}</div>
           )}
         </div>
       ),
@@ -244,7 +352,7 @@ export default function DashboardPage() {
                 okButtonProps={{ danger: true }}
                 onConfirm={() => removeSession(r)}
               >
-                <a style={{ color: '#c92a2a' }}>删除</a>
+                <a style={{ color: '#ef4444' }}>删除</a>
               </Popconfirm>
             )}
           </span>
@@ -272,22 +380,62 @@ export default function DashboardPage() {
           ]}
         />
         <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>刷新</Button>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate(projectFilter !== 'all' ? `/sessions/new?project=${projectFilter}` : '/sessions/new')}>
-          新建会话
-        </Button>
+      </div>
+
+      {/* 欢迎横幅（ADR-011：网格纹理装饰仅限横幅；快捷入口为真实路由） */}
+      <div
+        className="grid-texture"
+        style={{
+          position: 'relative', overflow: 'hidden', borderRadius: 10, border: '1px solid var(--border)',
+          background: 'linear-gradient(135deg, #0f2035 0%, #0a1628 65%)',
+          padding: screens.md ? '20px 24px' : '16px',
+          marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <div style={{ fontSize: 18, fontWeight: 600 }}>
+            欢迎回来，{displayName || username}
+          </div>
+          <div style={{ color: 'var(--text-2)', fontSize: 12.5, marginTop: 4 }}>
+            把一页需求，变成可审阅、可溯源的声呐装备设计。
+          </div>
+        </div>
+        <Space wrap>
+          <Button onClick={() => navigate('/projects')}>管理项目</Button>
+          <Button
+            type="primary" icon={<PlusOutlined />}
+            onClick={() => navigate(projectFilter !== 'all' ? `/sessions/new?project=${projectFilter}` : '/sessions/new')}
+          >
+            新建设计会话
+          </Button>
+        </Space>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: screens.md ? 'repeat(5, 1fr)' : '1fr', gap: 16, marginBottom: 16 }}>
-        <Card styles={{ body: { padding: '14px 16px' } }}><Statistic title="设计会话" value={stats.total} /></Card>
-        <Card styles={{ body: { padding: '14px 16px' } }}><Statistic title="进行中" value={stats.running} /></Card>
-        <Card styles={{ body: { padding: '14px 16px' } }}>
-          <Statistic title="待审阅" value={stats.paused} valueStyle={stats.paused > 0 ? { color: '#d97706' } : undefined} />
-        </Card>
-        <Card styles={{ body: { padding: '14px 16px' } }}><Statistic title="已完成" value={stats.completed} /></Card>
-        <Card styles={{ body: { padding: '14px 16px' } }}>
-          <Statistic title="知识文档" value={kbQuery.data?.documents ?? '—'} suffix={kbQuery.data?.documents != null ? <span style={{ fontSize: 12, color: '#8b949e' }}>· {kbQuery.data.chunks ?? '—'} 块</span> : undefined} />
-        </Card>
+        <StatCard title="设计会话" value={stats.total} orb={CHART_COLORS.accent} />
+        <StatCard title="进行中" value={stats.running} orb={CHART_COLORS.accent2} />
+        <StatCard
+          title="待审阅" value={stats.paused} orb={CHART_COLORS.warn}
+          valueStyle={stats.paused > 0 ? { color: '#f59e0b' } : undefined}
+        />
+        <StatCard title="已完成" value={stats.completed} orb={CHART_COLORS.ok} />
+        <StatCard
+          title="知识文档" value={kbQuery.data?.documents ?? '—'} orb={CHART_COLORS.info}
+          suffix={kbQuery.data?.documents != null ? <span style={{ fontSize: 12, color: 'var(--text-3)' }}>· {kbQuery.data.chunks ?? '—'} 块</span> : undefined}
+        />
       </div>
+
+      {/* 活动趋势 + 状态分布（会话为空时如实给空态，不画空图） */}
+      {sessions.length === 0 ? null : (
+        <div style={{ display: 'grid', gridTemplateColumns: screens.md ? '2fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
+          <Card title="近 7 天会话活动" styles={{ body: { paddingTop: 8 } }}>
+            <EChart option={trendOption} height={230} />
+          </Card>
+          <Card title="会话状态分布" styles={{ body: { paddingTop: 8 } }}>
+            <EChart option={distOption} height={230} />
+          </Card>
+        </div>
+      )}
 
       <Card
         title="设计会话"
@@ -319,7 +467,7 @@ export default function DashboardPage() {
         ) : screens.md ? (
           <>
             {isAdmin && selectedKeys.length > 0 && (
-              <div className="row" style={{ padding: '8px 4px', background: '#f7f9fd', borderRadius: 6, margin: '8px 0' }}>
+              <div className="row" style={{ padding: '8px 4px', background: 'rgba(6,182,212,.06)', borderRadius: 6, margin: '8px 0' }}>
                 <Typography.Text style={{ fontSize: 12.5 }}>已选 <b>{selectedKeys.length}</b> 项会话</Typography.Text>
                 <span style={{ flex: 1 }} />
                 <Button size="small" onClick={() => setSelectedKeys([])}>取消选择</Button>
