@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { App, Alert, Button, Card, Grid, Input, Modal, Radio, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { App, Alert, Button, Card, Drawer, Grid, Input, Modal, Radio, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
 import { ApiError, getBlob } from '../../api/client'
@@ -263,11 +263,11 @@ export function ReportTab({
                   <EChart option={severityChartOption(ir4.issues)} height={Math.max(140, ir4.issues.length * 24)} />
                 </Card>
                 <div style={{ minWidth: 0 }}>
-                  <IssueGroups issues={ir4.issues} />
+                  <IssueExplorer issues={ir4.issues} />
                 </div>
               </div>
             ) : (
-              <IssueGroups issues={ir4.issues} />
+              <IssueExplorer issues={ir4.issues} />
             )}
           </>
         )}
@@ -369,7 +369,78 @@ function SpaceForButtons({ children }: { children: React.ReactNode }) {
   return <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>{children}</div>
 }
 
-function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
+/** U3.12 一致性检查交互化：风险汇总卡（可点筛选）+ 问题卡片 + 详情抽屉。
+ *  分布图与分组列表保留（真实数据）；无「AI 修复建议」——无对应能力不放假按钮（A-16）。 */
+function IssueExplorer({ issues }: { issues: Ir4Issue[] }) {
+  const [filter, setFilter] = useState<Ir4Issue['severity'] | null>(null)
+  const [picked, setPicked] = useState<Ir4Issue | null>(null)
+  const order: Ir4Issue['severity'][] = ['error', 'warning', 'unverified', 'info']
+  const counts = Object.fromEntries(order.map((s) => [s, issues.filter((i) => i.severity === s).length])) as Record<string, number>
+  const chipColor: Record<string, string> = { error: '#ef4444', warning: '#f59e0b', unverified: '#94a3b8', info: '#64748b' }
+  const filtered = filter ? issues.filter((i) => i.severity === filter) : issues
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div
+          onClick={() => setFilter(null)}
+          style={{ cursor: 'pointer', border: `1px solid ${filter === null ? 'rgba(6,182,212,.5)' : 'var(--border)'}`, background: filter === null ? 'var(--accent-bg)' : 'transparent', borderRadius: 8, padding: '8px 14px', minWidth: 96 }}
+        >
+          <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{issues.length}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-2)' }}>全部问题</div>
+        </div>
+        {order.map((sev) => (
+          <div
+            key={sev}
+            onClick={() => setFilter(filter === sev ? null : sev)}
+            style={{ cursor: 'pointer', border: `1px solid ${filter === sev ? 'rgba(6,182,212,.5)' : 'var(--border)'}`, background: filter === sev ? 'var(--accent-bg)' : 'transparent', borderRadius: 8, padding: '8px 14px', minWidth: 96 }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, color: counts[sev] > 0 ? chipColor[sev] : 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>{counts[sev]}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-2)' }}>{SEVERITY_META[sev].label}{sev === 'error' ? ' · 任一即 fail' : ''}</div>
+          </div>
+        ))}
+      </div>
+      <IssueGroups issues={filtered} onPick={setPicked} />
+      <Drawer
+        title={picked ? <span>{checkLabel(picked.constraint_id)} <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>{picked.constraint_id}</span></span> : '问题详情'}
+        width={440}
+        open={!!picked}
+        onClose={() => setPicked(null)}
+      >
+        {picked && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div><Tag color={SEVERITY_META[picked.severity]?.color ?? 'default'}>{SEVERITY_META[picked.severity]?.label ?? picked.severity}</Tag>
+              {picked.suggestion && <Tag color="warning">建议 {picked.suggestion.replace('back_to_', '回退 ')}</Tag>}</div>
+            {picked.message && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>说明</Typography.Text>
+                <div style={{ fontSize: 12.5, lineHeight: 1.8, color: 'var(--text-2)' }}>{picked.message}</div>
+              </div>
+            )}
+            {(() => {
+              const params = [...new Set((picked.related_params ?? []).filter(Boolean))]
+              const feats = [...new Set((picked.related_features ?? []).filter(Boolean))]
+              if (!params.length && !feats.length) return null
+              return (
+                <div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>关联对象</Typography.Text>
+                  <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 2 }}>
+                    {params.length > 0 && <div>参数：{params.join('、')}</div>}
+                    {feats.length > 0 && <div>特征：{feats.join('、')}</div>}
+                  </div>
+                </div>
+              )
+            })()}
+            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+              修复动作由人工裁决（A-09：A4 只报告不改参数）；整改走审阅关驳回或参数更新，本抽屉不提供自动修复。
+            </Typography.Text>
+          </div>
+        )}
+      </Drawer>
+    </div>
+  )
+}
+
+function IssueGroups({ issues, onPick }: { issues: Ir4Issue[]; onPick?: (i: Ir4Issue) => void }) {
   const order: Ir4Issue['severity'][] = ['error', 'warning', 'unverified', 'info']
   const groups = order
     .map((sev) => ({ sev, items: issues.filter((i) => i.severity === sev) }))
@@ -386,7 +457,11 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
           </Typography.Text>
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {g.items.map((i) => (
-              <div key={i.constraint_id} style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${g.sev === 'error' ? '#ef4444' : g.sev === 'warning' ? '#f59e0b' : g.sev === 'unverified' ? '#94a3b8' : '#475569'}`, borderRadius: 6, padding: '8px 12px' }}>
+              <div
+                key={i.constraint_id}
+                onClick={onPick ? () => onPick(i) : undefined}
+                style={{ cursor: onPick ? 'pointer' : undefined, border: '1px solid var(--border)', borderLeft: `3px solid ${g.sev === 'error' ? '#ef4444' : g.sev === 'warning' ? '#f59e0b' : g.sev === 'unverified' ? '#94a3b8' : '#475569'}`, borderRadius: 6, padding: '8px 12px' }}
+              >
                 <div style={{ fontSize: 12.5 }}>
                   <Tag color={SEVERITY_META[g.sev].color} style={{ marginInlineEnd: 6 }}>{checkLabel(i.constraint_id)}</Tag>
                   <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)', marginRight: 6 }}>{i.constraint_id}</span>
