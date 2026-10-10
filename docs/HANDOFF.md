@@ -114,6 +114,7 @@
   - 请求务必带 `temperature: 0`（否则同一图像识别结果不稳定）；单页 ~1250 vision tokens、~2s
   - 测试造"扫描件"：PIL 黑白模式（"1"）多页图像直接 save 成 PDF（RGB 模式的 PDF 保存需要 JPEG 编码器，本机 Pillow 没有）
 - **py-engine uvicorn 挂死与重启（2026-09-19 实发）**：uvicorn 事件循环可能整体挂死（端口 LISTENING、连接 ESTABLISHED 但零响应，健康检查也挂）；**重启必须 `cd py-engine && bash -c 'set -a; source ../.env; set +a; python -m uvicorn api.main:app --host 127.0.0.1 --port 8090'`——漏 source .env 时 PG 报 `fe_sendauth: no password supplied` 全接口 500**；本机 curl 探测一律用 `127.0.0.1`（`localhost` 解析 IPv6 不可靠）
+- **宿主模式 target jar 过期编译陷阱（2026-10-10 实发，UI-3 阶段 0）**：`biz/target/*.jar` 增量打包可能漏编改动类（实例：jar 内 `BizApplication.class` 的 `@MapperScan` 缺 `audit` 包 → biz 启动即 `UnsatisfiedDependencyException: AuditMapper` → 8083 起不来、项目域全 500；容器模式 Docker 内重编不受影响）。**改 Java 代码后宿主启动用 `mvn clean package -pl <模块> -DskipTests` 全量重编**；biz 独立可 `-pl biz` 单编（无兄弟模块依赖）。另：FreeCAD 插件测试须 `PYTHONPATH=SonarCADLink python -m pytest tests`（无 conftest，裸跑 ModuleNotFoundError）
 
 ## 工作约定速记（全文见宪法 CONST-001）
 
