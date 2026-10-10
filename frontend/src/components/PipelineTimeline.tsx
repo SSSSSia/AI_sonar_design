@@ -37,12 +37,12 @@ export function buildTimeline(currentStage: string | null | undefined, status: s
 
 /** 颜色即状态语义：蓝=进行中/已通过，琥珀=待人工裁决，红=失败，灰=未到。 */
 const C = {
-  track: 'rgba(148, 163, 184, .25)',
-  progressed: '#06b6d4',
-  gate: '#f59e0b',
-  failed: '#ef4444',
-  text1: '#e2e8f0',
-  text3: '#64748b',
+  track: '#e5e7eb',
+  progressed: '#2563eb',
+  gate: '#d97706',
+  failed: '#c92a2a',
+  text1: '#1f2329',
+  text3: '#8b949e',
 }
 
 export function PipelineTimeline({ nodes, percent }: { nodes: PipelineNodeState[]; percent?: number }) {
@@ -70,13 +70,13 @@ export function PipelineTimeline({ nodes, percent }: { nodes: PipelineNodeState[
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: n.gate ? 11 : 10.5, fontWeight: 600, fontFamily: 'var(--mono)',
                   background: n.state === 'done' ? C.progressed : gateActive ? C.gate
-                    : n.state === 'failed' ? C.failed : '#0f2035',
+                    : n.state === 'failed' ? C.failed : '#fff',
                   border: `2px solid ${
                     n.state === 'pending' ? C.track
                       : n.state === 'failed' ? C.failed
                       : gateActive ? C.gate : C.progressed}`,
-                  color: filled ? '#04121f' : active ? C.progressed : C.text3,
-                  boxShadow: active && !n.gate ? '0 0 0 3px rgba(6,182,212,.18), 0 0 12px rgba(6,182,212,.3)' : undefined,
+                  color: filled ? '#fff' : active ? C.progressed : C.text3,
+                  boxShadow: active && !n.gate ? '0 0 0 3px rgba(37,99,235,.15)' : undefined,
                 }}
               >
                 {n.state === 'done' ? <CheckCircleFilled />
@@ -87,7 +87,7 @@ export function PipelineTimeline({ nodes, percent }: { nodes: PipelineNodeState[
               <div
                 style={{
                   marginTop: 6, fontSize: 12,
-                  color: n.state === 'pending' ? C.text3 : active ? C.text1 : 'var(--text-2)',
+                  color: n.state === 'pending' ? C.text3 : active ? C.text1 : '#57606a',
                   fontWeight: active ? 600 : 400,
                 }}
               >

@@ -159,7 +159,7 @@ function StepBox({ title, meta, box }: { title: string; meta?: string; box?: str
         {title} {meta && <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>{meta}</Typography.Text>}
       </div>
       {box && (
-        <div style={{ marginTop: 4, background: 'var(--bg-deep)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--text-2)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+        <div style={{ marginTop: 4, background: '#fafbfc', border: '1px solid #e5e7eb', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: '#57606a', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
           {box}
         </div>
       )}

@@ -69,12 +69,12 @@ export function ProvidersTab() {
         locale={{ emptyText: <QueryEmpty query={q} subject="供应商列表" emptyText="暂无库内供应商——当前系统使用 .env 环境变量兜底配置；新增并启用后即接管" /> }}
       />
       {!isAdmin && (
-        <div style={{ padding: '6px 16px', borderTop: '1px solid var(--hairline)' }}>
+        <div style={{ padding: '6px 16px', borderTop: '1px solid #f0f1f3' }}>
           <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>当前角色无权修改供应商配置（涉及密钥写入，仅 admin）。</Typography.Text>
         </div>
       )}
-      <div style={{ padding: '8px 16px', borderTop: '1px solid var(--hairline)' }}>
-        <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>api_key 只写不回显（列表仅显示掩码）；保存后适配器热重载，无需重启。</span>
+      <div style={{ padding: '8px 16px', borderTop: '1px solid #f0f1f3' }}>
+        <span style={{ fontSize: 11.5, color: '#8b949e' }}>api_key 只写不回显（列表仅显示掩码）；保存后适配器热重载，无需重启。</span>
       </div>
 
       <Modal

@@ -30,7 +30,7 @@ export function ReviewAnnotation({ record }: { record: ReviewRecord }) {
     <div style={{ fontSize: 12 }}>
       <div>{annotationsText(record.annotations) || '—'}</div>
       {bits.length > 0 && (
-        <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 2 }}>
+        <div style={{ color: '#8b949e', fontSize: 11, marginTop: 2 }}>
           {gateLabel(record.gate)} · {bits.join('，')}
         </div>
       )}

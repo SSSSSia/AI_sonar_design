@@ -19,7 +19,7 @@ export function QueryEmpty({ query, subject, emptyText }: { query: UseQueryResul
           message={`${subject}获取失败`}
           description={
             <div style={{ fontSize: 12 }}>
-              <div style={{ color: 'var(--text-2)' }}>数据可能存在，仅暂时不可达：{shortErr(query.error)}</div>
+              <div style={{ color: '#57606a' }}>数据可能存在，仅暂时不可达：{shortErr(query.error)}</div>
               <Button size="small" style={{ marginTop: 8 }} onClick={() => void query.refetch()}>重试</Button>
             </div>
           }
@@ -31,9 +31,9 @@ export function QueryEmpty({ query, subject, emptyText }: { query: UseQueryResul
     return (
       <div style={{ padding: 28, textAlign: 'center' }}>
         <Spin />
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)' }}>加载中…</div>
+        <div style={{ marginTop: 8, fontSize: 12, color: '#8b949e' }}>加载中…</div>
       </div>
     )
   }
-  return <div style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontSize: 12.5 }}>{emptyText ?? '暂无数据'}</div>
+  return <div style={{ padding: 28, textAlign: 'center', color: '#8b949e', fontSize: 12.5 }}>{emptyText ?? '暂无数据'}</div>
 }

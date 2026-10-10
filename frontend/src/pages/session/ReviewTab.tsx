@@ -66,7 +66,7 @@ function ProposalCard({ sessionId }: { sessionId: string }) {
     { title: '参数', dataIndex: 'param_name', width: 150, render: (v, r) => <span>{v}<Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>{r.param_id}</Typography.Text></span> },
     { title: '轮次', dataIndex: 'round_no', width: 60, render: (v) => `r${v}` },
     { title: '原登记值', width: 110, render: (_, r) => `${r.old_value} ${r.unit}` },
-    { title: '实测值', width: 110, render: (_, r) => <b style={{ color: '#ef4444' }}>{r.new_value} {r.unit}</b> },
+    { title: '实测值', width: 110, render: (_, r) => <b style={{ color: '#c92a2a' }}>{r.new_value} {r.unit}</b> },
     { title: '偏差', dataIndex: 'delta_pct', width: 80, render: (v) => <Tag color={v >= 20 ? 'red' : 'orange'}>+{v}%</Tag> },
     { title: '状态', dataIndex: 'status', width: 90, render: (s) => s === 'proposed' ? <Tag color="gold">待确认</Tag> : s === 'applied' ? <Tag color="green">已回写</Tag> : <Tag>已忽略</Tag> },
     {
@@ -274,7 +274,7 @@ export function ReviewTab({
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(64px, 88px) 1fr', rowGap: 6, fontSize: 12.5 }}>
             {ir1.objectives.map((o) => (
               <div key={o.dimension} style={{ display: 'contents' }}>
-                <span style={{ color: 'var(--text-3)' }}>{o.dimension}</span>
+                <span style={{ color: '#8b949e' }}>{o.dimension}</span>
                 <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                   {String(o.value)}{' '}
                   <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>{o.explicit ? '显式' : '推断'}</Tag>

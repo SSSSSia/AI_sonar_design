@@ -4,12 +4,11 @@ import { Alert, Button, Card, Input, Select, Space, Spin, Tag, Typography } from
 import * as d3 from 'd3'
 import { getGraph, getNeighborhood, type GraphData } from '../../api/kb'
 
-// 实体类型键 = Neo4j label（与后端图谱写入一致，2026-09-18 实测采样对齐）；图表数据编码色。
-// 深色底适配（ADR-011）：高亮度节点色系；SVG 属性不支持 CSS 变量，此处用与 theme.css 同源的真实色值。
+// 实体类型键 = Neo4j label（与后端图谱写入一致，2026-09-18 实测采样对齐）；图表数据编码色，非交互蓝
 const TYPE_COLOR: Record<string, string> = {
-  SonarSystem: '#22d3ee', DesignCase: '#fbbf24', DesignConstraint: '#ef4444',
-  DesignParameter: '#f59e0b', PerformanceIndicator: '#2dd4bf', Algorithm: '#34d399',
-  Component: '#3b82f6', StructuralModule: '#a78bfa', CADModelingStandard: '#94a3b8',
+  SonarSystem: '#1f2329', DesignCase: '#b7791f', DesignConstraint: '#c92a2a',
+  DesignParameter: '#d97706', PerformanceIndicator: '#0e8088', Algorithm: '#2b8a3e',
+  Component: '#47698c', StructuralModule: '#6e56cf', CADModelingStandard: '#57606a',
 }
 
 // 图例中文名（审查 P2-9）：保留英文键做匹配，展示层全部中文
@@ -84,7 +83,7 @@ export function GraphTab() {
 
     const link = g.append('g')
       .selectAll<SVGLineElement, Link>('line').data(links).join('line')
-      .attr('stroke', 'rgba(148,163,184,.28)').attr('stroke-width', 1)
+      .attr('stroke', '#d1d5db').attr('stroke-width', 1)
 
     const node = g.append('g')
       .selectAll<SVGGElement, Node>('g').data(nodes).join('g')
@@ -93,14 +92,14 @@ export function GraphTab() {
 
     node.append('circle')
       .attr('r', 7)
-      .attr('fill', (d) => (d.deprecated ? '#475569' : TYPE_COLOR[nodeType(d)] ?? '#64748b'))
-      .attr('stroke', '#070f1e').attr('stroke-width', 1.5)
+      .attr('fill', (d) => (d.deprecated ? '#c6cbd1' : TYPE_COLOR[nodeType(d)] ?? '#8b949e'))
+      .attr('stroke', '#fff').attr('stroke-width', 1.5)
     node.append('text')
       .text((d) => (d.name || d.label).slice(0, 10))
       .attr('x', 0).attr('y', 18)
       .attr('text-anchor', 'middle')
       .attr('font-size', 9.5)
-      .attr('fill', '#94a3b8')
+      .attr('fill', '#57606a')
 
     node.call(d3.drag<SVGGElement, Node>()
       .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
@@ -142,21 +141,21 @@ export function GraphTab() {
       <div ref={wrapRef} style={{ position: 'relative' }}>
         <Spin spinning={overview.isLoading || loading} tip="加载图谱…">
           <div style={{ minHeight: 460 }}>
-            <svg ref={svgRef} style={{ width: '100%', display: 'block', background: '#081221', borderRadius: 8, minHeight: 460 }} />
+            <svg ref={svgRef} style={{ width: '100%', display: 'block', background: '#fcfcfd', borderRadius: 8, minHeight: 460 }} />
           </div>
         </Spin>
-        <div style={{ position: 'absolute', left: 10, bottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10.5, color: '#94a3b8', background: 'rgba(7,15,30,.85)', padding: '3px 8px', borderRadius: 6 }}>
+        <div style={{ position: 'absolute', left: 10, bottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10.5, color: '#57606a', background: 'rgba(255,255,255,.9)', padding: '3px 8px', borderRadius: 6 }}>
           {legend.map(([t, c]) => <span key={t}><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 5, background: c, marginRight: 3 }} />{TYPE_CN[t] ?? t}</span>)}
         </div>
         {overview.data?.truncated && <div style={{ position: 'absolute', right: 10, top: 8 }}><Tag>已采样 {graph?.nodes.length}/全量</Tag></div>}
       </div>
-      <div style={{ padding: '10px 16px', borderTop: '1px solid var(--hairline)', minHeight: 64 }}>
+      <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f1f3', minHeight: 64 }}>
         {selected ? (
           <div style={{ fontSize: 12.5 }}>
             <b>{selected.name || selected.label}</b>{' '}
             <Tag style={{ marginInlineEnd: 6 }}>{nodeType(selected)}</Tag>
             {selected.deprecated && <Tag color="default">deprecated</Tag>}
-            <div style={{ color: 'var(--text-2)', marginTop: 4 }}>
+            <div style={{ color: '#57606a', marginTop: 4 }}>
               来源：{selected.source_doc ? <a>{selected.source_doc}</a> : '—'}
               {selected.source_session ? <> · 会话 <a>{selected.source_session.slice(0, 12)}…</a></> : null}
             </div>

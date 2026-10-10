@@ -138,9 +138,9 @@ function TuneCard({ sessionId, ir3Version }: { sessionId: string; ir3Version?: n
                   <b>r{r.roundNo}</b> · {roundStatusLabel(r.status)}
                   {r.irVersion ? <Tag color="green" style={{ marginLeft: 6 }}>IR3 v{r.irVersion}</Tag> : null}
                   {r.isQuestion ? <Tag style={{ marginLeft: 6 }}>问答</Tag> : null}
-                  {r.toolCount > 0 ? <span style={{ color: 'var(--text-3)' }}>（{r.toolCount} 次编辑）</span> : null}
+                  {r.toolCount > 0 ? <span style={{ color: '#8b949e' }}>（{r.toolCount} 次编辑）</span> : null}
                 </div>
-                <div style={{ color: 'var(--text-2)' }}>{r.prompt}</div>
+                <div style={{ color: '#57606a' }}>{r.prompt}</div>
                 {r.failedError ? <div style={{ color: '#cf222e' }}>{r.failedError}</div> : null}
               </div>
             ),
@@ -217,7 +217,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
         {state === 'ready' && url && (
           <div
             key={resetKey}
-            style={{ position: 'relative', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}
+            style={{ position: 'relative', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}
             // 中键留给平移：拦掉浏览器的自动滚动/小圆盘；右键拖动平移时不弹菜单
             onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
             onAuxClick={(e) => e.preventDefault()}
@@ -233,12 +233,12 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
                 makeDefault
                 mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.PAN }}
               />
-              <gridHelper args={[100, 20, '#1e293b', '#132038']} />
+              <gridHelper args={[100, 20, '#d1d5db', '#e5e7eb']} />
             </Canvas>
             <div style={{
               position: 'absolute', left: 8, bottom: 8, pointerEvents: 'none',
               background: 'rgba(255,255,255,0.82)', borderRadius: 6, padding: '2px 8px',
-              fontSize: 11, color: 'var(--text-2)',
+              fontSize: 11, color: '#57606a',
             }}>
               左键旋转 · 右键/中键拖动平移 · 滚轮缩放
             </div>
@@ -269,7 +269,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
               { k: 'ir4', name: 'IR4 校验报告', meta: ir4Version ? `JSON · v${ir4Version}` : 'JSON' },
             ]}
             columns={[
-              { title: '文件', key: 'n', render: (_, r) => <div><div style={{ fontWeight: 500 }}>{r.name}</div><div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>{r.meta}</div></div> },
+              { title: '文件', key: 'n', render: (_, r) => <div><div style={{ fontWeight: 500 }}>{r.name}</div><div style={{ fontSize: 11, color: '#8b949e', fontFamily: 'monospace' }}>{r.meta}</div></div> },
               { title: '', key: 'a', width: 80, render: (_, r) => <Button size="small" type="primary" autoInsertSpace={false} onClick={() => download(r.k as 'step' | 'script' | 'ir2' | 'ir4')}>下载</Button> },
             ]}
           />
@@ -287,7 +287,7 @@ export function ModelTab({ sessionId, ir3, ir3Version, ir2Version, ir4Version }:
           }
           styles={{ body: { padding: 0 } }}
         >
-          <pre style={{ maxHeight: showAllScript ? 480 : 220, overflow: 'auto', margin: 0, padding: '10px 14px', fontFamily: 'monospace', fontSize: 11.5, lineHeight: 1.8, color: 'var(--text-2)', background: 'var(--bg-deep)' }}>
+          <pre style={{ maxHeight: showAllScript ? 480 : 220, overflow: 'auto', margin: 0, padding: '10px 14px', fontFamily: 'monospace', fontSize: 11.5, lineHeight: 1.8, color: '#57606a', background: '#fafbfc' }}>
             {(showAllScript ? ir3.cadquery_script : ir3.cadquery_script.split('\n').slice(0, 60).join('\n')).trimEnd()}
           </pre>
         </Card>
