@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Avatar, Badge, Button, Drawer, Dropdown, Empty, Grid, Layout, List, Menu, Popover, Space, Tag, Tooltip, Typography,
+  App as AntdApp, Avatar, Badge, Button, Drawer, Dropdown, Empty, Grid, Layout, List, Menu, Popover, Space, Tag, Tooltip, Typography,
 } from 'antd'
 import {
-  BellOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, FolderOutlined, LogoutOutlined,
-  MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined, SettingOutlined, UserOutlined,
+  BellOutlined, CloudServerOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, FolderOutlined, LogoutOutlined,
+  MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined, ReloadOutlined, SettingOutlined, UserOutlined,
 } from '@ant-design/icons'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useAuthStore } from '../stores/authStore'
 import { checkNavGuard } from '../lib/navGuard'
 import { useNotifyStore, type AppNotification } from '../stores/notifyStore'
 import { gateLabel } from '../lib/stageLabel'
+import { getEngineHealth, getLlmProvider, reloadLlmProvider } from '../api/llm'
+import { getKbStatus } from '../api/kb'
 import {
   clearNotifications, deleteNotification, listNotifications, markAllNotificationsRead, markNotificationRead,
 } from '../api/notifications'
@@ -50,25 +53,31 @@ function menuGroupsFor(roles: string[]) {
   return groups
 }
 
-/** 品牌标记：石墨底声呐同心环。中性灰绘制，装饰不占用交互蓝。
- *  导出供项目卡片等处复用（2026-09-20 项目页视觉重塑）。 */
+/** 品牌标记：深海军底 + 声呐同心环（青色霓虹，ADR-011 装饰语言）。
+ *  导出供项目卡片等处复用（2026-09-20 项目页视觉重塑；2026-10-10 深色化）。 */
 export function SonarMark({ size = 24 }: { size?: number }) {
   return (
     <span
       aria-hidden
       style={{
-        width: size, height: size, borderRadius: Math.max(5, size * 0.22), background: '#1f2329',
+        width: size, height: size, borderRadius: Math.max(5, size * 0.22), background: 'var(--panel, #0a1628)',
+        border: '1px solid rgba(6,182,212,.35)', boxShadow: '0 0 10px rgba(6,182,212,.28)',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
       }}
     >
       <span
         style={{
           width: size * 0.6, height: size * 0.6, borderRadius: '50%',
-          border: '1.5px solid rgba(255,255,255,.82)',
+          border: '1.5px solid rgba(6,182,212,.75)',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
-        <span style={{ width: size * 0.16, height: size * 0.16, borderRadius: '50%', background: '#fff' }} />
+        <span
+          style={{
+            width: size * 0.16, height: size * 0.16, borderRadius: '50%', background: '#22d3ee',
+            boxShadow: '0 0 6px rgba(34,211,238,.9)',
+          }}
+        />
       </span>
     </span>
   )
@@ -156,13 +165,13 @@ function NotificationBell() {
   const renderItem = (item: (typeof items)[number], inDrawer: boolean) => (
     <List.Item
       style={{
-        background: item.read ? undefined : '#f7f9fd', padding: '8px 10px', borderRadius: 6,
+        background: item.read ? undefined : 'rgba(6,182,212,.06)', padding: '8px 10px', borderRadius: 6,
         cursor: item.sessionId ? 'pointer' : undefined,
       }}
       actions={[
         <Button
           key="del" type="text" size="small" aria-label="删除该通知"
-          icon={<DeleteOutlined style={{ color: '#c92a2a' }} />}
+          icon={<DeleteOutlined style={{ color: '#ef4444' }} />}
           onClick={(e) => {
             e.stopPropagation()
             remove(item.id)
@@ -184,7 +193,8 @@ function NotificationBell() {
             {!item.read && (
               <span aria-hidden style={{
                 width: 6, height: 6, borderRadius: 3, flex: 'none',
-                background: item.kind === 'alert' ? '#c92a2a' : '#2563eb',
+                background: item.kind === 'alert' ? '#ef4444' : '#06b6d4',
+                boxShadow: item.kind === 'alert' ? '0 0 6px rgba(239,68,68,.8)' : '0 0 6px rgba(6,182,212,.8)',
               }} />
             )}
             {item.title}
@@ -276,6 +286,130 @@ function NotificationBell() {
   )
 }
 
+/** 顶栏 LLM 供应商状态胶囊（ADR-011）：当前生效供应商 + 最近健康态，60s 轮询；
+ *  503（未配置可用供应商）如实转灰提示；admin 可热重载配置（同时清 L1 缓存）。 */
+function LlmStatusPill() {
+  const { message } = AntdApp.useApp()
+  const queryClient = useQueryClient()
+  const isAdmin = useAuthStore((s) => s.roles.includes('admin'))
+  const [reloading, setReloading] = useState(false)
+  const query = useQuery({
+    queryKey: ['llm-provider'],
+    queryFn: getLlmProvider,
+    retry: false,
+    refetchInterval: 60_000,
+  })
+  const data = query.data
+  const healthOk = !Array.isArray(data?.health) || data.health.length === 0
+    ? true
+    : data.health.some((h) => h?.ok !== false)
+  // 未配置（503/加载失败）→ 灰态；已配置 → 按最近健康态着色（装饰光晕仅状态点）
+  const unavailable = query.isError || !data?.name
+  const dotColor = unavailable ? '#64748b' : healthOk ? '#10b981' : '#f59e0b'
+  const label = unavailable
+    ? 'LLM 未配置'
+    : `${data.name}${data.model ? ` · ${data.model}` : ''}${healthOk ? '' : ' · 近期异常'}`
+
+  const onReload = async () => {
+    setReloading(true)
+    try {
+      await reloadLlmProvider()
+      void queryClient.invalidateQueries({ queryKey: ['llm-provider'] })
+      message.success('LLM 供应商配置已重载')
+    } catch {
+      message.error('重载失败，请查看服务日志')
+    } finally {
+      setReloading(false)
+    }
+  }
+
+  return (
+    <Tooltip title={unavailable ? '算力侧未配置可用 LLM 供应商' : '当前生效 LLM 供应商（60s 轮询）'}>
+      <Space
+        size={6}
+        style={{
+          height: 26, padding: '0 10px', borderRadius: 13, cursor: 'default',
+          border: '1px solid var(--border)', background: 'rgba(255,255,255,.03)', fontSize: 11.5,
+          color: unavailable ? 'var(--text-3)' : 'var(--text-2)', whiteSpace: 'nowrap',
+        }}
+      >
+        <CloudServerOutlined style={{ color: unavailable ? 'var(--text-3)' : '#06b6d4' }} />
+        <span
+          aria-hidden
+          className={unavailable ? undefined : 'status-pulse'}
+          style={{ width: 6, height: 6, borderRadius: 3, background: dotColor, flex: 'none', boxShadow: `0 0 6px ${dotColor}` }}
+        />
+        <span className="mono" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        {isAdmin && (
+          <Button
+            type="text" size="small" loading={reloading}
+            aria-label="重载 LLM 供应商配置"
+            icon={<ReloadOutlined style={{ fontSize: 11, color: 'var(--text-3)' }} />}
+            style={{ height: 18, width: 18, minWidth: 18, padding: 0 }}
+            onClick={(e) => {
+              e.stopPropagation()
+              void onReload()
+            }}
+          />
+        )}
+      </Space>
+    </Tooltip>
+  )
+}
+
+/** 侧栏系统状态盒（UI-3 sonar-ai 校准，mockup 08 侧栏）：三行真实健康态，60s 轮询。
+ *  Agent 集群 = /api/v1/healthz（broker 连通 + 事件循环心跳，T9.1）；知识库 = /api/v1/kb/status
+ *  （Milvus/Neo4j 可用性）；LLM = /api/v1/llm/provider（生效供应商 + 失败转移链）。
+ *  A-16：不夸大——探测失败/未配置一律如实灰/红态，不显示假「运行中」。 */
+function SysStatusBox() {
+  const engine = useQuery({ queryKey: ['sys-engine-health'], queryFn: getEngineHealth, retry: false, refetchInterval: 60_000 })
+  const kb = useQuery({ queryKey: ['sys-kb-status'], queryFn: getKbStatus, retry: false, refetchInterval: 60_000 })
+  const llm = useQuery({ queryKey: ['llm-provider-sysbox'], queryFn: getLlmProvider, retry: false, refetchInterval: 60_000 })
+
+  type Row = { label: string; state: 'up' | 'warn' | 'down' | 'na'; val: string }
+  const rows: Row[] = []
+
+  if (engine.isError) rows.push({ label: 'Agent 集群', state: 'down', val: '不可达' })
+  else if (!engine.data) rows.push({ label: 'Agent 集群', state: 'na', val: '探测中' })
+  else {
+    const brokerOk = engine.data.broker === 'ok'
+    if (engine.data.status === 'ok' && brokerOk) rows.push({ label: 'Agent 集群', state: 'up', val: '运行中' })
+    else if (engine.data.status === 'degraded' || !brokerOk) rows.push({ label: 'Agent 集群', state: 'warn', val: brokerOk ? '降级' : '队列异常' })
+    else rows.push({ label: 'Agent 集群', state: 'down', val: '异常' })
+  }
+
+  if (kb.isError) rows.push({ label: '知识库', state: 'down', val: '不可达' })
+  else if (!kb.data) rows.push({ label: '知识库', state: 'na', val: '探测中' })
+  else {
+    const stores = [kb.data.milvus_available, kb.data.neo4j_available].filter((v) => v === true).length
+    rows.push({ label: '知识库', state: stores > 0 ? 'up' : 'warn', val: stores > 0 ? `在线 · ${stores}/2 存储` : '无可用存储' })
+  }
+
+  if (llm.isError || !llm.data?.name) rows.push({ label: 'LLM 供应商', state: 'down', val: '未配置' })
+  else {
+    const anyBad = (llm.data.health ?? []).some((h) => h.ok === false)
+    rows.push({ label: 'LLM 供应商', state: anyBad ? 'warn' : 'up', val: anyBad ? `${String(llm.data.name)} · 近期异常` : String(llm.data.name) })
+  }
+
+  const color: Record<Row['state'], string> = { up: '#10b981', warn: '#f59e0b', down: '#ef4444', na: 'var(--text-3)' }
+  return (
+    <div style={{ margin: '4px 10px 8px', padding: '8px 12px', border: '1px solid var(--hairline)', borderRadius: 8, background: 'rgba(255,255,255,.02)' }}>
+      <div style={{ fontSize: 10.5, color: 'var(--text-3)', letterSpacing: '.5px', marginBottom: 5 }}>系统状态</div>
+      {rows.map((r) => (
+        <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-2)', padding: '2px 0' }}>
+          <span
+            aria-hidden
+            className={r.state === 'up' ? 'status-pulse' : undefined}
+            style={{ width: 6, height: 6, borderRadius: 3, flex: 'none', background: color[r.state], boxShadow: r.state === 'na' ? undefined : `0 0 6px ${color[r.state]}` }}
+          />
+          {r.label}
+          <span style={{ marginLeft: 'auto', color: 'var(--text-3)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 108 }}>{r.val}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -310,12 +444,13 @@ export default function AppLayout() {
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       {!hideSider && (
         <Sider
-          theme="light"
+          theme="dark"
           width={216}
+          collapsedWidth={72}
           collapsed={effectiveCollapsed}
           trigger={null}
           className="app-sider"
-          style={{ borderRight: '1px solid var(--border)' }}
+          style={{ borderRight: '1px solid var(--hairline)', background: 'var(--panel-grad)' }}
         >
           <Brand collapsed={effectiveCollapsed} />
           <Menu
@@ -329,6 +464,8 @@ export default function AppLayout() {
               navigate(key)
             }}
           />
+          {/* 系统状态盒（UI-3）：仅展开态显示；收缩态以顶栏 LLM 胶囊兜底 */}
+          {!effectiveCollapsed && <SysStatusBox />}
           {/* 自绘收起/展开按钮替代 antd 默认触发条；窄屏强制收缩时该按钮无效，隐藏 */}
           {!autoCollapse && (
             <div style={{ borderTop: '1px solid var(--hairline)', padding: '6px 8px 8px' }}>
@@ -369,7 +506,7 @@ export default function AppLayout() {
       <Layout style={{ overflowY: 'auto' }}>
         <Header
           style={{
-            background: '#fff', borderBottom: '1px solid var(--border)',
+            background: 'rgba(7, 15, 30, .9)', backdropFilter: 'blur(10px)', borderBottom: '1px solid var(--hairline)',
             padding: screens.md ? '0 24px' : '0 12px',
             display: 'flex', alignItems: 'center', gap: 12, lineHeight: '52px',
             position: 'sticky', top: 0, zIndex: 20,
@@ -385,6 +522,7 @@ export default function AppLayout() {
             </>
           )}
           <span style={{ flex: 1 }} />
+          {screens.md && <LlmStatusPill />}
           <NotificationBell />
           <Dropdown
             menu={{
@@ -402,7 +540,10 @@ export default function AppLayout() {
             }}
           >
             <Space style={{ cursor: 'pointer' }}>
-              <Avatar size={26} icon={<UserOutlined />} style={{ background: '#e8eaed', color: '#57606a' }} />
+              <Avatar
+                size={26} icon={<UserOutlined />}
+                style={{ background: 'linear-gradient(135deg, #0ea5e9, #06b6d4)', color: '#04121f' }}
+              />
               <span style={{ fontSize: 13 }}>{displayName || username}</span>
               <Space size={2}>
                 {roles.slice(0, 2).map((r) => (

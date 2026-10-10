@@ -161,6 +161,7 @@ def _mask(url: str) -> str:
 
 
 @app.get("/healthz")
+@app.get("/api/v1/healthz")  # 网关统一路径（UI-3 系统状态盒；裸路径为容器探针/直连兼容）
 async def healthz():
     """存活探针（T9.1 async 化）。
 
