@@ -13,7 +13,6 @@ export default defineConfig({
           if (id.includes('node_modules')) {
             if (id.includes('three')) return 'vendor-three'
             if (id.includes('d3-') || id.includes('/d3/')) return 'vendor-d3'
-            if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
             if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'vendor-antd'
             if (id.includes('react') || id.includes('scheduler')) return 'vendor-react'
             return 'vendor-misc'
