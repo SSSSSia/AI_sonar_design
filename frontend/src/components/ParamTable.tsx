@@ -66,7 +66,7 @@ export function ParamTable({ params, onTrace, onKbRef }: {
             </Typography.Paragraph>
             <Typography.Paragraph
               ellipsis={{ rows: 1, expandable: true, symbol: '展开' }}
-              style={{ fontSize: 11, color: '#8b949e', fontFamily: 'monospace', marginBottom: 0 }}
+              style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace', marginBottom: 0 }}
             >
               {String(r.derivation ?? '')}
             </Typography.Paragraph>
@@ -97,7 +97,7 @@ export function ParamTable({ params, onTrace, onKbRef }: {
       scroll={{ x: 720 }}
       onRow={(r) => ({
         onClick: () => onTrace(r),
-        style: { cursor: 'pointer', background: hover === r.id ? '#f7f9fd' : undefined },
+        style: { cursor: 'pointer', background: hover === r.id ? 'rgba(6,182,212,.06)' : undefined },
         onMouseEnter: () => setHover(r.id),
         onMouseLeave: () => setHover(null),
       })}
