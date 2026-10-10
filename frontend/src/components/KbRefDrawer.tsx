@@ -50,7 +50,7 @@ export function KbRefDrawer({ ref: kbRef, onClose }: {
             <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>知识库原文段落</Typography.Text>
             <div
               style={{
-                marginTop: 6, padding: '12px 14px', background: '#fafbfc', border: '1px solid #e5e7eb',
+                marginTop: 6, padding: '12px 14px', background: 'var(--bg-deep)', border: '1px solid var(--border)',
                 borderRadius: 6, fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
               }}
             >

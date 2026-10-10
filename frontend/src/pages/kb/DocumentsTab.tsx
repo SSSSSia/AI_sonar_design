@@ -128,8 +128,8 @@ export function DocumentsTab({ baseId, pool }: { baseId?: string; pool?: boolean
       render: (v, r) => (
         <div>
           <div style={{ fontWeight: 500 }}>{v}</div>
-          <div style={{ fontSize: 11, color: '#8b949e', fontFamily: 'monospace' }}>{r.doc_id} · {r.format}</div>
-          {r.error && <div style={{ fontSize: 11, color: '#c92a2a' }}>{r.error}</div>}
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>{r.doc_id} · {r.format}</div>
+          {r.error && <div style={{ fontSize: 11, color: '#ef4444' }}>{r.error}</div>}
         </div>
       ),
     },
@@ -145,10 +145,10 @@ export function DocumentsTab({ baseId, pool }: { baseId?: string; pool?: boolean
       width: 110,
       render: (v) => <Badge status={(STATUS_META[v]?.color as 'success') ?? 'default'} text={STATUS_META[v]?.text ?? v} />,
     },
-    { title: '分块', dataIndex: 'chunks', width: 70, render: (v) => (v ? v : <span style={{ color: '#8b949e' }}>—</span>) },
+    { title: '分块', dataIndex: 'chunks', width: 70, render: (v) => (v ? v : <span style={{ color: 'var(--text-3)' }}>—</span>) },
     {
       title: '上传时间', dataIndex: 'uploaded_at', width: 110,
-      render: (v) => <span style={{ fontSize: 11.5, color: '#8b949e' }}>{v ? dayjs(v).format('MM-DD HH:mm') : '—'}</span>,
+      render: (v) => <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{v ? dayjs(v).format('MM-DD HH:mm') : '—'}</span>,
     },
     {
       title: 'OCR',
@@ -156,7 +156,7 @@ export function DocumentsTab({ baseId, pool }: { baseId?: string; pool?: boolean
       width: 110,
       render: (_, r) =>
         r.ocr_pending ? <Tag color="warning">待补 {r.ocr_pending}</Tag>
-          : r.ocr_pages ? <Tag color="blue">识别 {r.ocr_pages} 页</Tag> : <span style={{ color: '#8b949e' }}>—</span>,
+          : r.ocr_pages ? <Tag color="blue">识别 {r.ocr_pages} 页</Tag> : <span style={{ color: 'var(--text-3)' }}>—</span>,
     },
     {
       title: '操作',
@@ -226,10 +226,10 @@ export function DocumentsTab({ baseId, pool }: { baseId?: string; pool?: boolean
       {docs.length === 0 && !docsQuery.isLoading && !docsQuery.isError ? (
         <Upload.Dragger
           beforeUpload={beforeUpload} showUploadList={false} multiple
-          style={{ margin: '0 16px 14px', padding: '18px 0', background: '#fafbfc' }}
+          style={{ margin: '0 16px 14px', padding: '18px 0', background: 'var(--bg-deep)' }}
         >
-          <p style={{ marginBottom: 4, color: '#57606a', fontSize: 13 }}>暂无文档——拖拽文件到此处，或点击选择</p>
-          <p style={{ marginBottom: 0, color: '#8b949e', fontSize: 11.5 }}>上传即建档解析（PDF / TXT / MD），解析失败如实回显</p>
+          <p style={{ marginBottom: 4, color: 'var(--text-2)', fontSize: 13 }}>暂无文档——拖拽文件到此处，或点击选择</p>
+          <p style={{ marginBottom: 0, color: 'var(--text-3)', fontSize: 11.5 }}>上传即建档解析（PDF / TXT / MD），解析失败如实回显</p>
         </Upload.Dragger>
       ) : (
         <Table
@@ -275,7 +275,7 @@ export function ExtractionsTab({ baseId }: { baseId?: string }) {
       key: 'content',
       render: (_, r) => <span style={{ fontSize: 12.5 }}>{String(r.label ?? r.text ?? r.summary ?? JSON.stringify(r.payload ?? r)).slice(0, 180)}</span>,
     },
-    { title: '位置', key: 'loc', width: 150, render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#8b949e' }}>{String(r.location ?? '—')}</span> },
+    { title: '位置', key: 'loc', width: 150, render: (_, r) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-3)' }}>{String(r.location ?? '—')}</span> },
     {
       title: '操作',
       key: 'act',
@@ -309,7 +309,7 @@ export function ExtractionsTab({ baseId }: { baseId?: string }) {
       styles={{ body: { padding: 0 } }}
     >
       <Alert type="info" showIcon style={{ margin: '10px 16px' }} message="确认后的抽取才参与图谱构建（与增量构建联动）；为空如实显示。" />
-      {!docId ? <div style={{ padding: 32, textAlign: 'center', color: '#8b949e' }}>先选择文档</div>
+      {!docId ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)' }}>先选择文档</div>
         : <Table
             rowKey={(r) => String(r.extraction_id ?? r.id ?? Math.random())} size="small" loading={exQuery.isLoading} dataSource={rows} columns={columns} pagination={{ pageSize: 15 }}
             locale={{ emptyText: exQuery.isError ? <QueryEmpty query={exQuery} subject="抽取记录" /> : undefined }}
@@ -384,7 +384,7 @@ export function NewBaseWizard({ open, onClose, onCreated }: {
     >
       <div style={{ display: 'grid', gap: 12, paddingTop: 4 }}>
         <div>
-          <div style={{ fontSize: 12.5, marginBottom: 4 }}>名称 <span style={{ color: '#c92a2a' }}>*</span></div>
+          <div style={{ fontSize: 12.5, marginBottom: 4 }}>名称 <span style={{ color: '#ef4444' }}>*</span></div>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -405,18 +405,18 @@ export function NewBaseWizard({ open, onClose, onCreated }: {
         </div>
         <div>
           <div style={{ fontSize: 12.5, marginBottom: 4 }}>
-            归入文档 <span style={{ color: '#8b949e', fontSize: 11 }}>（可多选；同一文档可同时属于多个库，互不影响）</span>
+            归入文档 <span style={{ color: 'var(--text-3)', fontSize: 11 }}>（可多选；同一文档可同时属于多个库，互不影响）</span>
           </div>
-          <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+          <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
             {docs.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#8b949e', fontSize: 12 }}>
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
                 暂无已上传文档——创建后可在库内直接上传
               </div>
             ) : (
               docs.map((d) => (
                 <label
                   key={d.doc_id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', fontSize: 12.5, borderBottom: '1px solid #f0f1f3', cursor: 'pointer' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', fontSize: 12.5, borderBottom: '1px solid var(--hairline)', cursor: 'pointer' }}
                 >
                   <input
                     type="checkbox"
@@ -424,7 +424,7 @@ export function NewBaseWizard({ open, onClose, onCreated }: {
                     onChange={(e) => setSelected((prev) => e.target.checked ? [...prev, d.doc_id] : prev.filter((k) => k !== d.doc_id))}
                   />
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.filename}</span>
-                  <span style={{ color: '#8b949e', fontSize: 11 }}>{d.bases?.length ? `已属 ${d.bases.length} 个库` : '未归库'}</span>
+                  <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{d.bases?.length ? `已属 ${d.bases.length} 个库` : '未归库'}</span>
                 </label>
               ))
             )}

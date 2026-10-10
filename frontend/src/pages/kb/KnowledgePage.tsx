@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Modal, Popconfirm, Space, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { App, Button, Card, Input, Modal, Popconfirm, Space, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { deleteBase, listBases, type KbBase } from '../../api/kb'
 import { errText } from '../../api/client'
@@ -42,9 +42,9 @@ function BaseListPane({ bases, activeKey, onPick, loading, onCreate }: {
           }}
         >
           <div style={{ fontWeight: activeKey === 'pool' ? 600 : 400 }}>文档池</div>
-          <div style={{ fontSize: 11, color: '#8b949e' }}>全部文档与未归库</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>全部文档与未归库</div>
         </div>
-        {loading && <div style={{ padding: 10, fontSize: 12, color: '#8b949e' }}>加载中…</div>}
+        {loading && <div style={{ padding: 10, fontSize: 12, color: 'var(--text-3)' }}>加载中…</div>}
         {bases.map((b) => (
           <div
             key={b.id}
@@ -60,7 +60,7 @@ function BaseListPane({ bases, activeKey, onPick, loading, onCreate }: {
               </span>
               {b.is_default && <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>默认</Tag>}
             </div>
-            <div style={{ fontSize: 11, color: '#8b949e' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
               {b.documents ?? 0} 份文档 · {(b.indexed ?? 0) === (b.documents ?? 0) && (b.documents ?? 0) > 0 ? '全部入索引' : `已入索引 ${b.indexed ?? 0}`}
             </div>
           </div>
@@ -74,7 +74,7 @@ function BaseDetail({ base, onEdit }: { base: KbBase | null; onEdit: (b: KbBase)
   if (!base) {
     return (
       <Card size="small">
-        <div style={{ padding: 40, textAlign: 'center', color: '#8b949e', fontSize: 13 }}>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
           未归库文档不参与检索——左侧选择知识库查看其内容，或把文档归入知识库以恢复检索。
         </div>
       </Card>
@@ -145,6 +145,7 @@ export default function KnowledgePage() {
   const [wizard, setWizard] = useState(false)
   const [editing, setEditing] = useState<KbBase | null>(null)
   const [editName, setEditName] = useState('')
+  const [editDesc, setEditDesc] = useState('')
 
   const basesQuery = useQuery({ queryKey: ['kb-bases'], queryFn: listBases })
   const bases: KbBase[] = basesQuery.data?.bases ?? []
@@ -199,7 +200,7 @@ export default function KnowledgePage() {
                   : (
                     <BaseDetail
                       base={activeBase}
-                      onEdit={(b) => { setEditing(b); setEditName(b.name) }}
+                      onEdit={(b) => { setEditing(b); setEditName(b.name); setEditDesc(b.description ?? '') }}
                     />
                   )}
               </div>
@@ -213,14 +214,19 @@ export default function KnowledgePage() {
       />
       <NewBaseWizard open={wizard} onClose={() => setWizard(false)} onCreated={(b) => setActiveKey(b.id)} />
       <Modal
-        title="重命名知识库"
+        title="编辑知识库信息"
         open={!!editing}
+        okText="保存"
         onOk={async () => {
           if (!editing) return
+          if (!editName.trim()) {
+            message.warning('名称不能为空')
+            return
+          }
           try {
             const { updateBase } = await import('../../api/kb')
-            await updateBase(editing.id, { name: editName.trim() })
-            message.success('已重命名')
+            await updateBase(editing.id, { name: editName.trim(), description: editDesc.trim() || undefined })
+            message.success('已保存')
             setEditing(null)
             void queryClient.invalidateQueries({ queryKey: ['kb-bases'] })
           } catch (e) {
@@ -230,12 +236,22 @@ export default function KnowledgePage() {
         onCancel={() => setEditing(null)}
         destroyOnClose
       >
-        <input
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          maxLength={128}
-          style={{ width: '100%', border: '1px solid #d0d7de', borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>名称</Typography.Text>
+            <Input value={editName} onChange={(e) => setEditName(e.target.value)} maxLength={128} placeholder="知识库显示名" />
+          </div>
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>描述（一句话说明该库收存什么，可空）</Typography.Text>
+            <Input.TextArea
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              maxLength={512}
+              autoSize={{ minRows: 2, maxRows: 4 }}
+              placeholder="如：拖曳阵总体设计资料（供人读；Agent 选库按需求内容逐库探测，与此描述无关）"
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   )

@@ -109,7 +109,7 @@ export function RegistryTab() {
           title: '适用对象', key: 'applies_to', width: 110,
           render: (_, r) => {
             const a = String(r.applies_to ?? '')
-            return a ? <Tag>{a}</Tag> : <span style={{ color: '#8b949e' }}>—</span>
+            return a ? <Tag>{a}</Tag> : <span style={{ color: 'var(--text-3)' }}>—</span>
           },
         },
         {
@@ -119,7 +119,7 @@ export function RegistryTab() {
             const e = String(r.expr ?? '').trim()
             return e
               ? <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: '#1f6feb' }}>{e}</span>
-              : <span style={{ color: '#8b949e' }}>仅登记（提示性）</span>
+              : <span style={{ color: 'var(--text-3)' }}>仅登记（提示性）</span>
           },
         },
         {
@@ -157,7 +157,7 @@ export function RegistryTab() {
           title: '单位', key: 'unit', width: 70,
           render: (_: unknown, r: RegistryRow) => {
             const u = String(r.unit ?? '').trim()
-            return u && u !== '-' ? <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{u}</span> : <span style={{ color: '#8b949e' }}>—</span>
+            return u && u !== '-' ? <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{u}</span> : <span style={{ color: 'var(--text-3)' }}>—</span>
           },
         }] : []),
         {
@@ -165,7 +165,7 @@ export function RegistryTab() {
           key: 'expr',
           render: (_, r) => {
             const e = (r.expr ?? r.expression ?? r.check ?? r.description ?? '') as string
-            return <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: '#57606a' }}>{String(e).slice(0, 120) || '—'}</span>
+            return <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: 'var(--text-2)' }}>{String(e).slice(0, 120) || '—'}</span>
           },
         },
         {
@@ -205,7 +205,7 @@ export function RegistryTab() {
         <Space>
           <Select value={kind} onChange={(v) => setKind(v)} style={{ width: 120 }}
             options={KIND_TAB.map((k) => ({ value: k.value, label: k.label }))} />
-          <span style={{ fontSize: 12, color: '#8b949e', fontWeight: 400 }}>A4 校验优先读库（启停即时生效）</span>
+          <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>A4 校验优先读库（启停即时生效）</span>
         </Space>
       }
       extra={
@@ -221,7 +221,7 @@ export function RegistryTab() {
       styles={{ body: { padding: 0 } }}
     >
       {kind === 'standards' && rows.length === 0 && (
-        <div style={{ margin: '10px 16px', borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '8px 12px', fontSize: 12, borderRadius: 4 }}>
+        <div style={{ margin: '10px 16px', borderLeft: '3px solid #f59e0b', background: 'rgba(245,158,11,.10)', padding: '8px 12px', fontSize: 12, borderRadius: 4 }}>
           军标库空态（如实）：当前 0 条，A4 对 standard 参数相关检查如实标「待补」；录入带判定表达式的条目后自动参与校验（首批演示条目见 deploy/seed/demo_standards.sql）。
         </div>
       )}
@@ -278,7 +278,7 @@ export function RegistryTab() {
           <Input.TextArea placeholder="判定表达式（SymPy 布尔式，如 outer_diameter <= 325；留空 = 仅登记）" value={stdForm.expr}
             onChange={(e) => setStdForm({ ...stdForm, expr: e.target.value })} rows={2} />
           <Tooltip title={EXPR_HELP} placement="topLeft">
-            <div style={{ fontSize: 12, color: '#8b949e' }}>{EXPR_HELP}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{EXPR_HELP}</div>
           </Tooltip>
           <Select
             value={stdForm.confidence}

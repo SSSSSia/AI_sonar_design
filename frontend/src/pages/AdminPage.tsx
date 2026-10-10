@@ -29,7 +29,7 @@ function useProbe() {
   }
 }
 
-const DOT: Record<string, string> = { up: '#2b8a3e', down: '#c92a2a', checking: '#d1d5db' }
+const DOT: Record<string, string> = { up: '#10b981', down: '#ef4444', checking: '#64748b' }
 const TXT: Record<string, string> = { up: '可达', down: '不可达', checking: '检测中…' }
 
 const ROLE_OPTIONS = ['admin', 'designer', 'reviewer', 'viewer'].map((r) => ({ value: r, label: r }))
@@ -332,7 +332,7 @@ export default function AdminPage() {
           rowKey="key" size="small" pagination={false} dataSource={rows}
           columns={[
             { title: '服务', dataIndex: 'name' },
-            { title: '探测方式', dataIndex: 'via', render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#8b949e' }}>{v}</span> },
+            { title: '探测方式', dataIndex: 'via', render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-3)' }}>{v}</span> },
             { title: '状态', key: 'st', width: 110, render: (_, r) => <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: DOT[r.status], marginRight: 6 }} />{TXT[r.status]}</span> },
           ]}
         />

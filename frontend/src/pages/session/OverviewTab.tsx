@@ -8,7 +8,7 @@ import { useLogStore, type SessionLogLine } from '../../stores/logStore'
 import { ir1Degraded, normalizeMissingItems } from '../../lib/stageLabel'
 
 const LOG_LEVEL_COLOR: Record<string, string> = {
-  debug: '#8b949e', info: '#57606a', ok: '#2b8a3e', warn: '#d97706', error: '#c92a2a',
+  debug: '#64748b', info: '#94a3b8', ok: '#10b981', warn: '#f59e0b', error: '#ef4444',
 }
 
 /** 历史留存 + 实时流合并（按时间+文本去重；历史在前，可单测）。 */
@@ -32,8 +32,8 @@ export function mergeLogs(
 function logLine(at: number, level: string, text: string, key: string) {
   return (
     <div key={key}>
-      <span style={{ color: '#8b949e', marginRight: 8 }}>{dayjs(at).format('HH:mm:ss')}</span>
-      <span style={{ color: LOG_LEVEL_COLOR[level] ?? '#57606a' }}>{text}</span>
+      <span style={{ color: 'var(--text-3)', marginRight: 8 }}>{dayjs(at).format('HH:mm:ss')}</span>
+      <span style={{ color: LOG_LEVEL_COLOR[level] ?? '#94a3b8' }}>{text}</span>
     </div>
   )
 }
@@ -143,7 +143,7 @@ function SubQueriesCard({ subQueries }: { subQueries: string[] }) {
           检索目标均基于 IR0 需求原文：{raw}
         </Typography.Paragraph>
       )}
-      <ol style={{ fontSize: 12, color: '#57606a', paddingLeft: 18, margin: '6px 0 0' }}>
+      <ol style={{ fontSize: 12, color: 'var(--text-2)', paddingLeft: 18, margin: '6px 0 0' }}>
         {goals.map((g, i) => <li key={`${i}-${g.slice(0, 12)}`}>{g || subQueries[i]}</li>)}
       </ol>
     </div>
@@ -226,11 +226,11 @@ function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sess
     <Card title="知识检索" size="small">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {summary.fallbackAll && (
-          <div style={{ borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
+          <div style={{ borderLeft: '3px solid #f59e0b', background: 'rgba(245,158,11,.10)', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
             Agent 在各知识库均未发现相关内容，已回退到全部知识库检索（如实标注）。
           </div>
         )}
-        <div style={{ fontSize: 11.5, color: '#8b949e' }}>
+        <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
           {summary.mode === 'auto' ? 'Agent 根据需求自动圈定' : summary.mode === 'manual' ? '创建会话时人工选定' : '选定知识库'}
           {' · '}命中 {ir1.retrieved_context.length} 条
         </div>
@@ -244,7 +244,7 @@ function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sess
             <div key={g.kbKey}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                 <Typography.Text strong style={{ fontSize: 12.5 }}>{g.kbName}</Typography.Text>
-                <span style={{ fontSize: 11, color: '#8b949e' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
                   {g.hitRefs.length > 0
                     ? [
                         `引用 ${g.hitRefs.length} 条`,
@@ -257,10 +257,10 @@ function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sess
                 </span>
               </div>
               {g.hitRefs.length > 0 && (
-                <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#57606a' }}>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 11.5, color: 'var(--text-2)' }}>
                   {entities.length > 0 && (
                     <li style={{ lineHeight: 1.7 }}>
-                      <span style={{ color: '#8b949e' }}>知识图谱 · </span>
+                      <span style={{ color: 'var(--text-3)' }}>知识图谱 · </span>
                       {entities.slice(0, 4).join('、')}
                       {entities.length > 4 ? ` 等 ${entities.length} 个实体` : ''}
                     </li>
@@ -272,7 +272,7 @@ function KnowledgeRetrievalCard({ ir1, sessionKbNames }: { ir1: Ir1 | null; sess
                     }, {}),
                   ).map(([docId, locs]) => (
                     <li key={docId} style={{ lineHeight: 1.7 }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#8b949e' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--text-3)' }}>
                         {/^[\da-f]{16}$/.test(docId) ? `文档 ${docId.slice(0, 10)}` : docId.slice(0, 10)}
                       </span>{' '}
                       {locs.slice(0, 3).join(' / ')}{locs.length > 3 ? ` 等 ${locs.length} 处` : ''}
@@ -348,7 +348,7 @@ export function OverviewTab({
             { k: 'IR4 校验报告', v: versions.IR4 },
             { k: 'IR5 知识候选', v: versions.IR5 },
           ].map((row) => (
-            <div key={row.k} className="row" style={{ padding: '5px 0', fontSize: 12.5, borderBottom: '1px solid #f0f1f3' }}>
+            <div key={row.k} className="row" style={{ padding: '5px 0', fontSize: 12.5, borderBottom: '1px solid var(--hairline)' }}>
               <span>{row.k}</span>
               <span style={{ flex: 1 }} />
               {row.v ? <Typography.Text code style={{ fontSize: 11 }}>v{row.v}</Typography.Text>
@@ -371,7 +371,7 @@ export function OverviewTab({
             <div style={{ display: 'grid', gridTemplateColumns: '84px 1fr', rowGap: 6, fontSize: 12.5 }}>
               {ir1.objectives.map((o) => (
                 <div key={o.dimension} style={{ display: 'contents' }}>
-                  <span style={{ color: '#8b949e' }}>{o.dimension}</span>
+                  <span style={{ color: 'var(--text-3)' }}>{o.dimension}</span>
                   <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{String(o.value)} <Tag style={{ fontSize: 10, lineHeight: '14px', marginInlineEnd: 0 }}>{o.explicit ? '显式' : '推断'}</Tag></span>
                 </div>
               ))}
@@ -380,7 +380,7 @@ export function OverviewTab({
               const { cause, dims } = normalizeMissingItems(ir1.missing_items)
               if (dims.length === 0 && !cause) return null
               return (
-                <div style={{ marginTop: 10, borderLeft: '3px solid #d97706', background: '#fdf3e3', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
+                <div style={{ marginTop: 10, borderLeft: '3px solid #f59e0b', background: 'rgba(245,158,11,.10)', padding: '6px 10px', fontSize: 12, borderRadius: 4 }}>
                   <b>{cause ?? '缺失项（如实）'}：</b>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                     {dims.map((d) => <li key={d}>{d}</li>)}
