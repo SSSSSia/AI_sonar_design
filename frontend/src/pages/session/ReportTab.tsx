@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { App, Alert, Button, Card, Input, Modal, Radio, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { App, Alert, Button, Card, Grid, Input, Modal, Radio, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { postReview, type Ir3, type Ir4, type Ir4Issue, type Ir5, type ReviewRecord } from '../../api/workflow'
 import { ApiError, getBlob } from '../../api/client'
@@ -9,6 +9,8 @@ import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { CandidateContent, CandidateDedupTag, CandidateKindTag, writebackToastText } from '../../components/CandidateContent'
 import { gateLabel, WRITEBACK_LABEL, checkLabel } from '../../lib/stageLabel'
+import EChart, { CHART_COLORS } from '../../components/EChart'
+import type { EChartsCoreOption } from 'echarts/core'
 
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
   error: { label: '错误', color: 'error' },
@@ -37,6 +39,44 @@ function OVERALL_TAG({ overall }: { overall: Ir4['overall'] }) {
   return <Tag color="success">总体结论 pass</Tag>
 }
 
+/** 四级风险横条分布（ADR-011）：IR4 真实 issues 聚合；四级全列出，0 值如实显示为 0 */
+function severityChartOption(issues: Ir4Issue[]): EChartsCoreOption {
+  // y 轴类目自下而上渲染：错误置于顶部
+  const order: [keyof typeof SEV_COLOR, string][] = [
+    ['info', '提示'],
+    ['unverified', '未验证'],
+    ['warning', '警告'],
+    ['error', '错误'],
+  ]
+  const count = (sev: string) => issues.filter((i) => i.severity === sev).length
+  return {
+    grid: { left: 56, right: 34, top: 10, bottom: 24 },
+    xAxis: {
+      type: 'value', minInterval: 1,
+      splitLine: { lineStyle: { color: CHART_COLORS.split } }, axisLabel: { color: CHART_COLORS.text3 },
+    },
+    yAxis: {
+      type: 'category', data: order.map(([, label]) => label),
+      axisLabel: { color: CHART_COLORS.text2 }, axisLine: { lineStyle: { color: CHART_COLORS.split } },
+    },
+    series: [{
+      type: 'bar', barWidth: 14,
+      data: order.map(([sev]) => ({
+        value: count(sev),
+        itemStyle: { color: SEV_COLOR[sev], borderRadius: [0, 4, 4, 0] },
+      })),
+      label: { show: true, position: 'right', color: CHART_COLORS.text2 },
+    }],
+  }
+}
+
+const SEV_COLOR = {
+  error: CHART_COLORS.err,
+  warning: CHART_COLORS.warn,
+  unverified: CHART_COLORS.text3,
+  info: CHART_COLORS.info,
+} as const
+
 export function ReportTab({
   sessionId,
   ir4,
@@ -62,6 +102,7 @@ export function ReportTab({
   onDecided: () => void
 }) {
   const { message } = App.useApp()
+  const screens = Grid.useBreakpoint()
   const roles = useAuthStore((s) => s.roles)
   const canDecide = hasAnyRole(roles, ['admin', 'reviewer'])
   const [annotations, setAnnotations] = useState('')
@@ -211,7 +252,21 @@ export function ReportTab({
                 </div>
               )}
             </div>
-            <IssueGroups issues={ir4.issues} />
+            {ir4.issues.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: screens.md ? 'minmax(280px, 340px) 1fr' : '1fr', gap: 16, alignItems: 'start' }}>
+                <Card
+                  type="inner" size="small" title="风险等级分布"
+                  styles={{ body: { paddingTop: 4 } }}
+                >
+                  <EChart option={severityChartOption(ir4.issues)} height={Math.max(140, ir4.issues.length * 24)} />
+                </Card>
+                <div style={{ minWidth: 0 }}>
+                  <IssueGroups issues={ir4.issues} />
+                </div>
+              </div>
+            ) : (
+              <IssueGroups issues={ir4.issues} />
+            )}
           </>
         )}
       </Card>
@@ -223,7 +278,7 @@ export function ReportTab({
           styles={{ body: { padding: 0 } }}
         >
           <CandidateTable candidates={ir5.candidates} ir3={ir3} />
-          <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f1f3' }}>
+          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--hairline)' }}>
             <Alert
               type="info"
               showIcon
@@ -329,13 +384,13 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
           </Typography.Text>
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {g.items.map((i) => (
-              <div key={i.constraint_id} style={{ border: '1px solid #f0f1f3', borderLeft: `3px solid ${g.sev === 'error' ? '#c92a2a' : g.sev === 'warning' ? '#d97706' : g.sev === 'unverified' ? '#8b949e' : '#d1d5db'}`, borderRadius: 6, padding: '8px 12px' }}>
+              <div key={i.constraint_id} style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${g.sev === 'error' ? '#ef4444' : g.sev === 'warning' ? '#f59e0b' : g.sev === 'unverified' ? '#94a3b8' : '#475569'}`, borderRadius: 6, padding: '8px 12px' }}>
                 <div style={{ fontSize: 12.5 }}>
                   <Tag color={SEVERITY_META[g.sev].color} style={{ marginInlineEnd: 6 }}>{checkLabel(i.constraint_id)}</Tag>
-                  <span className="mono" style={{ fontSize: 10.5, color: '#8b949e', marginRight: 6 }}>{i.constraint_id}</span>
+                  <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)', marginRight: 6 }}>{i.constraint_id}</span>
                   {i.suggestion && <Tag color="warning">建议 {i.suggestion.replace('back_to_', '回退 ')}</Tag>}
                 </div>
-                {i.message && <div style={{ fontSize: 12, color: '#57606a', marginTop: 4, lineHeight: 1.7 }}>{i.message}</div>}
+                {i.message && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.7 }}>{i.message}</div>}
                 {(() => {
                   // 关联参数/特征去重 + 超量截断（审查 P2-16：避免同名重复列举占行）
                   const cap = (arr: string[]) => {
@@ -346,7 +401,7 @@ function IssueGroups({ issues }: { issues: Ir4Issue[] }) {
                   const feats = cap(i.related_features ?? [])
                   if (!params && !feats) return null
                   return (
-                    <div style={{ fontSize: 11, color: '#8b949e', marginTop: 4, fontFamily: 'monospace' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, fontFamily: 'monospace' }}>
                       {[params && `参数 ${params}`, feats && `特征 ${feats}`].filter(Boolean).join(' · ')}
                     </div>
                   )
