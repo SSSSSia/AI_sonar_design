@@ -62,3 +62,6 @@ workflow-run.log
 
 # 容灾备份产物（T11.7，deploy/backup/backup.sh 输出）
 backups/
+
+# ===== 本地参考资料（2026-10-10 用户指定不入库：docs/reference 全目录本地保留，不再上传） =====
+docs/reference/
