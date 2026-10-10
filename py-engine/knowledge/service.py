@@ -39,6 +39,9 @@ class RetrievalResult:
     level: str
     degraded_from: list[str] = field(default_factory=list)
     refs: list[dict[str, str]] = field(default_factory=list)
+    # U3.10 知识检索 Tab：向量层逐块命中 [{doc_id, location, text, score}]（score=Milvus
+    # 真实距离，重排序开启时为重排序分）；非向量级为空——不造分数（A-16）。随 L1 缓存往返。
+    hits: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -50,6 +53,7 @@ class RetrievalResult:
             "level": self.level,
             "degraded_from": self.degraded_from,
             "refs": self.refs,
+            "hits": self.hits,
         }
 
 
@@ -172,6 +176,7 @@ class GraphRAGService:
             result = RetrievalResult(
                 cached.get("content", ""), cached.get("level", "text"),
                 cached.get("degraded_from", []), cached.get("refs", []),
+                cached.get("hits", []),
             )
         else:
             result = self._query_uncached(query, kb_ids)
@@ -231,11 +236,11 @@ class GraphRAGService:
                 degraded.append("vector")
 
             if vector_hit is not None:
-                content, refs = vector_hit
+                content, refs, vhits = vector_hit
                 if graph_hit is not None:
                     return RetrievalResult(content, "vector+graph", degraded,
-                                           _merge_refs(refs, graph_hit[1]))
-                return RetrievalResult(content, "vector", degraded, refs)
+                                           _merge_refs(refs, graph_hit[1]), vhits)
+                return RetrievalResult(content, "vector", degraded, refs, vhits)
             if graph_hit is not None:
                 content, refs = graph_hit
                 return RetrievalResult(content, "graph", degraded, refs)
@@ -310,7 +315,7 @@ class GraphRAGService:
         ]
         return content, _refs_with_kb(refs)
 
-    def _try_milvus(self, query: str, doc_scope: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]]]]:
+    def _try_milvus(self, query: str, doc_scope: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]]:
         from kb.embeddings import embed_texts
         from kb.rerank import get_reranker
         from kb.vector_store import ChunkVectorStore
@@ -339,7 +344,8 @@ class GraphRAGService:
             {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
             for h in hits
         ]
-        return content, _refs_with_kb(refs)
+        # U3.10：截断逐块命中（含真实距离/重排序分），随结果流经缓存
+        return content, _refs_with_kb(refs), hits[:10]
 
     # ------------------------------------------------------------------
     # 批量查询（并发 + 逐条降级，A1 的 4~8 条子查询用）

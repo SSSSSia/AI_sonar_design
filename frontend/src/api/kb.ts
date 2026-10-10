@@ -200,6 +200,29 @@ export function getKbStatus() {
   return get<KbStatus>('/kb/status')
 }
 
+// ---- U3.10 知识检索（包装三级降级检索；分数仅向量级真实存在） ----
+
+export interface KbSearchHit {
+  doc_id: string
+  doc_name: string
+  location: string
+  text: string
+  score: number | null
+}
+
+export interface KbSearchResult {
+  level: string
+  ok: boolean
+  degraded_from: string[]
+  elapsed_ms: number
+  hits: KbSearchHit[]
+  refs: Array<{ doc_id: string; location: string }>
+}
+
+export function searchKb(body: { query: string; kb_ids?: string[] | null }) {
+  return post<KbSearchResult>('/kb/search', body)
+}
+
 // ---- 批量录入（T11.4 军标规模化：batch upsert + xlsx/csv 导入，admin） ----
 export interface BatchResult {
   total: number

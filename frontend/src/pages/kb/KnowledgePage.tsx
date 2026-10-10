@@ -8,6 +8,7 @@ import { DocumentsTab, ExtractionsTab, NewBaseWizard } from './DocumentsTab'
 import { RegistryTab } from './RegistryTab'
 import { ProvidersTab } from './ProvidersTab'
 import { GraphTab } from './GraphTab'
+import { SearchTab } from './SearchTab'
 import MetadataTab from './MetadataTab'
 
 /**
@@ -206,6 +207,7 @@ export default function KnowledgePage() {
               </div>
             ),
           },
+          { key: 'search', label: '知识检索', children: <SearchTab /> },
           { key: 'registry', label: '三库管理', children: <RegistryTab /> },
           { key: 'providers', label: 'LLM 供应商', children: <ProvidersTab /> },
           { key: 'graph', label: '图谱', children: <GraphTab /> },

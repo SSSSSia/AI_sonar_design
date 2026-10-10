@@ -648,6 +648,56 @@ def delete_llm_provider(name: str, user: str = Depends(require_admin)) -> dict:
 
 
 # ----------------------------------------------------------------------
+# U3.10 知识检索（前端知识库页「知识检索」Tab）：包装三级降级检索 service；
+# 逐块命中带真实分数（仅向量级——Milvus 距离/重排序分，A-16 不造分数），
+# 降级轨迹如实返回（A-14）。
+# ----------------------------------------------------------------------
+class SearchBody(BaseModel):
+    query: str
+    kb_ids: list[str] | None = None
+
+
+@router.post("/search")
+def kb_search(body: SearchBody) -> dict[str, Any]:
+    q = body.query.strip()
+    if not q:
+        raise HTTPException(status_code=422, detail="检索内容不能为空")
+    if body.kb_ids is not None and not body.kb_ids:
+        raise HTTPException(status_code=422, detail="kb_ids 为空数组时请传 null（=不限库）")
+    from knowledge.service import get_knowledge_service
+
+    t0 = time.perf_counter()
+    r = get_knowledge_service().query(q, kb_ids=body.kb_ids)
+    docs = {d["doc_id"]: d for d in kb_store.list_documents(limit=1000)}
+
+    def doc_name(doc_id: str) -> str:
+        d = docs.get(doc_id)
+        return str((d or {}).get("filename") or doc_id)
+
+    hits = [
+        {
+            "doc_id": h.get("doc_id") or "?",
+            "doc_name": doc_name(h.get("doc_id") or "?"),
+            "location": h.get("location") or "?",
+            "text": h.get("text", ""),
+            "score": h.get("score"),
+        }
+        for h in (r.hits or [])[:10]
+    ]
+    # 非向量级无逐块数据：聚合内容整体作为单条命中（如实不带分数）
+    if not hits and r.ok:
+        hits = [{"doc_id": "", "doc_name": "聚合结果（本层级无逐块粒度）", "location": "", "text": r.content, "score": None}]
+    return {
+        "level": r.level,
+        "ok": r.ok,
+        "degraded_from": r.degraded_from,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+        "hits": hits,
+        "refs": r.refs,
+    }
+
+
+# ----------------------------------------------------------------------
 # T3.4 图谱可视化数据接口（力导向全图 + 邻域子图；节点带来源 doc 可反跳）
 # ----------------------------------------------------------------------
 def _graph_store():
