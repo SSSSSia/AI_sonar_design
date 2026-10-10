@@ -53,6 +53,15 @@
                 <div class="help">项目在「仪表盘 → 项目」中维护；无合适项目可先新建。</div>
               </div>
               <div class="field">
+                <label>知识库（可多选）</label>
+                <div class="row" style="gap:6px;flex-wrap:wrap;">
+                  <span class="badge blue">默认知识库（默认） ✕</span>
+                  <span class="badge blue">拖曳阵总体设计资料 ✕</span>
+                  <button class="btn sm">＋ 选择知识库</button>
+                </div>
+                <div class="help"><b>不选 = Agent 自主圈定</b>：按需求文本逐库探测检索，命中数 &gt; 0 的库入选（全零则如实回退全库并标注）；选择依据（各库命中数）记录在会话总览「知识检索」卡中，全程可溯。</div>
+              </div>
+              <div class="field">
                 <label>会话标题 <span class="req">*</span></label>
                 <input class="input" value="某型拖曳线列阵声呐方案设计">
               </div>
