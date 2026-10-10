@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 // 开发期代理：/api → Java 网关（8080）；/ws → notify 推送服务（8084，路径前缀保持 /ws 与生产 nginx 一致）。
-// UI 改动须先 mockup 确认（宪法 §7.3）；蓝色仅用于交互/可操作语义元素。
+// UI 风格基线：深色海洋科技风（宪法 §7.3 + ADR-011）；交互青仅用于可操作语义元素。
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -12,6 +12,7 @@ export default defineConfig({
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
             if (id.includes('three')) return 'vendor-three'
+            if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
             if (id.includes('d3-') || id.includes('/d3/')) return 'vendor-d3'
             if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'vendor-antd'
             if (id.includes('react') || id.includes('scheduler')) return 'vendor-react'

@@ -1,25 +1,34 @@
 /* ============================================================
-   Sonar-CAD v2 · 全局视觉基线（PHASE-004 §2.5；宪法 §7.3）
-   基调：浅色中性生产力美学；蓝 #2563EB 仅用于交互语义，禁止装饰性用蓝。
+   Sonar-CAD v2 · 全局视觉基线（宪法 §7.3；ADR-011，2026-10-10 起）
+   基调：深色海洋科技风；青 #06B6D4 仅用于交互语义，光晕/纹理限定范围装饰。
    Token 与 docs/mockups/mockup.css 同源，两侧改动需同步。
    ============================================================ */
 
 :root {
-  --bg: #f5f6f8;           /* 内容区底 */
-  --panel: #fafbfc;        /* 侧栏/品牌面板底 */
-  --card: #ffffff;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --hairline: #f0f1f3;
-  --text-1: #1f2329;
-  --text-2: #57606a;
-  --text-3: #8b949e;
-  --blue: #2563eb;         /* 仅按钮/链接/激活/可点击 */
-  --blue-hover: #1d4ed8;
-  --blue-bg: #eef2fe;
-  --ok: #2b8a3e;
-  --warn: #d97706;
-  --err: #c92a2a;
+  --bg: #070f1e;            /* 内容区底（最深） */
+  --bg-deep: #060e1c;       /* 更深层（日志/代码面） */
+  --panel: #0a1628;         /* 侧栏/嵌套面板底 */
+  --panel-grad: linear-gradient(180deg, #0a1628 0%, #050d1a 100%);
+  --card: #0f2035;
+  --card-grad: linear-gradient(135deg, #0f2035 0%, #0a1628 100%);
+  --border: rgba(148, 163, 184, .14);
+  --border-strong: rgba(148, 163, 184, .30);
+  --hairline: rgba(255, 255, 255, .05);
+  --text-1: #e2e8f0;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+  --text-4: #475569;
+  --accent: #06b6d4;        /* 交互 accent（cyan）：仅按钮/链接/激活/可点击 */
+  --accent-2: #0ea5e9;      /* 与 accent 组成主按钮 135° 渐变 */
+  --accent-hover: #22d3ee;
+  --accent-bg: rgba(6, 182, 212, .14);
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --err: #ef4444;
+  --info: #8b5cf6;
+  --glow: 0 0 20px rgba(6, 182, 212, .35);
+  --glow-soft: 0 0 14px rgba(6, 182, 212, .3);
+  --grad-primary: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
   /* 系统字体栈：中文界面优先本机渲染，不引入网络字体 */
   --font-sans: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
   --mono: 'JetBrains Mono', Consolas, 'Courier New', monospace;
@@ -36,7 +45,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-::selection { background: #e2e5ea; }
+::selection { background: rgba(6, 182, 212, .3); }
 
 /* 数据读数一律等宽 + 表格数字（仪器感）；ID/哈希/版本号用 .mono */
 .mono { font-family: var(--mono); }
@@ -45,16 +54,32 @@ body {
 }
 
 /* 焦点可见性（质量底线） */
-:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* 细滚动条（中性灰） */
-* { scrollbar-width: thin; scrollbar-color: #d3d6db transparent; }
+/* 细滚动条（深色青） */
+* { scrollbar-width: thin; scrollbar-color: rgba(6, 182, 212, .25) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb {
-  background: #d3d6db; border-radius: 4px;
+  background: rgba(6, 182, 212, .25); border-radius: 4px;
   border: 2px solid transparent; background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover { background-color: #b9bec6; }
+*::-webkit-scrollbar-thumb:hover { background-color: rgba(6, 182, 212, .45); }
+
+/* ---------- 装饰语言（限定范围，ADR-011） ----------
+   .glow 仅用于品牌标/主按钮/进度条/运行中状态点；
+   .grid-texture 仅用于欢迎横幅；语义四色不用于装饰。 */
+.glow { box-shadow: var(--glow); }
+.grad-primary { background: var(--grad-primary); }
+.grid-texture {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(6, 182, 212, .05) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(6, 182, 212, .05) 0 1px, transparent 1px 40px);
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+.status-pulse { animation: status-pulse 1.6s ease-in-out infinite; }
 
 /* ---------- 应用外壳：侧栏固定视口（2026-09-26 侧栏滚动/收缩态修复） ----------
    外层 Layout 锁定 100vh，侧栏与内容区各自独立滚动，整页滚动不再带走侧栏；
@@ -80,35 +105,35 @@ body {
 
 /* ---------- 门禁节点脉冲（仅 gate 激活态，信息性动效） ---------- */
 @keyframes gate-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(217, 119, 6, .16); }
-  50%      { box-shadow: 0 0 0 6px rgba(217, 119, 6, .08); }
+  0%, 100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, .18); }
+  50%      { box-shadow: 0 0 0 6px rgba(245, 158, 11, .08); }
 }
 .gate-pulse { animation: gate-pulse 1.6s ease-in-out infinite; }
 
 /* ---------- 登录页品牌面板 · 声呐扫描纹样 ----------
-   主题根植：声呐 = 同心扫描环。中性灰绘制，非交互元素不使用蓝。 */
+   主题根植：声呐 = 同心扫描环。青色绘制（ADR-011 装饰语言限定范围）。 */
 .login-split { min-height: 100vh; display: flex; background: var(--bg); }
 .login-brand {
   flex: 1.15; min-width: 0; position: relative; overflow: hidden;
   display: flex; flex-direction: column; justify-content: space-between;
-  padding: 44px 52px; background: var(--panel); border-right: 1px solid var(--border);
+  padding: 44px 52px; background: var(--panel-grad); border-right: 1px solid var(--hairline);
 }
 .login-brand .motif {
   position: absolute; top: -140px; right: -160px;
   width: 620px; height: 620px; pointer-events: none;
 }
-.login-brand .motif .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--border); }
+.login-brand .motif .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(6, 182, 212, .12); }
 .login-brand .motif .ring.r2 { inset: 78px; }
-.login-brand .motif .ring.r3 { inset: 156px; border-color: var(--border-strong); }
+.login-brand .motif .ring.r3 { inset: 156px; border-color: rgba(6, 182, 212, .28); }
 .login-brand .motif .ring.r4 { inset: 234px; }
 .login-brand .motif .core {
   position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
-  margin: -3px 0 0 -3px; border-radius: 50%; background: var(--border-strong);
+  margin: -3px 0 0 -3px; border-radius: 50%; background: var(--accent); box-shadow: var(--glow);
 }
 .login-brand .motif .sweep {
   position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(from 0deg,
-    rgba(209, 213, 219, 0) 0deg, rgba(185, 190, 198, .5) 42deg, rgba(209, 213, 219, 0) 50deg);
+    rgba(6, 182, 212, 0) 0deg, rgba(6, 182, 212, .45) 42deg, rgba(6, 182, 212, 0) 50deg);
   animation: sonar-sweep 9s linear infinite;
 }
 @keyframes sonar-sweep { to { transform: rotate(360deg); } }
@@ -120,7 +145,7 @@ body {
 .pipe-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .pipe-chips .chip {
   font-family: var(--mono); font-size: 11px; color: var(--text-2);
-  border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; background: rgba(255, 255, 255, .03);
 }
 /* 窄屏回退：品牌移入卡片 */
 .login-compact { display: none; }
