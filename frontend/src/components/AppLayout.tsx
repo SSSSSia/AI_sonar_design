@@ -380,10 +380,8 @@ function SysStatusBox() {
 
   if (kb.isError) rows.push({ label: '知识库', state: 'down', val: '不可达' })
   else if (!kb.data) rows.push({ label: '知识库', state: 'na', val: '探测中' })
-  else {
-    const stores = [kb.data.milvus_available, kb.data.neo4j_available].filter((v) => v === true).length
-    rows.push({ label: '知识库', state: stores > 0 ? 'up' : 'warn', val: stores > 0 ? `在线 · ${stores}/2 存储` : '无可用存储' })
-  }
+  // 网关侧 /kb/status 为粗粒度服务状态（不含 milvus/neo4j 明细）；存储级现状在系统管理页如实展示
+  else rows.push({ label: '知识库', state: 'up', val: '在线' })
 
   if (llm.isError || !llm.data?.name) rows.push({ label: 'LLM 供应商', state: 'down', val: '未配置' })
   else {
