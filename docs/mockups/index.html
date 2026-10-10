@@ -19,19 +19,21 @@
     <div class="card-h"><span class="h-title">设计基线（已锁定）</span></div>
     <div class="card-b" style="display:flex;flex-direction:column;gap:10px;">
       <div class="row" style="flex-wrap:wrap;gap:8px;">
-        <span class="sw"><i style="background:#2563eb"></i> 主蓝 #2563EB · 仅交互语义（按钮/链接/激活）</span>
-        <span class="sw"><i style="background:#1f2329"></i> 主文字 #1F2329</span>
-        <span class="sw"><i style="background:#57606a"></i> 次文字 #57606A</span>
-        <span class="sw"><i style="background:#f5f6f8;border:1px solid #e5e7eb"></i> 内容区 #F5F6F8</span>
-        <span class="sw"><i style="background:#6e56cf"></i> formula 徽标·紫</span>
-        <span class="sw"><i style="background:#0e8088"></i> case 徽标·青</span>
-        <span class="sw"><i style="background:#2b8a3e"></i> standard 徽标·绿</span>
-        <span class="sw"><i style="background:#d97706"></i> estimated 徽标·橙</span>
+        <span class="sw"><i style="background:#06b6d4"></i> 交互青 #06B6D4 · 仅交互语义（按钮/链接/激活）</span>
+        <span class="sw"><i style="background:#0ea5e9"></i> 渐变辅 #0EA5E9（主按钮 135° 渐变）</span>
+        <span class="sw"><i style="background:#e2e8f0"></i> 主文字 #E2E8F0</span>
+        <span class="sw"><i style="background:#94a3b8"></i> 次文字 #94A3B8</span>
+        <span class="sw"><i style="background:#070f1e;border:1px solid rgba(148,163,184,.3)"></i> 内容区 #070F1E</span>
+        <span class="sw"><i style="background:#0f2035;border:1px solid rgba(148,163,184,.3)"></i> 卡片 #0F2035</span>
+        <span class="sw"><i style="background:#a78bfa"></i> formula 徽标·紫</span>
+        <span class="sw"><i style="background:#2dd4bf"></i> case 徽标·青绿</span>
+        <span class="sw"><i style="background:#34d399"></i> standard 徽标·绿</span>
+        <span class="sw"><i style="background:#fbbf24"></i> estimated 徽标·橙</span>
       </div>
       <div class="note blue">
-        <b>规则：</b>浅色中性生产力美学（Zotero/Notion 式），拒绝装饰化；主蓝仅出现在可操作元素（按钮/链接/激活态/输入聚焦）；
-        source_type 四色徽标与主蓝区分（参数行点击溯源时以链接 affordance 表达可点击，而非徽标变蓝）。
-        全中文界面；等宽字体仅用于代码 / trace_id / 对象键。
+        <b>规则（ADR-011，2026-10-10 起）：</b>深色海洋科技风——深蓝三层底 #070F1E/#0A1628/#0F2035；交互青 #06B6D4 仅出现在可操作元素（按钮/链接/激活态/输入聚焦）；
+        霓虹光晕/网格纹理/毛玻璃顶栏限定范围装饰（品牌标/主按钮/进度条/运行中状态点/欢迎横幅），语义四色不用于装饰。
+        source_type 四色徽标与交互青区分；全中文界面；等宽字体仅用于代码 / trace_id / 对象键；UI 不引入假数据（A-16）。
       </div>
     </div>
   </div>
