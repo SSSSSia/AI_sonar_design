@@ -50,6 +50,8 @@ function severityChartOption(issues: Ir4Issue[]): EChartsCoreOption {
   ]
   const count = (sev: string) => issues.filter((i) => i.severity === sev).length
   return {
+    // 报告为静态快照展示：关动画杜绝重复 setOption 时的重绘瞬态
+    animation: false,
     grid: { left: 56, right: 34, top: 10, bottom: 24 },
     xAxis: {
       type: 'value', minInterval: 1,

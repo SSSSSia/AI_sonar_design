@@ -180,14 +180,16 @@ export default function DashboardPage() {
     return { tone: 'default' as const, text: 'WS 未连接 · 轮询对账中' }
   }, [activeSids, wsStatus])
 
-  // 会话行：WS 进度比列表快照新时用实时值覆盖展示
-  const rows: Row[] = sessions.map((s) => {
+  // 会话行：WS 进度比列表快照新时用实时值覆盖展示。
+  // useMemo 必须稳定（rows 是图表 option 的依赖）：否则每次渲染都新建 option，
+  // EChart 的 notMerge setOption 会反复重启饼图入场动画（实测弧段停在起始小扇区）。
+  const rows: Row[] = useMemo(() => sessions.map((s) => {
     const live = liveProgress[s.id]
     if (live && live.updatedAt > dayjs(s.updatedAt).valueOf()) {
       return { ...s, live, displayStatus: live.status }
     }
     return { ...s, displayStatus: s.pipelineStatus }
-  })
+  }), [sessions, liveProgress])
 
   // 状态筛选（审查 P1-3）：全部/进行中/待审阅/已完成/失败
   const filtered: Row[] = statusFilter === 'all' ? rows : rows.filter((r) => r.displayStatus === statusFilter)
@@ -212,6 +214,8 @@ export default function DashboardPage() {
   }, [sessions])
 
   const trendOption: EChartsCoreOption = {
+    // 20s 轮询会触发 setOption：关动画避免折线反复重画（仪器面板求稳）
+    animation: false,
     tooltip: { trigger: 'axis' },
     legend: { data: ['会话更新', '其中完成'], textStyle: { color: CHART_COLORS.text2 }, top: 0, itemWidth: 14, itemHeight: 8 },
     grid: { left: 36, right: 16, top: 34, bottom: 26 },
@@ -256,12 +260,15 @@ export default function DashboardPage() {
   }, [rows])
 
   const distOption: EChartsCoreOption = {
+    // 静态状态卡：关入场动画（配合 option 引用稳定，杜绝动画重启导致的空弧/小扇区瞬态）
+    animation: false,
     tooltip: { trigger: 'item' },
     legend: { bottom: 0, textStyle: { color: CHART_COLORS.text2 }, itemWidth: 10, itemHeight: 10, icon: 'circle' },
     series: [{
       type: 'pie',
-      radius: ['46%', '68%'],
-      center: ['50%', '44%'],
+      // 像素半径（相对容器 230px 高定值），不随容器量测时序漂移
+      radius: [52, 78],
+      center: ['50%', '45%'],
       label: { color: CHART_COLORS.text2, formatter: '{b} {c}' },
       labelLine: { lineStyle: { color: CHART_COLORS.split } },
       itemStyle: { borderColor: '#0f2035', borderWidth: 2 },
