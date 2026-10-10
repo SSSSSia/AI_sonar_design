@@ -13,12 +13,18 @@
     <nav class="nav">
       <div class="group">工作台</div>
       <a class="active" href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
-      <a href="03-requirement.html"><span class="ico">✎</span> 需求输入</a>
+      <a href="10-projects.html"><span class="ico">▦</span> 项目管理</a>
       <div class="group">知识</div>
       <a href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
       <div class="group">系统</div>
       <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
     </nav>
+    <div class="sys-status">
+      <div class="ss-t">系统状态</div>
+      <div class="ss-row"><span class="ss-dot up"></span>Agent 集群<span class="ss-val">运行中</span></div>
+      <div class="ss-row"><span class="ss-dot up"></span>知识库<span class="ss-val">在线</span></div>
+      <div class="ss-row"><span class="ss-dot warn"></span>LLM 供应商<span class="ss-val">2/3 可用</span></div>
+    </div>
     <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
   </aside>
 
@@ -48,12 +54,47 @@
           <span class="h-sub">A4 只报告不改参数（A-09）</span>
         </div>
         <div class="card-b tight">
+          <!-- U3.12 交互化：风险汇总卡（可点筛选）+ 类型分布条 -->
+          <div style="padding:12px 16px 4px;">
+            <div class="risk-chips">
+              <div class="risk-chip on" onclick="void(0)">
+                <div class="rc-num" style="color:var(--err)">1</div>
+                <div class="rc-lbl">错误 · 任一即 fail</div>
+              </div>
+              <div class="risk-chip" onclick="void(0)">
+                <div class="rc-num" style="color:var(--warn)">1</div>
+                <div class="rc-lbl">警告 · 需人工确认</div>
+              </div>
+              <div class="risk-chip" onclick="void(0)">
+                <div class="rc-num" style="color:var(--text-2)">2</div>
+                <div class="rc-lbl">提示 · 如实交代</div>
+              </div>
+              <div class="risk-chip" onclick="void(0)">
+                <div class="rc-num" style="color:var(--ok)">11</div>
+                <div class="rc-lbl">通过项</div>
+              </div>
+            </div>
+            <div class="dist-bar" aria-label="问题类型分布">
+              <i style="width:31%;background:rgba(239,68,68,.8)"></i>
+              <i style="width:23%;background:rgba(245,158,11,.8)"></i>
+              <i style="width:15%;background:rgba(148,163,184,.7)"></i>
+              <i style="width:31%;background:rgba(16,185,129,.8)"></i>
+            </div>
+            <div class="dist-legend">
+              <span><span class="dot" style="background:rgba(239,68,68,.8)"></span>几何一致性 1</span>
+              <span><span class="dot" style="background:rgba(245,158,11,.8)"></span>来源冲突 1</span>
+              <span><span class="dot" style="background:rgba(148,163,184,.7)"></span>估算未验证 2</span>
+              <span><span class="dot" style="background:rgba(16,185,129,.8)"></span>校验通过 11</span>
+              <span style="margin-left:auto">CSR 约束满足率 <b style="color:var(--text-1)">91.7%</b>（11/12）</span>
+            </div>
+            <div class="help" style="margin:6px 0 4px;">点击汇总卡筛选下方问题列表；分布条为按类型的真实计数（非装饰图表）。「AI 修复建议」不做——无对应后端能力，不放假按钮（A-16）。</div>
+          </div>
           <div class="issue">
             <span class="badge err" style="flex:none;height:fit-content;">错误</span>
             <div class="i-body">
               <div class="i-t">CHK-GEO-001 · 阵列孔径与建模特征包络不一致</div>
               <div class="i-m">IR2 P-002 阵列孔径 23.5 m（复算 (48−1)×0.5），但 IR3 特征 F-03 包络为 24 000 mm，偏差 2.1%，超出几何自洽容差。存在 A-08 违反线索（建模侧未严格继承）。</div>
-              <div class="i-ref">关联参数：P-002 · 关联特征：F-03 · 建议：回退 A2 重新派生并重建模</div>
+              <div class="i-ref">关联参数：P-002 · 关联特征：F-03 · 建议：回退 A2 重新派生并重建模 · <a href="#">详情 →</a></div>
             </div>
           </div>
           <div class="issue">

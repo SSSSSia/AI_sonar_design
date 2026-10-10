@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>10 项目管理 · Sonar-CAD v2 Mockup</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">Sonar-CAD v2</div><div class="sub">智能辅助声呐装备设计系统</div></div>
+    <nav class="nav">
+      <div class="group">工作台</div>
+      <a href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
+      <a class="active" href="10-projects.html"><span class="ico">▦</span> 项目管理</a>
+      <div class="group">知识</div>
+      <a href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
+      <div class="group">系统</div>
+      <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
+    </nav>
+    <div class="sys-status">
+      <div class="ss-t">系统状态</div>
+      <div class="ss-row"><span class="ss-dot up"></span>Agent 集群<span class="ss-val">运行中</span></div>
+      <div class="ss-row"><span class="ss-dot up"></span>知识库<span class="ss-val">在线</span></div>
+      <div class="ss-row"><span class="ss-dot warn"></span>LLM 供应商<span class="ss-val">2/3 可用</span></div>
+    </div>
+    <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="title">项目管理</span>
+      <span class="crumb">项目是会话的容器——按型号/课题建项目，会话在项目下迭代</span>
+      <span class="spacer"></span>
+      <a class="btn primary sm" href="03-requirement.html">＋ 新建项目</a>
+    </div>
+
+    <div class="content">
+      <div class="mock-banner" style="margin-bottom:16px;">Mockup 10 / 10 · UI-3 新增页（sonar-ai 项目管理对照）· <a class="back" href="index.html">← 返回目录</a></div>
+
+      <div class="stat-grid">
+        <div class="stat"><div class="num">24</div><div class="lbl">全部项目</div><div class="trend">按型号 / 课题分组</div></div>
+        <div class="stat"><div class="num">6</div><div class="lbl">活跃项目</div><div class="trend">近 7 天有会话更新</div></div>
+        <div class="stat"><div class="num" style="color:var(--warn)">5</div><div class="lbl">待审阅会话</div><div class="trend">分布在 3 个项目</div></div>
+        <div class="stat"><div class="num">61</div><div class="lbl">会话总数</div><div class="trend">本周新增 9</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-b" style="display:flex;gap:10px;align-items:center;padding:12px 16px;">
+          <input class="input" style="max-width:280px" placeholder="搜索项目名 / 编号…">
+          <span class="badge blue">全部（24）</span>
+          <span class="badge pending">活跃（6）</span>
+          <span class="badge pending">归档（18）</span>
+          <span class="spacer" style="flex:1"></span>
+          <span class="help">成员级数据权限：仅显示本人参与或可见项目（T13.4）</span>
+        </div>
+      </div>
+
+      <div class="proj-grid">
+        <div class="proj-card">
+          <div class="row">
+            <div class="grow">
+              <div class="p-name">某型拖曳线列阵声呐预研</div>
+              <div class="p-code">TLA-2026 · active</div>
+            </div>
+            <span class="badge ok"><span class="dot"></span> 活跃</span>
+          </div>
+          <div class="p-desc">拖曳线列阵总体方案与声阵段结构设计，覆盖需求解析到 STEP 出图全流程。</div>
+          <div class="proj-stats">
+            <div class="cell"><b>7</b><span>会话</span></div>
+            <div class="cell"><b style="color:var(--warn)">2</b><span>待审阅</span></div>
+            <div class="cell"><b>4</b><span>已完成</span></div>
+          </div>
+          <div class="prog" title="完成度 57%"><i style="width:57%"></i></div>
+          <div class="proj-foot">
+            <span class="f-item">成员 <b>3</b></span>
+            <span class="f-item">最近活动 <b>10 分钟前</b></span>
+            <span class="spacer" style="flex:1"></span>
+            <a class="link-btn" href="02-dashboard.html">查看会话</a>
+            <a class="link-btn" href="03-requirement.html">新建会话</a>
+            <a class="link-btn" href="#">成员管理</a>
+          </div>
+        </div>
+
+        <div class="proj-card">
+          <div class="row">
+            <div class="grow">
+              <div class="p-name">深海声呐浮标总体方案</div>
+              <div class="p-code">BUOY-2026 · active</div>
+            </div>
+            <span class="badge ok"><span class="dot"></span> 活跃</span>
+          </div>
+          <div class="p-desc">深海锚系浮标声呐总体设计与水声环境适应性分析。</div>
+          <div class="proj-stats">
+            <div class="cell"><b>3</b><span>会话</span></div>
+            <div class="cell"><b>0</b><span>待审阅</span></div>
+            <div class="cell"><b>1</b><span>已完成</span></div>
+          </div>
+          <div class="prog" title="完成度 33%"><i style="width:33%"></i></div>
+          <div class="proj-foot">
+            <span class="f-item">成员 <b>2</b></span>
+            <span class="f-item">最近活动 <b>刚刚</b></span>
+            <span class="spacer" style="flex:1"></span>
+            <a class="link-btn" href="02-dashboard.html">查看会话</a>
+            <a class="link-btn" href="03-requirement.html">新建会话</a>
+            <a class="link-btn" href="#">成员管理</a>
+          </div>
+        </div>
+
+        <div class="proj-card">
+          <div class="row">
+            <div class="grow">
+              <div class="p-name">声呐基阵骨架结构设计</div>
+              <div class="p-code">ARRAY-2025 · active</div>
+            </div>
+            <span class="badge warn"><span class="dot"></span> 有失败项</span>
+          </div>
+          <div class="p-desc">基阵骨架结构与换能器安装接口设计，含一次 A3 失败待重试会话。</div>
+          <div class="proj-stats">
+            <div class="cell"><b>5</b><span>会话</span></div>
+            <div class="cell"><b style="color:var(--warn)">3</b><span>待审阅</span></div>
+            <div class="cell"><b>1</b><span>已完成</span></div>
+          </div>
+          <div class="prog warn" title="完成度 20%"><i style="width:20%"></i></div>
+          <div class="proj-foot">
+            <span class="f-item">成员 <b>5</b></span>
+            <span class="f-item">最近活动 <b>2 天前</b></span>
+            <span class="spacer" style="flex:1"></span>
+            <a class="link-btn" href="02-dashboard.html">查看会话</a>
+            <a class="link-btn" href="03-requirement.html">新建会话</a>
+            <a class="link-btn" href="#">成员管理</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:16px;">
+        <b>说明（U3.8）：</b>项目卡统计格（会话/待审阅/已完成）与完成度发光进度条均由真实会话数据聚合（biz session_stats）；状态筛选 chip 对接 ProjectEntity.status；
+        「成员管理」为 T13.4 成员级数据权限入口（弹窗）。卡片三列网格响应式降两列/单列。
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

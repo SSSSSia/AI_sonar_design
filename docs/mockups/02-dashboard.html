@@ -13,12 +13,18 @@
     <nav class="nav">
       <div class="group">工作台</div>
       <a class="active" href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
-      <a href="03-requirement.html"><span class="ico">✎</span> 需求输入</a>
+      <a href="10-projects.html"><span class="ico">▦</span> 项目管理</a>
       <div class="group">知识</div>
       <a href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
       <div class="group">系统</div>
       <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
     </nav>
+    <div class="sys-status">
+      <div class="ss-t">系统状态</div>
+      <div class="ss-row"><span class="ss-dot up"></span>Agent 集群<span class="ss-val">运行中</span></div>
+      <div class="ss-row"><span class="ss-dot up"></span>知识库<span class="ss-val">在线</span></div>
+      <div class="ss-row"><span class="ss-dot warn"></span>LLM 供应商<span class="ss-val">2/3 可用</span></div>
+    </div>
     <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
   </aside>
 
@@ -143,7 +149,7 @@
               <span class="n-time">10 分钟前</span>
             </div>
             <div class="notif unread">
-              <div class="n-ico" style="background:var(--blue-bg);color:var(--blue);">✓</div>
+              <div class="n-ico" style="background:var(--accent-bg);color:var(--accent);">✓</div>
               <div>
                 <div class="n-t">知识索引构建完成：声呐设计手册.pdf</div>
                 <div class="n-m">向量 128 块 · 图谱新增 47 实体</div>
@@ -158,6 +164,64 @@
               </div>
               <span class="n-time">昨天</span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:16px;">
+        <div class="card" style="margin:0;">
+          <div class="card-h">
+            <span class="h-title">系统活动趋势</span>
+            <span class="h-sub">近 7 天 · 会话新增 / 任务执行（真实数据聚合，U3.8）</span>
+            <span class="spacer"></span>
+            <span class="badge blue">echarts 面积图</span>
+          </div>
+          <div class="card-b">
+            <svg width="100%" height="150" viewBox="0 0 560 150" preserveAspectRatio="none" aria-label="活动趋势示意图">
+              <defs>
+                <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#06b6d4" stop-opacity=".35"/>
+                  <stop offset="100%" stop-color="#06b6d4" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="gB" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#8b5cf6" stop-opacity=".22"/>
+                  <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <g stroke="rgba(148,163,184,.12)" stroke-width="1">
+                <line x1="0" y1="30" x2="560" y2="30"/><line x1="0" y1="65" x2="560" y2="65"/>
+                <line x1="0" y1="100" x2="560" y2="100"/><line x1="0" y1="135" x2="560" y2="135"/>
+              </g>
+              <path d="M0,118 L93,102 L186,110 L279,72 L372,84 L465,40 L560,52 L560,150 L0,150 Z" fill="url(#gA)"/>
+              <path d="M0,118 L93,102 L186,110 L279,72 L372,84 L465,40 L560,52" fill="none" stroke="#06b6d4" stroke-width="2"/>
+              <path d="M0,138 L93,128 L186,132 L279,112 L372,122 L465,96 L560,104 L560,150 L0,150 Z" fill="url(#gB)"/>
+              <path d="M0,138 L93,128 L186,132 L279,112 L372,122 L465,96 L560,104" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="4 3"/>
+              <g fill="#06b6d4"><circle cx="279" cy="72" r="3"/><circle cx="465" cy="40" r="3"/></g>
+            </svg>
+            <div class="dist-legend" style="margin-top:8px;">
+              <span><span class="dot" style="background:#06b6d4"></span>会话新增</span>
+              <span><span class="dot" style="background:#8b5cf6"></span>Agent 任务执行</span>
+              <span style="margin-left:auto">峰值周三 14 任务 · 本周合计 61</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin:0;">
+          <div class="card-h">
+            <span class="h-title">Agent 执行日志</span>
+            <span class="h-sub">跨会话最近执行 · logs API + WS（真实数据，U3.11）</span>
+            <span class="spacer"></span>
+            <a href="#" style="font-size:12px;">日志中心</a>
+          </div>
+          <div class="log" style="max-height:206px;">
+            <div><span class="t">14:32:08</span><span class="badge run" style="margin-right:6px">A2</span><span class="lv-info">深海声呐浮标总体方案 · 参数推导完成（9 项 · 案例 6 / 估算 3）</span><span class="t" style="float:right">DeepSeek-V3.2</span></div>
+            <div><span class="t">14:31:55</span><span class="badge run" style="margin-right:6px">A1</span><span class="lv-info">检索子查询规划 6 条 · 并行召回命中 graph 级 4/6</span><span class="t" style="float:right">DeepSeek-V3.2</span></div>
+            <div><span class="t">14:29:12</span><span class="badge warn" style="margin-right:6px">A3</span><span class="lv-warn">CadQuery 静态校验告警：cq.Workplane 导入顺序（已自动修复）</span><span class="t" style="float:right">规则引擎</span></div>
+            <div><span class="t">14:27:40</span><span class="badge run" style="margin-right:6px">A4</span><span class="lv-ok">几何自洽复核通过：F-010 外径偏差 0.00%（容差 2%）</span><span class="t" style="float:right">SymPy</span></div>
+            <div><span class="t">14:25:03</span><span class="badge pending" style="margin-right:6px">gate1</span><span class="lv-info">等待人工裁决：审阅关①（IR2 v1 · 9 参数）</span><span class="t" style="float:right">编排层</span></div>
+          </div>
+          <div class="card-b" style="padding-top:10px;padding-bottom:10px;border-top:1px solid var(--border);">
+            <span class="help">状态徽章与管线时间线同语义；点条目跳转对应会话工作台日志区。</span>
           </div>
         </div>
       </div>

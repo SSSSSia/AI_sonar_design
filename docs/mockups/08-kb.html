@@ -13,12 +13,18 @@
     <nav class="nav">
       <div class="group">工作台</div>
       <a href="02-dashboard.html"><span class="ico">◧</span> 仪表盘</a>
-      <a href="03-requirement.html"><span class="ico">✎</span> 需求输入</a>
+      <a href="10-projects.html"><span class="ico">▦</span> 项目管理</a>
       <div class="group">知识</div>
       <a class="active" href="08-kb.html"><span class="ico">▤</span> 知识库管理</a>
       <div class="group">系统</div>
       <a href="09-admin.html"><span class="ico">⚙</span> 系统管理</a>
     </nav>
+    <div class="sys-status">
+      <div class="ss-t">系统状态</div>
+      <div class="ss-row"><span class="ss-dot up"></span>Agent 集群<span class="ss-val">运行中</span></div>
+      <div class="ss-row"><span class="ss-dot up"></span>知识库<span class="ss-val">在线</span></div>
+      <div class="ss-row"><span class="ss-dot warn"></span>LLM 供应商<span class="ss-val">2/3 可用</span></div>
+    </div>
     <div class="side-foot"><span class="avatar">A</span><div><div style="font-weight:600;color:var(--text-1)">admin</div><div style="font-size:11px;color:var(--text-3)">管理员</div></div><a class="exit" href="01-login.html">退出</a></div>
   </aside>
 
@@ -36,9 +42,11 @@
       <div class="tabs">
         <span class="tab active">文档库<span class="cnt">4</span></span>
         <span class="tab">抽取确认<span class="cnt">12 待审</span></span>
+        <span class="tab">知识检索<span class="cnt">U3.10</span></span>
         <span class="tab">三库管理</span>
         <span class="tab">LLM 供应商</span>
         <span class="tab">图谱</span>
+        <span class="tab">元数据管理</span>
       </div>
 
       <!-- ===== 页签 1：文档库 ===== -->
@@ -50,7 +58,7 @@
           <button class="btn primary sm">构建索引（增量）</button>
         </div>
         <div class="card-b" style="border-bottom:1px solid var(--border);">
-          <div style="border:1.5px dashed var(--border-strong);border-radius:8px;padding:22px;text-align:center;color:var(--text-3);font-size:12.5px;background:#fcfcfd;">
+          <div style="border:1.5px dashed var(--border-strong);border-radius:8px;padding:22px;text-align:center;color:var(--text-3);font-size:12.5px;background:var(--card-deep);">
             拖拽或 <a href="#">点击上传</a> 文档（PDF / Word / Excel / Markdown / TXT，单文件 ≤ 50 MB）
             <div class="help" style="margin-top:6px;">上传即同步解析：保留页码/章节位置；扫描页自动 OCR（PaddleOCR-VL-1.5，超预算页如实计 ocr_pending）</div>
           </div>
@@ -208,15 +216,15 @@
             <div class="gedge" style="left:52%;top:26%;width:18%;transform:rotate(70deg);"></div>
             <div class="gedge" style="left:30%;top:66%;width:12%;transform:rotate(-18deg);"></div>
             <!-- 节点 -->
-            <div class="gnode" style="left:24%;top:34%;"><div class="gc" style="background:#6e56cf;width:20px;height:20px;"></div><div class="gl"><b>拖曳线列阵声呐</b></div></div>
-            <div class="gnode" style="left:40%;top:41%;"><div class="gc" style="background:#0e8088;width:16px;height:16px;"></div><div class="gl">声阵段</div></div>
-            <div class="gnode" style="left:52%;top:26%;"><div class="gc" style="background:#d97706;width:14px;height:14px;"></div><div class="gl">阵元间距 d</div></div>
-            <div class="gnode" style="left:66%;top:36%;"><div class="gc" style="background:#2b8a3e;width:14px;height:14px;"></div><div class="gl">F-01 半波长间距</div></div>
-            <div class="gnode" style="left:56%;top:58%;"><div class="gc" style="background:#c92a2a;width:14px;height:14px;"></div><div class="gl">d ≤ λ/2</div></div>
-            <div class="gnode" style="left:30%;top:66%;"><div class="gc" style="background:#b7791f;width:14px;height:14px;"></div><div class="gl">CASE-007 拖阵</div></div>
-            <div class="gnode" style="left:14%;top:52%;"><div class="gc" style="background:#57606a;width:14px;height:14px;"></div><div class="gl">GJB 585-91</div></div>
-            <div style="position:absolute;left:12px;bottom:10px;display:flex;gap:10px;flex-wrap:wrap;background:rgba(255,255,255,.9);border:1px solid var(--border);border-radius:6px;padding:5px 10px;">
-              <span class="sw"><i style="background:#6e56cf"></i>系统</span><span class="sw"><i style="background:#0e8088"></i>结构模块</span><span class="sw"><i style="background:#d97706"></i>参数</span><span class="sw"><i style="background:#2b8a3e"></i>公式</span><span class="sw"><i style="background:#c92a2a"></i>约束</span><span class="sw"><i style="background:#b7791f"></i>案例</span><span class="sw"><i style="background:#57606a"></i>军标</span>
+            <div class="gnode" style="left:24%;top:34%;"><div class="gc" style="background:#a78bfa;width:20px;height:20px;"></div><div class="gl"><b>拖曳线列阵声呐</b></div></div>
+            <div class="gnode" style="left:40%;top:41%;"><div class="gc" style="background:#2dd4bf;width:16px;height:16px;"></div><div class="gl">声阵段</div></div>
+            <div class="gnode" style="left:52%;top:26%;"><div class="gc" style="background:#f59e0b;width:14px;height:14px;"></div><div class="gl">阵元间距 d</div></div>
+            <div class="gnode" style="left:66%;top:36%;"><div class="gc" style="background:#34d399;width:14px;height:14px;"></div><div class="gl">F-01 半波长间距</div></div>
+            <div class="gnode" style="left:56%;top:58%;"><div class="gc" style="background:#ef4444;width:14px;height:14px;"></div><div class="gl">d ≤ λ/2</div></div>
+            <div class="gnode" style="left:30%;top:66%;"><div class="gc" style="background:#fbbf24;width:14px;height:14px;"></div><div class="gl">CASE-007 拖阵</div></div>
+            <div class="gnode" style="left:14%;top:52%;"><div class="gc" style="background:#94a3b8;width:14px;height:14px;"></div><div class="gl">GJB 585-91</div></div>
+            <div style="position:absolute;left:12px;bottom:10px;display:flex;gap:10px;flex-wrap:wrap;background:rgba(7,15,30,.85);border:1px solid var(--border);border-radius:6px;padding:5px 10px;">
+              <span class="sw"><i style="background:#a78bfa"></i>系统</span><span class="sw"><i style="background:#2dd4bf"></i>结构模块</span><span class="sw"><i style="background:#f59e0b"></i>参数</span><span class="sw"><i style="background:#34d399"></i>公式</span><span class="sw"><i style="background:#ef4444"></i>约束</span><span class="sw"><i style="background:#fbbf24"></i>案例</span><span class="sw"><i style="background:#94a3b8"></i>军标</span>
             </div>
           </div>
           <div class="graph-side">
@@ -241,6 +249,82 @@
               <div class="note warn" style="margin-top:10px;">被新版取代的节点标 <b>deprecated</b> 并保留 superseded_by 指针，不物理删除。</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- ===== 页签 3.5：知识检索（U3.10 新增，接 /api/v1/kb/search） ===== -->
+      <div class="card">
+        <div class="card-h">
+          <span class="h-title">页签 · 知识检索</span>
+          <span class="h-sub">三级降级检索（graph → vector → text）· 命中层级与降级轨迹如实展示（A-14/A-16）</span>
+          <span class="spacer"></span>
+          <span class="badge ok"><span class="dot"></span> graph 级命中</span>
+        </div>
+        <div class="card-b">
+          <div class="row" style="gap:10px;">
+            <input class="input" style="max-width:520px" value="拖曳线列阵 阵元间距 与 波束成形频率上限 的关系">
+            <button class="btn primary">检 索</button>
+            <span class="help">检索范围：默认知识库（可在下拉切换库 / 全部）</span>
+          </div>
+          <div class="note blue" style="margin:12px 0;">检索轨迹：graph 级命中 3 条（Neo4j 实体层）· 未降级 · 耗时 1.3s</div>
+          <div class="hit">
+            <div class="h-top">
+              <span class="h-score">0.96</span>
+              <span class="badge blue">DesignConstraint</span>
+              <span class="h-src">towed_array_cad_knowledge.txt · §2.1 声学约束公式</span>
+              <span style="margin-left:auto" class="mono-ref">chunk #18</span>
+            </div>
+            <div class="h-quote">…有效波束成形频率上限 f_beam ≤ c/(2d)，其中 d 为<mark>阵元间距</mark>；当 d=1.5m、c=1500m/s 时 f_beam ≤ 500Hz。阵元间距同时受流噪声与<mark>波束成形</mark>需求双向约束…</div>
+            <div class="h-meta"><span>命中层级：graph</span><span>库：默认知识库</span><span>关联实体 2：阵元间距 d · 波束形成</span></div>
+          </div>
+          <div class="hit">
+            <div class="h-top">
+              <span class="h-score">0.91</span>
+              <span class="badge blue">DesignCase</span>
+              <span class="h-src">声呐设计手册.pdf · P34 §3.2</span>
+              <span style="margin-left:auto" class="mono-ref">chunk #57</span>
+            </div>
+            <div class="h-quote">…典型拖曳线列阵取<mark>阵元间距</mark>为半波长设计（0.5λ~0.8λ），在 100Hz~1kHz 工作频段内兼顾<mark>波束成形</mark>旁瓣抑制与阵列增益…</div>
+            <div class="h-meta"><span>命中层级：graph</span><span>库：默认知识库</span><span>OCR 页 1</span></div>
+          </div>
+          <div class="hit">
+            <div class="h-top">
+              <span class="h-score">0.84</span>
+              <span class="badge blue">DesignParameter</span>
+              <span class="h-src">水声传播原理摘录.docx · §5.4</span>
+              <span style="margin-left:auto" class="mono-ref">chunk #92</span>
+            </div>
+            <div class="h-quote">…阵列空间采样定理要求 d ≤ λ_min/2，否则出现栅瓣；<mark>阵元间距</mark>选择需与最高工作频率联动校核…</div>
+            <div class="h-meta"><span>命中层级：vector（该块无实体归属，自动降向量级）</span><span>库：默认知识库</span></div>
+          </div>
+          <div class="note" style="margin-top:12px;">降级如实交代：某级检索失败时徽章显示实际命中层级与原因（如「Milvus 不可达 → 已降级文本级」），不静默伪装。</div>
+        </div>
+      </div>
+
+      <!-- ===== 页签 6：元数据管理（T13.7 已有真实功能，mockup 对齐现状） ===== -->
+      <div class="card">
+        <div class="card-h">
+          <span class="h-title">页签 · 元数据管理</span>
+          <span class="h-sub">声呐类型 / 频率段 / 性能参数规范 / 提示词模板（V19 四表）</span>
+          <span class="spacer"></span>
+          <button class="btn sm">＋ 新建</button>
+        </div>
+        <div class="card-b tight">
+          <div class="tabs" style="padding:0 16px;margin-bottom:0;">
+            <span class="tab active">声呐类型<span class="cnt">12</span></span>
+            <span class="tab">频率段<span class="cnt">6</span></span>
+            <span class="tab">性能参数规范<span class="cnt">18</span></span>
+            <span class="tab">提示词模板<span class="cnt">9</span></span>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>安装形式</th><th>功能体制</th><th>说明</th><th>启用</th><th class="actions" style="width:110px">操作</th></tr></thead>
+            <tbody>
+              <tr><td>拖曳阵</td><td>侧扫</td><td>拖曳侧扫声呐（示例口径）</td><td><span class="badge ok">启用</span></td><td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">删除</a></td></tr>
+              <tr><td>拖曳阵</td><td>合成孔径(SAS)</td><td>拖曳合成孔径（示例口径）</td><td><span class="badge ok">启用</span></td><td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">删除</a></td></tr>
+              <tr><td>舰壳安装</td><td>主动全景</td><td>舰首圆柱阵主动声呐（示例口径）</td><td><span class="badge pending">停用</span></td><td class="actions"><a href="#">编辑</a><a href="#" style="color:var(--err)">删除</a></td></tr>
+            </tbody>
+          </table>
+          <div class="card-b" style="padding:8px 16px 12px;"><span class="help">种子数据来自总体设计附录 D（示例口径）；真实军标口径待授权后替换（A-16 如实）。</span></div>
         </div>
       </div>
 
