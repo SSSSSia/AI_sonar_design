@@ -122,6 +122,21 @@ spring:
               args:
                 name: pyEngine
                 fallbackUri: forward:/fallback/py-engine
+        # LLM 供应商状态胶囊（ADR-011 前端改版；宿主 py-engine 8090，须在 biz 兜底路由之前）
+        - id: py-engine-llm
+          uri: http://${PY_ENGINE_HOST:localhost}:8090
+          predicates:
+            - Path=/api/v1/llm/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RL_PY_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PY_BURST:60}
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: pyEngine
+                fallbackUri: forward:/fallback/py-engine
         # T11.1 通知持久化（P2-4）：登录拉取/已读/清理，notify 服务（须在 biz 兜底路由之前）
         - id: notify-api
           uri: http://${NOTIFY_HOST:localhost}:8084

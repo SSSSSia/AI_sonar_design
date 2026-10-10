@@ -4,8 +4,8 @@
 - GET  /healthz            存活探针（含 broker/backend 连通性 + 事件循环心跳，T9.1）
 - GET  /tasks/{task_id}    Celery 任务状态查询（供 workflow 轮询，契约 §5.4 GET /api/v1/tasks/{id} 的算力侧实现）
 - POST /debug/echo         手动入队 echo 任务（联调用；正常流由 workflow START 事件投递）
-- GET  /llm/provider       当前生效 LLM 供应商（脱敏输出，宪法 §10.2）
-- POST /llm/provider/reload 强制重载供应商配置（热切换验证）
+- GET  /api/v1/llm/provider       当前生效 LLM 供应商（脱敏输出，宪法 §10.2；裸路径 /llm/provider 为直连兼容别名）
+- POST /api/v1/llm/provider/reload 强制重载供应商配置（热切换验证；同上别名）
 """
 
 from __future__ import annotations
@@ -233,6 +233,7 @@ def debug_always_fail(req: FailRequest) -> dict[str, Any]:
 
 
 @app.get("/llm/provider")
+@app.get("/api/v1/llm/provider")  # 网关统一路径（/api/v1/llm/** → py-engine，2026-10-10）；裸路径为直连兼容别名
 def llm_provider(user: str = Depends(require_user)) -> dict[str, Any]:
     try:
         active = active_provider().redacted()
@@ -245,6 +246,7 @@ def llm_provider(user: str = Depends(require_user)) -> dict[str, Any]:
 
 
 @app.post("/llm/provider/reload")
+@app.post("/api/v1/llm/provider/reload")  # 同上；docs/ops/vLLM切换手册.md 即按 /api/v1 前缀记载
 def llm_provider_reload(user: str = Depends(require_admin)) -> dict[str, str]:
     reload_providers()
     return {"status": "reloaded"}
