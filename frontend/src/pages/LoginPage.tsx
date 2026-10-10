@@ -5,28 +5,14 @@ import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { SonarMark } from '../components/AppLayout'
 
 const PIPELINE_CHIPS = ['A1 需求解析', 'A2 方案生成', '审阅关 ①', 'A3 CAD 出图', 'A4 合规校验', '审阅关 ②', 'A5 知识沉淀']
 
 function BrandLine() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span
-        aria-hidden
-        style={{
-          width: 30, height: 30, borderRadius: 7, background: '#1f2329',
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
-        }}
-      >
-        <span
-          style={{
-            width: 17, height: 17, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,.82)',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff' }} />
-        </span>
-      </span>
+      <SonarMark size={30} />
       <div>
         <div style={{ fontWeight: 600, fontSize: 15 }}>Sonar-CAD <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>v2</span></div>
         <div style={{ color: 'var(--text-3)', fontSize: 11.5 }}>智能辅助声呐装备设计系统</div>
