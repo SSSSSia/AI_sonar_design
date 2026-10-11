@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { App, Button, Dropdown, Tooltip } from 'antd'
+import { App, Button, Checkbox, Dropdown, Pagination, Tooltip } from 'antd'
 import { MoreOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { deleteProject, listProjects } from '../api/sessions'
+import { deleteProject, deleteSessions, listProjects, listSessions } from '../api/sessions'
 import { errText } from '../api/client'
 import type { Project } from '../api/types'
 import { QueryEmpty } from '../components/QueryEmpty'
@@ -60,7 +60,7 @@ function DoneProgress({ total, done }: { total: number; done: number }) {
   )
 }
 
-function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onMembers, onDelete }: {
+function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onMembers, onDelete, selectable, selected, onToggleSelect }: {
   p: Project
   canManage: boolean
   isAdmin: boolean
@@ -69,6 +69,10 @@ function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onMe
   onEdit: () => void
   onMembers: () => void
   onDelete: () => void
+  /** 批量管理模式（U3.13）：显示选择框 */
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }) {
   const stats = p.session_stats ?? {}
   const total = p.session_count ?? 0
@@ -77,13 +81,19 @@ function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onMe
   return (
     <div
       style={{
-        border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px 14px',
+        border: `1px solid ${selected ? 'rgba(6,182,212,.55)' : 'var(--border)'}`, borderRadius: 8, padding: '16px 18px 14px',
         display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0,
-        background: 'var(--card-grad)', transition: 'border-color .18s',
+        background: selected ? 'var(--accent-bg)' : 'var(--card-grad)', transition: 'border-color .18s',
+        position: 'relative',
       }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(6,182,212,.45)' }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = selected ? 'rgba(6,182,212,.55)' : 'var(--border)' }}
     >
+      {selectable && (
+        <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 2 }} onClick={(e) => e.stopPropagation()}>
+          <Checkbox checked={selected} onChange={() => onToggleSelect?.()} aria-label={`选择项目 ${p.name}`} />
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <SonarMark size={22} />
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -158,11 +168,11 @@ function ProjectCard({ p, canManage, isAdmin, onView, onNewSession, onEdit, onMe
               items: [
                 { key: 'edit', label: '编辑项目', onClick: onEdit },
                 { key: 'members', label: '成员管理', onClick: onMembers },
-                ...(isAdmin ? [{ key: 'del', label: '删除项目', danger: true, disabled: !empty, onClick: onDelete }] : []),
+                ...(isAdmin ? [{ key: 'del', label: '删除项目', danger: true, onClick: onDelete }] : []),
               ],
             }}
           >
-            <Tooltip title={isAdmin && !empty ? '项目下仍有会话——先「查看会话」到仪表盘删除，清空后可删' : ''}>
+            <Tooltip title={isAdmin && !empty ? '项目下仍有会话——确认框可选择连同会话一并清理' : ''}>
               <Button type="text" size="small" icon={<MoreOutlined />} style={{ color: 'var(--text-2)' }} />
             </Tooltip>
           </Dropdown>
@@ -183,30 +193,114 @@ export default function ProjectsPage() {
   const [editing, setEditing] = useState<Project | null>(null)
   const [memberProject, setMemberProject] = useState<Project | null>(null)
 
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 100
   const q = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => listProjects({ page: 1, size: 100 }),
+    queryKey: ['projects', page],
+    queryFn: () => listProjects({ page, size: PAGE_SIZE }),
     refetchInterval: 30_000,
   })
   const rows: Project[] = q.data?.records ?? []
+  const totalProjects = q.data?.total ?? rows.length
 
-  function confirmDelete(p: Project) {
+  // ---- U3.13 批量删除（admin）：项目 + 其全部会话级联清理（前端编排既有 API） ----
+  const [batchMode, setBatchMode] = useState(false)
+  const [picked, setPicked] = useState<Map<string, Project>>(new Map())
+  const [purging, setPurging] = useState(false)
+
+  function togglePick(p: Project) {
+    setPicked((prev) => {
+      const next = new Map(prev)
+      if (next.has(p.id)) next.delete(p.id)
+      else next.set(p.id, p)
+      return next
+    })
+  }
+
+  /** 跨页全选（U3.13）：逐页拉全量置入选择（供一次性级联清理全部残留项目）。 */
+  async function selectAllProjects() {
+    const all: Project[] = []
+    for (let pg = 1; pg <= 50; pg++) {
+      const r = await listProjects({ page: pg, size: 500 })
+      all.push(...r.records)
+      if (all.length >= (r.total ?? 0) || r.records.length === 0) break
+    }
+    setPicked(new Map(all.map((x) => [x.id, x])))
+    message.success(`已全选 ${all.length} 个项目（跨页）`)
+  }
+
+  /** 级联清理单项目：分页取全其会话 → 批量删（force）→ 删项目。 */
+  async function purgeProject(p: Project): Promise<number> {
+    const ids: string[] = []
+    for (let page = 1; page <= 20; page++) {
+      const r = await listSessions({ projectId: p.id, page, size: 500 })
+      ids.push(...r.records.map((s) => s.id))
+      if (ids.length >= (r.total ?? 0) || r.records.length === 0) break
+    }
+    if (ids.length > 0) await deleteSessions(ids, true)
+    await deleteProject(p.id)
+    return ids.length
+  }
+
+  async function runPurge(list: Project[]) {
+    if (list.length === 0) return
+    setPurging(true)
+    let okProjects = 0
+    let okSessions = 0
+    const failed: string[] = []
+    for (let i = 0; i < list.length; i++) {
+      message.open({ key: 'purge', type: 'loading', content: `批量清理中 ${i + 1}/${list.length}：${list[i].name}` })
+      try {
+        okSessions += await purgeProject(list[i])
+        okProjects++
+      } catch (e) {
+        failed.push(`${list[i].name}：${errText(e, 60)}`)
+      }
+    }
+    const summary = `已删除 ${okProjects} 个项目（含 ${okSessions} 个会话）${failed.length > 0 ? ` · 失败 ${failed.length} 个（${failed[0]}）` : ''}`
+    message.open({ key: 'purge', type: failed.length ? 'warning' : 'success', content: summary, duration: 8 })
+    void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    setPurging(false)
+    setBatchMode(false)
+    setPicked(new Map())
+  }
+
+  function confirmPurge(list: Project[]) {
+    const totalSessions = list.reduce((acc, p) => acc + (p.session_count ?? 0), 0)
     modal.confirm({
-      title: `确认删除空项目「${p.name}」？`,
-      content: '删除不可恢复；已沉淀入库的知识不受影响。',
+      title: `删除所选 ${list.length} 个项目${totalSessions > 0 ? `（连同其 ${totalSessions} 个会话）` : ''}？`,
+      content: '删除不可恢复：项目、会话及其快照/裁决/溯源/产物文件一并清除；已沉淀入库的知识保留。运行中/待审阅会话将被强制终止删除。',
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '再想想',
-      onOk: async () => {
-        try {
-          await deleteProject(p.id)
-          message.success(`已删除项目「${p.name}」`)
-          void queryClient.invalidateQueries({ queryKey: ['projects'] })
-        } catch (e) {
-          message.error(errText(e))
-        }
-      },
+      onOk: () => runPurge(list),
     })
+  }
+
+  function confirmDelete(p: Project) {
+    const sessions = p.session_count ?? 0
+    if (sessions === 0) {
+      modal.confirm({
+        title: `确认删除空项目「${p.name}」？`,
+        content: '删除不可恢复；已沉淀入库的知识不受影响。',
+        okText: '删除',
+        okButtonProps: { danger: true },
+        cancelText: '再想想',
+        onOk: async () => {
+          try {
+            await deleteProject(p.id)
+            message.success(`已删除项目「${p.name}」`)
+            void queryClient.invalidateQueries({ queryKey: ['projects'] })
+          } catch (e) {
+            message.error(errText(e))
+          }
+        },
+      })
+      return
+    }
+    // U3.13：非空项目走级联清理（既有 API 编排；确认框交代全部后果）
+    confirmPurge([p])
   }
 
   return (
@@ -215,11 +309,29 @@ export default function ProjectsPage() {
         <div>
           <div className="page-head">项目管理</div>
           <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 2 }}>
-            {rows.length > 0 ? `${rows.length} 个项目 · 会话在仪表盘跟进，此处进入与发起` : '项目是会话的容器——按型号/课题建项目，会话在项目下迭代'}
+            {totalProjects > 0 ? `${totalProjects} 个项目 · 会话在仪表盘跟进，此处进入与发起` : '项目是会话的容器——按型号/课题建项目，会话在项目下迭代'}
           </div>
         </div>
         <span style={{ flex: 1 }} />
-        {canManage && (
+        {isAdmin && !batchMode && rows.length > 0 && (
+          <Button
+            danger
+            onClick={() => { setBatchMode(true); setPicked(new Map()) }}
+          >
+            批量删除
+          </Button>
+        )}
+        {batchMode && (
+          <>
+            <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>已选 {picked.size} 项</span>
+            <Button size="small" onClick={() => void selectAllProjects()}>全选全部（{totalProjects}）</Button>
+            <Button danger disabled={picked.size === 0} onClick={() => confirmPurge([...picked.values()])}>
+              删除所选（含会话）
+            </Button>
+            <Button disabled={purging} onClick={() => { setBatchMode(false); setPicked(new Map()) }}>退出批量</Button>
+          </>
+        )}
+        {canManage && !batchMode && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
         )}
       </div>
@@ -240,6 +352,9 @@ export default function ProjectsPage() {
               p={r}
               canManage={canManage}
               isAdmin={isAdmin}
+              selectable={batchMode}
+              selected={picked.has(r.id)}
+              onToggleSelect={() => togglePick(r)}
               onView={() => navigate(`/?project=${r.id}`)}
               onNewSession={() => navigate(`/sessions/new?project=${r.id}`)}
               onEdit={() => setEditing(r)}
@@ -247,7 +362,7 @@ export default function ProjectsPage() {
               onDelete={() => confirmDelete(r)}
             />
           ))}
-          {canManage && (
+          {canManage && !batchMode && (
             <button
               onClick={() => setCreating(true)}
               style={{
@@ -262,6 +377,18 @@ export default function ProjectsPage() {
               <PlusOutlined /> 新建项目
             </button>
           )}
+        </div>
+      )}
+
+      {totalProjects > PAGE_SIZE && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
+          <Pagination
+            current={page}
+            pageSize={PAGE_SIZE}
+            total={totalProjects}
+            showSizeChanger={false}
+            onChange={(pg) => { setPage(pg); window.scrollTo({ top: 0 }) }}
+          />
         </div>
       )}
 

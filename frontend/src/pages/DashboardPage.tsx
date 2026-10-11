@@ -174,6 +174,8 @@ export default function DashboardPage() {
       const res = await deleteSession(r.id, force)
       message.success(`已删除「${r.title}」：阶段产物 ${res.ir_snapshots} 份 · 审阅记录 ${res.review_records} 条 · 溯源记录 ${res.trace_chain_rows} 条；沉淀入库的知识已保留`)
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      // U3.13：会话数/待审阅统计也显示在项目页卡片上——同步失效，避免 staleTime 5s 内旧值误导删除判断
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
       setRefreshKey((k) => k + 1)
     } catch (e) {
       message.error(errText(e, 160))
@@ -197,6 +199,7 @@ export default function DashboardPage() {
       else message.warning(`批量删除部分完成：${parts.join(' · ')}`)
       setSelectedKeys([])
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
       setRefreshKey((k) => k + 1)
     } catch (e) {
       message.error(errText(e, 160))
@@ -512,7 +515,9 @@ export default function DashboardPage() {
           onChange={(k) => { setStatusFilter(k); setSelectedKeys([]) }}
           style={{ marginBottom: 0 }}
           items={[
-            { key: 'all', label: `全部（${rows.length}）` },
+            // U3.13：「全部」用服务端总数（本页行数恒为分页 size，删除后后页补位会造成“总数没变”错觉）；
+            // 其余状态计数为当前页口径（服务端无按状态聚合计数），悬停提示如实说明
+            { key: 'all', label: <Tooltip title="服务端会话总数；其余状态计数为当前页口径">全部（{stats.total}）</Tooltip> },
             { key: 'running', label: `进行中（${rows.filter((r) => r.displayStatus === 'running').length}）` },
             { key: 'paused', label: `待审阅（${rows.filter((r) => r.displayStatus === 'paused').length}）` },
             { key: 'completed', label: `已完成（${rows.filter((r) => r.displayStatus === 'completed').length}）` },
