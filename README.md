@@ -2,8 +2,6 @@
 
 声呐装备智能辅助设计系统 v2 —— 知识库 + 方案/CAD 代码生成工作流的前后端分离 demo。
 
-> **开发前必读**：[`docs/00_开发约束与协作规范.md`](docs/00_开发约束与协作规范.md)（宪法文档：架构硬约束、文档驱动流程、Git 纪律、裁剪决策）。
-
 ## 一句话定位
 
 以参数化 CAD 设计为核心、知识图谱增强检索为依据：需求智能解析 → 技术方案生成 → 参数化 CAD 建模出图 → 设计合规校验 → 知识沉淀复用，全程带审阅关与溯源。
@@ -12,9 +10,9 @@
 
 本科毕设课题「**面向设计文档生成的知识增强对话智能体设计与实现**」——**全部任务要求以任务书为唯一依据**：[`docs/本科毕业设计任务说明_知识增强对话智能体.md`](docs/本科毕业设计任务说明_知识增强对话智能体.md)。
 
-课题为完全独立开发（技术建议 Pi Agent 与 GraphRAG 见任务书）：**无需阅读、参考或修改本仓库的代码与文档**，本仓仅作课题背景了解；`docs/` 下其余均为内部开发管理文档，与毕设无关。
+课题为完全独立开发（技术建议 Pi Agent 与 GraphRAG 见任务书）：**无需阅读、参考或修改本仓库的代码与文档**，本仓仅作课题背景了解。
 
-## 技术基线（完整版五层架构，ADR-001）
+## 技术基线
 
 | 层 | 选型 |
 |---|---|
@@ -26,7 +24,7 @@
 | CAD | CadQuery（OCP/OpenCascade）沙箱执行 → STEP |
 | LLM | 统一适配器：私有化 vLLM 为目标，开发期公网 OpenAI 兼容 API fallback |
 
-## 启动与部署（双轨，T9.5）
+## 启动与部署（双轨）
 
 | 模式 | 方式 | 适用 |
 |---|---|---|
@@ -34,12 +32,11 @@
 | **全栈容器模式** | `cd deploy && docker compose --profile app up -d --build`；入口 `http://localhost:${FRONTEND_PORT:-3000}` | 交付/干净机器验收 |
 
 - 两种模式共用数据底座（`docker compose up -d` 默认只起底座 10 容器）；`.env` 由 `.env.example` 复制填写（`set -a; source .env; set +a` 注入）。
-- 容器模式三镜像：`sonarcad-frontend`（node:20 多阶段 → nginx:alpine）/ `sonarcad-java`（temurin-17 一镜像五服务，`SERVICE_JAR` 区分）/ `sonarcad-py`（python:3.12-slim + pip 清华源装 cadquery/OCP；uvicorn(8090) 与 celery worker 分容器，convert_worker 按需子进程随容器拉起）。
-- py-api 容器 healthcheck 打 `/healthz`（含 T9.1 事件循环心跳，503 即不健康 → `restart: unless-stopped` 自动拉起）。
-- 干净克隆验收：新目录 `git clone` → `cp .env.example .env` 填密钥 → `docker compose --profile app up -d --build` → 全部 healthy → 浏览器登录（admin/admin123，上线前必改）。完整清单见 `docs/phase/phase-9-稳定性与核心承诺补强.md` §2.5。
-- 默认 `docker compose up` 行为不变（只起底座），开发模式脚本保留——双轨互不影响。
+- 容器模式三镜像：`sonarcad-frontend`（node:20 多阶段 → nginx:alpine）/ `sonarcad-java`（temurin-17 一镜像五服务，`SERVICE_JAR` 区分）/ `sonarcad-py`（python:3.12-slim；uvicorn(8090) 与 celery worker 分容器，convert_worker 按需子进程随容器拉起）。
+- py-api 容器 healthcheck 打 `/healthz`（含事件循环心跳，503 即不健康 → `restart: unless-stopped` 自动拉起）。
+- 干净克隆验收：新目录 `git clone` → `cp .env.example .env` 填密钥 → `docker compose --profile app up -d --build` → 全部 healthy → 浏览器登录（admin/admin123，上线前必改）。
 
-## 监控告警（T10.1，PHASE-010）
+## 监控告警
 
 | 组件 | 访问 | 说明 |
 |---|---|---|
@@ -48,18 +45,10 @@
 | Grafana | `http://localhost:${GRAFANA_PORT:-3300}`（admin/`${GRAFANA_ADMIN_PASSWORD:-admin}`） | 两块预置面板：平台总览 / Agent 管线（provisioning 自动装载） |
 
 - 启动：与 app 配套 `cd deploy && docker compose --profile app --profile monitoring up -d`（纯开发模式无对应目标，监控栈会显示 target down——监控面向容器化栈设计）。
-- 4 条告警规则在 `deploy/prometheus/alerts.yml`：Agent 任务 >15min 占比 / CadQuery 失败率>10% / 检索 P95>30s / Celery 队列>100；触发证据见 `docs/reviews/`。
-- 压测：`docker compose --profile loadtest up -d mock-llm` 起 mock LLM（:8091），k6 场景脚本见 `tests/load/k6/`（T10.2）。
+- 4 条告警规则在 `deploy/prometheus/alerts.yml`：Agent 任务 >15min 占比 / CadQuery 失败率>10% / 检索 P95>30s / Celery 队列>100。
+- 压测：`docker compose --profile loadtest up -d mock-llm` 起 mock LLM（:8091），k6 场景脚本见 `tests/load/k6/`。
 
-## 开发约定（速记）
-
-- 文档先行：无文档不开工；文档与代码同一 commit 同步。
-- 小步提交：每完成一个子任务即 commit + push，Conventional Commits。
-- 架构硬约束 A-01~A-16 不可违背（见宪法文档 §3）。
-- UI 改动先 mockup 确认再落地；蓝色仅用于交互语义。
-- 打 tag 前走发布检查清单（宪法文档附录 A）。
-
-## 目录结构（宪法附录 C）
+## 目录结构
 
 ```
 AI_sonar_design/
@@ -68,9 +57,9 @@ AI_sonar_design/
 ├── contracts/       # IR0–IR5 JSON Schema 单一事实源（ir/ + ws/）
 ├── frontend/        # React 19 + TS + Vite + AntD
 ├── deploy/          # docker-compose 数据底座
-└── docs/            # 宪法 + roadmap + phase + api + adr + devlog + reference
+├── clients/         # FreeCAD 插件（SonarCADLink，薄插件 + 后端大脑架构）
+├── tests/           # 压测场景（k6）
+└── docs/            # 毕设任务书（内部开发与设计文档本地维护，不入库）
 ```
 
-## 设计文档来源
-
-架构与技术方案**定稿**及权威设计文档存于**本地** `docs/reference/` 目录（2026-10-10 起为本地资料区，**不入库**；历史代际归档于其下 `archive/`，见 ADR-006）；仓库内以 `docs/` 入库文档为准，优先级与裁决规则见宪法文档 §1。
+> 内部开发管理文档（路线图、架构决策记录、验收记录等）与设计文档定稿存于维护方本地，不在本仓库范围内。

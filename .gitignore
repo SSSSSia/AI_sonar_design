@@ -65,3 +65,18 @@ backups/
 
 # ===== 本地参考资料（2026-10-10 用户指定不入库：docs/reference 全目录本地保留，不再上传） =====
 docs/reference/
+
+# ===== 内部开发文档（2026-10-31 用户裁决：仓库转师弟可见版，本地保留不再上传） =====
+docs/00_开发约束与协作规范.md
+docs/roadmap.md
+docs/HANDOFF.md
+docs/交接提示词.md
+docs/优化改进与毕设选题清单.md
+docs/自主迭代开发计划.md
+docs/设计实现对照与优化路线.md
+docs/adr/
+docs/phase/
+docs/devlog/
+docs/reviews/
+docs/mockups/
+docs/ops/
