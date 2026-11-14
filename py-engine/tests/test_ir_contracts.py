@@ -293,3 +293,31 @@ def test_ws_message_schema() -> None:
     with pytest.raises(Exception):
         _validate(schema, {"type": "task_progress", "session_id": "s", "timestamp": "2026-09-17T08:00:00Z",
                            "payload": "running A3"})
+
+
+def test_ir3_t151_display_transforms_forms() -> None:
+    """T15.1（ADR-014 §3）：display_transforms 两形态合法、旧快照（无此字段）仍合法、未知名拒绝。"""
+    schema = _load("ir3.schema.json")
+    base = {
+        "cadquery_script": "import cadquery as cq\n...",
+        "step_file": {"bucket": "step-models", "object_key": "s1/sonar_model.step"},
+        "features": [],
+    }
+    # 完整形态（param_id 关联 IR2 参数；rule/reason 可选按实际有无给）
+    _validate(schema, dict(base, display_transforms=[
+        {"param_id": "P-AMP", "physical_mm": 1500.0, "visual_mm": 450.0,
+         "rule": "min(doc_amplitude,radius*40)", "reason": "视觉自适应"},
+    ]))
+    # param_id=null（纯视觉说明）合法；负值振幅合法
+    _validate(schema, dict(base, display_transforms=[
+        {"param_id": None, "physical_mm": -1500.0, "visual_mm": -400.0},
+    ]))
+    # 缺 visual_mm 非法（required）
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, display_transforms=[{"param_id": "P", "physical_mm": 1.0}]))
+    # 未知名拒绝（additionalProperties: false）
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, display_transforms=[
+            {"param_id": None, "physical_mm": 1.0, "visual_mm": 1.0, "unknown": 1}]))
+    # 旧快照（无 display_transforms）依然合法（加法演进）
+    _validate(schema, base)

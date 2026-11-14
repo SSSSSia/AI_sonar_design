@@ -12,6 +12,8 @@ Agent 管线签名一致而保留，未使用）。
   estimated → 汇总 info：未经公式验证，请人工复核
   几何自洽  → features.linked_param_id ⊆ IR2 参数 id / feature_id 唯一 / step·script 引用完整
   数值复核  → linked 参数 vs 实测 bbox 维度（T7.4，PHASE-007；容差可配默认 2%，无 LLM）
+  显示变换  → IR3 display_transforms 逐条 info 呈现（T15.1，ADR-014 §3；物理/显示分离
+             显性化，禁止静默缩小工程参数；声明引用未知参数 → warning）
 
 三级风险：error=高（须回环）/ warning=中（来源冲突存疑）/ info=低（提示）。
 overall：存在任一 error 即 fail。输出经 contracts/ir/ir4.schema.json 契约校验（A-04）。
@@ -62,6 +64,7 @@ class A4Agent:
         issues += self._check_standard(params, stats, cov)
         issues += self._check_estimated(params)
         issues += self._check_geometry(ir2, ir3 or {}, stats, cov)
+        issues += self._check_display_transform(ir2, ir3 or {})
         issues += self._check_document(ir2, params)
 
         total = stats["pass"] + stats["violation"]
@@ -433,6 +436,46 @@ class A4Agent:
                 "CHK-GEO-NUM-SKIP", "unverified",
                 "几何为实测提取，但无已联动的长度类参数可做数值复核（联动容差内无匹配）——"
                 "关键尺寸未经实测核对，请人工复核或回 A3 建立参数联动"))
+        return issues
+
+    # ------------------------------------------------------------------
+    def _check_display_transform(self, ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
+        """显示变换显性化（T15.1，ADR-014 §3）。IR3 display_transforms 逐条呈现：
+        建模使用了视觉值而非物理值这一事实必须可见，不得静默（A-16）。
+
+        - info：正常声明（物理值 → 视觉值 + 规则），物理原值保留于参数表；
+        - warning：param_id 指向 IR2 不存在的参数——声明存疑，请人工复核；
+        - 纯提示级：不计入 CSR/coverage（与 info 同口径；"用了显示变换"不是约束违反，
+          也不是应检未检——裁决权在 gate2 人工）。
+        """
+        transforms = ir3.get("display_transforms") or []
+        if not transforms:
+            return []
+        known = {str(p.get("id")) for p in ir2.get("parameters", [])}
+        issues: list[dict[str, Any]] = []
+        for t in transforms:
+            pid = t.get("param_id")
+            physical = t.get("physical_mm")
+            visual = t.get("visual_mm")
+            rule = str(t.get("rule") or "未声明规则")
+            label = f"参数 {pid}" if pid else "（无关联参数）"
+            shrink_note = ""
+            try:
+                if physical and visual and float(physical) != 0:
+                    shrink_note = f"，缩至 {abs(float(visual) / float(physical)) * 100:.1f}%"
+            except (TypeError, ValueError):
+                shrink_note = ""
+            if pid and str(pid) not in known:
+                issues.append(_issue(
+                    "CHK-DISPLAY-TRANSFORM", "warning",
+                    f"显示变换声明引用了 IR2 不存在的 {pid}"
+                    f"（物理值 {physical} mm → 视觉值 {visual} mm，rule={rule}）——声明存疑，请人工复核"))
+                continue
+            issues.append(_issue(
+                "CHK-DISPLAY-TRANSFORM", "info",
+                f"显示变换：{label} 物理值 {physical} mm → 视觉值 {visual} mm{shrink_note}"
+                f"（rule={rule}）——建模使用视觉值，物理原值保留于参数表（显性呈现，A-16）",
+                [str(pid)] if pid else []))
         return issues
 
 

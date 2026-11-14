@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.a3_cad.geometry_link import link_params
+from agents.a3_cad.identity import parse_display_transforms
 from agents.a3_cad.prompts import (
     DOMAIN_REF_PATTERNS,
     PROMPT_VERSION,
@@ -123,7 +124,7 @@ class A3Agent:
             )
             script = cached["script"]
         else:
-            script = self._generate(design_doc, ref_code, domain)
+            script = self._generate(design_doc, ir2.get("parameters", []), ref_code, domain)
             gen_meta = {
                 "ref": match_info,
                 "ref_reason": self._ref_service.last_reason,
@@ -227,6 +228,7 @@ class A3Agent:
         （geometry_link.link_params），未联动如实 null——不再按参数 id 批量造占位镜像
         （A-16）。提取失败/禁用降级 features=[] + geometry_summary 如实标注，管线继续。
         T16.0 A0-4：gen_meta（生成配置，含参考来源/缓存命中）组装为 reference_used 契约字段。
+        T15.1：脚本 @display 声明解析为 display_transforms（物理/显示分离，ADR-014 §3）。
         """
         params: list[dict[str, Any]] = ir2.get("parameters", [])
         inspect = self._inspect_step(step_local_path)
@@ -270,13 +272,20 @@ class A3Agent:
                 "detail": f"{meta.get('segmentation', '?')} · {meta.get('extractor', '?')}",
             }
 
-        ir3 = validate_ir("IR3", {
+        ir3_payload: dict[str, Any] = {
             "cadquery_script": script,
             "step_file": step_ref,
             "features": features,
             "geometry_summary": summary,
             "reference_used": self._reference_used_payload(gen_meta or {}),
-        })
+        }
+        # T15.1（B-1，ADR-014 §3）：脚本 @display 声明 → display_transforms（物理/显示
+        # 分离显性化，禁止静默缩小工程振幅）；在最终脚本上解析（修复循环可能改写），
+        # 无声明→省略字段（旧形态，A-16 不造空契约）。
+        transforms = parse_display_transforms(script)
+        if transforms:
+            ir3_payload["display_transforms"] = transforms
+        ir3 = validate_ir("IR3", ir3_payload)
         # 来源信息 reference_used 自 T16.0 A0-4 起进 IR3 契约（溯源，加法演进旧快照可读）；
         # 其余执行元数据（修复轮数/脚本引用）仍只进日志，不进契约（A-04：快照与 schema 严格一致）
         logger.info(
@@ -320,10 +329,30 @@ class A3Agent:
         return payload
 
     # ------------------------------------------------------------------
-    def _generate(self, design_doc: str, ref_code: str, domain: str | None = None) -> str:
+    @staticmethod
+    def _params_block(params: list[dict[str, Any]]) -> str:
+        """T15.1（B-1，ADR-014 §3）：完整 IR2 参数 JSON 注入——脚本取数的唯一权威
+        事实源（结构化值替代正文散文；注入的是 IR2 已算值，不违反 A-08——该约束
+        管公式求值，不管建模取数）。"""
+        if not params:
+            return ""
+        return (
+            "\n\n## 结构化参数表（IR2 参数快照，建模取数的唯一权威事实源）\n"
+            "以下 JSON 为本设计已确认的全部参数（value+unit 为权威值，derivation 为其计算依据）。\n"
+            "脚本中的尺寸常量必须与这些值一致（按单位换算）；若设计文档正文与参数表矛盾，"
+            "以参数表为准并在注释中说明矛盾点。\n"
+            f"```json\n{json.dumps(params, ensure_ascii=False, indent=2, default=str)}\n```\n"
+        )
+
+    def _generate(self, design_doc: str, params: list[dict[str, Any]], ref_code: str,
+                  domain: str | None = None) -> str:
         """LLM 生成（A0-5：system prompt 与领域注入模板按匹配领域选择，未注册领域
-        只有通用段——其他类型不误用拖曳阵强制建模模式）。"""
-        user_msg = f"根据以下设计文档生成完整的 CadQuery Python 脚本：\n\n{design_doc}"
+        只有通用段——其他类型不误用拖曳阵强制建模模式。T15.1：附加完整 IR2 参数
+        JSON 注入，参数快照为脚本取数权威事实源）。"""
+        user_msg = (
+            f"根据以下设计文档生成完整的 CadQuery Python 脚本：\n\n{design_doc}"
+            + self._params_block(params)
+        )
         if ref_code:
             # 领域注入模板（A0-5）：通用语句 +（仅注册领域）领域专属"必须复制"模式；
             # 无匹配领域时不注入任何领域模式（其他类型不误用拖曳阵强制模式）

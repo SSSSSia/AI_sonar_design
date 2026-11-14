@@ -235,7 +235,8 @@ def test_system_prompt_domain_boundary():
     # 注册领域 = 通用 + 领域段
     towed = build_system_prompt("towed_array")
     assert towed.startswith(CADQUERY_BASE_PROMPT)
-    for marker in ("sin²", "视口自适应", "get_spline_pts"):
+    # T15.1 振幅条款改名"视口自适应"→"振幅物理/显示分离"（视觉缩放必须 @display 声明）
+    for marker in ("sin²", "振幅物理/显示分离", "get_spline_pts"):
         assert marker in towed
     assert "get_spline_pts" in DOMAIN_PROMPTS["towed_array"]
 

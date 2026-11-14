@@ -7,11 +7,16 @@ CADQUERY_BASE_PROMPT / FIX_BASE_PROMPT 迁移自旧仓库 agent/prompts.py（ADR
 DOMAIN_FIX_PROMPTS / DOMAIN_REF_PATTERNS——**仅当参考匹配声明对应领域时注入**；
 其他类型不误用同一组强制建模模式，未支持类型如实只有通用段。
 
+T15.1（PHASE-015，ADR-014 §2/§3）：BASE 增「对象声明注释」通用节（@obj/@display
+语法，任何领域适用）；拖曳领域振幅条款改为**物理/显示分离**——视觉缩放必须
+@display 显性声明落 IR3 display_transforms，禁止静默缩小工程振幅（A-16）。
+
 T16.0 A0-3：提示词文本参与 codegen 缓存指纹——任何模板文本变更必须递增 PROMPT_VERSION。
 """
 
-# 有效提示词版本（A0-3 缓存指纹组件；v1=A0-5 拆分前单块模板，v2=通用/领域拆分）
-PROMPT_VERSION = "2"
+# 有效提示词版本（A0-3 缓存指纹组件；v1=A0-5 拆分前单块模板，v2=通用/领域拆分，
+# v3=T15.1 对象声明注释节+振幅条款物理/显示分离）
+PROMPT_VERSION = "3"
 
 # ============================================================
 # 通用层：任何 CadQuery 生成任务都适用（领域无关）
@@ -33,6 +38,25 @@ CADQUERY_BASE_PROMPT = '''\
 7. 不要使用 .shell() 方法，用 .cut() 配合内部圆柱体实现抽壳。
 8. 最终必须使用 cq.Assembly() 组装并导出 STEP 文件。
 9. 禁止使用整数索引的 .faces() 选择器，必须用方向字符串（如 ">Z"）。
+
+## 对象声明注释（必须遵守，T15.1 起进 IR3 契约）
+
+在脚本中用注释声明对象语义身份与显示变换，供审阅链自动提取（ADR-014；注释不影响执行）：
+
+1. **对象声明**：在每个部件（或元件循环）构建处上方添加一行注释：
+   `# @obj <object_id> role=<角色> params=<参数id:尺寸类型,...>`
+   - object_id：稳定语义标识（与装配 name 对应，如 lead_cable；同一对象跨版本不变）
+   - role：对象语义角色（如 lead_cable / array_section / array_element / tail_flex）
+   - params：该对象受哪些设计参数约束及尺寸语义（冒号分隔，多项逗号分隔），
+     尺寸类型 ∈ length|diameter|width|height|thickness|other；不受参数约束可省略 params
+   - 循环构建的同角色元件用区间语法：`# @obj elem-[01-16] role=array_element params=p_elem_diameter:diameter`
+   - 示例：`# @obj array_section role=array_section params=p_array_outer_diameter:diameter,p_array_length:length`
+
+2. **显示变换声明**（仅当某工程物理值不能直接用于建模时，必须声明、禁止静默缩放）：
+   `# @display param=<参数id或none> physical_mm=<物理值mm> visual_mm=<视觉值mm> rule=<缩放规则>`
+   - physical_mm 必须取设计文档/参数表原值，不得篡改；参数表存在对应参数时必须填 param
+   - 键值内不得含空白（rule 用紧凑表达式，如 min(doc_amplitude,radius*40)）
+   - 示例：`# @display param=p_bend_amplitude physical_mm=1500 visual_mm=450 rule=min(doc_amplitude,radius*40)`
 
 ## 建模方法
 
@@ -201,17 +225,21 @@ for z_pos in element_positions:
 1. **sin vs sin²**：弯曲轨迹函数必须使用 sin²（平方），确保两端斜率为零。
 2. **柔性部件必须用曲线建模**：不得对设计文档中标注为柔性的部件使用直线 extrude。
 3. **内部元件居中排列**：元件阵列必须在段内居中分布，两端留等间距裕量。
-4. **视口自适应（极其重要）**：设计文档中的弯曲振幅是工程物理值，直接用于建模会导致几何体严重扭曲。
+4. **振幅物理/显示分离（极其重要）**：设计文档中的弯曲振幅是工程物理值，直接建模会产生退化几何；
+   允许按视觉规则缩放，但**必须显性声明，禁止静默缩小工程参数**（A-16 诚实原则）：
    - 振幅/截面半径比应控制在 **20~50 倍** 以内，超过此范围 CadQuery sweep 会生成退化几何体
    - 缩放公式：`visual_amplitude = min(doc_amplitude, radius * 40)`
    - 相邻柔性段应交替使用正/负振幅（如 +400, -400），模拟自然弯曲
-   - 示例：设计文档振幅 ±1500mm、半径 13.5mm → 实际使用 ±400~500mm
+   - **每次使用视觉振幅处必须添加显示变换声明注释**（见「对象声明注释」第 2 条）：
+     `# @display param=<振幅参数id或none> physical_mm=<设计文档原值> visual_mm=<实际使用值> rule=min(doc_amplitude,radius*40)`
+     - 示例：设计文档振幅 ±1500mm、半径 13.5mm → visual_mm=450，声明 physical_mm=1500
+   - 未声明而缩小振幅视为静默篡改工程参数；审阅链（A4 CHK-DISPLAY-TRANSFORM）会呈现全部声明
 
 ## 领域代码结构模板补充
 
 ```python
 # ========== 参数定义（领域补充）==========
-# 弯曲振幅使用视觉自适应值（见领域反模式警告第4条）
+# 弯曲振幅使用视觉自适应值，且必须逐处 @display 声明（见领域反模式警告第4条）
 
 # ========== 辅助函数（柔性段）==========
 def get_spline_pts(length, amplitude, z_start=0):
@@ -240,7 +268,9 @@ DOMAIN_REF_PATTERNS = {
         "- 对接件：sweep + intersect 截取两端\n"
         "- 变径件：分段 extrude + loft(combine=True)\n"
         "- 装配：z_cursor 递增 + cq.Assembly() + assy.add()\n"
-        "- 坐标偏移：多区域布局通过 translate 实现空间隔离\n\n"
+        "- 坐标偏移：多区域布局通过 translate 实现空间隔离\n"
+        "- 对象声明注释：@obj/@display 按通用规范「对象声明注释」节语法添加"
+        "（振幅缩放必须 @display 声明，禁止静默缩小）\n\n"
     ),
 }
 

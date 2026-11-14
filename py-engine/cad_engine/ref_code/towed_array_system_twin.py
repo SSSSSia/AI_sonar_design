@@ -117,11 +117,14 @@ def build_acoustic_segment(z_start, name, amplitude=400):
     生成空心透声护套，精密嵌入离散阵列化水听器、姿态传感器与钛合金对接套筒。
     【重点】：姿态矩阵计算逻辑 —— 通过微分求导获取切线斜率，动态旋转组件对齐弯曲轴线。
     """
+    # @display param=none physical_mm=1500 visual_mm=400 rule=min(doc_amplitude,radius*40)
+    # （设计文档振幅 ±1500mm 为工程物理值，按视觉规则缩至 400mm 建模——必须显性声明，禁止静默缩小）
     segment_group = []
     pts = get_spline_pts(ACOUSTIC_SECTION_LENGTH, amplitude, 0)
     path = cq.Workplane("XZ").spline(pts)
 
     # 核心算子组合：通过 cut（布尔求减）生成内外径分明的空心管状护套
+    # @obj acoustic_skin role=array_section params=p_array_outer_diameter:diameter,p_array_length:length
     skin = (cq.Workplane("XY").circle(AS_outer_radius).sweep(path)
             .cut(cq.Workplane("XY").circle(AS_inner_radius).sweep(path)))
     segment_group.append((skin, C_ACOUSTIC_SKIN, f"{name}_外护套"))
@@ -140,6 +143,7 @@ def build_acoustic_segment(z_start, name, amplitude=400):
     start_margin = (ACOUSTIC_SECTION_LENGTH - (ELEMENTS_PER_SECTION - 1) * ELEMENT_SPACING) / 2
 
     # 顺应弯曲嵌套水听器基元
+    # @obj hydro-[01-16] role=array_element
     for j in range(ELEMENTS_PER_SECTION):
         z_pos = start_margin + j * ELEMENT_SPACING
         u = z_pos / ACOUSTIC_SECTION_LENGTH  # 归一化纵向位置参数
