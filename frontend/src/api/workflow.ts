@@ -82,11 +82,26 @@ export interface Ir3Feature {
   /** null=实测未联动（PHASE-007 放宽，A-16）；旧快照为非空字符串 */
   linked_param_id: string | null
 }
+/** T16.0 A0-4：建模参考来源（加法演进，旧快照无此字段）；语义见 contracts/ir/ir3.schema.json */
+export interface Ir3ReferenceUsed {
+  used: boolean
+  ref_id?: string
+  file?: string
+  sha256?: string
+  catalog_version?: string
+  match_grade?: 'type_matched' | 'weak_keyword'
+  score?: number
+  generation_source?: 'fresh_llm' | 'cache_hit'
+  prompt_version?: string
+  rules_version?: string
+  reason?: 'no_catalog' | 'no_match' | 'weak_filtered' | 'read_failed'
+}
 export interface Ir3 {
   cadquery_script: string
   step_file: { bucket: string; object_key: string }
   features: Ir3Feature[]
   geometry_summary?: Ir3GeometrySummary
+  reference_used?: Ir3ReferenceUsed
 }
 
 // ---- IR4 ----

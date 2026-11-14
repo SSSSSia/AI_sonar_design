@@ -11,6 +11,7 @@ import { updateParameter, type ParamProposal } from '../../api/cadAgent'
 import { ApiError } from '../../api/client'
 import { confirmParamProposals, ignoreParamProposal, listParamProposals, listTunes } from '../../api/cadAgent'
 import { summarizeTunes } from './tuneSummary'
+import { formatReferenceUsed } from './referenceUsed'
 import { ParamTable, parseKbRef } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
 import { KbRefDrawer } from '../../components/KbRefDrawer'
@@ -541,6 +542,7 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
   const summary = ir3.geometry_summary
   const paramMap = new Map(params.map((p) => [p.id, p]))
   const hasMeasured = (f: Ir3Feature) => Array.isArray(f.geometry.bbox_mm)
+  const refLine = formatReferenceUsed(ir3.reference_used)
 
   const columns: ColumnsType<Ir3Feature> = [
     { title: '特征', dataIndex: 'feature_id', width: 90, render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
@@ -610,6 +612,11 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
             </div>
           )}
         </>
+      )}
+      {refLine && (
+        <div style={{ padding: '8px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12.5, color: 'var(--text-2)' }}>
+          {refLine}
+        </div>
       )}
     </Card>
   )
