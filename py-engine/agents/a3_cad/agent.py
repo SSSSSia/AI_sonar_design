@@ -7,7 +7,7 @@
 - 参考范例双信号匹配（code_search ★ + codegen_stage 评分逻辑）
 - 多层校验链 + sin² 自动修复（codegen_stage ★★）
 - 执行 + 修复循环（executor_stage ★★；执行方式改子进程沙箱，宪法 §10.3）
-- CADQUERY_SCRIPT_PROMPT / FIX_PROMPT（prompts.py ★）
+- 生成/修复提示词（prompts.py ★；T16.0 A0-5 起拆分通用/领域段，按匹配领域注入）
 
 A-13：修复循环上限 CAD_FIX_MAX_ROUNDS（可配），超限如实失败，绝不出假产物。
 T7.3（PHASE-007）：沙箱成功后以 subprocess 调 cad_engine/geometry_inspect.py 提取实测
@@ -28,8 +28,13 @@ from pathlib import Path
 from typing import Any
 
 from agents.a3_cad.geometry_link import link_params
-from agents.a3_cad.prompts import CADQUERY_SCRIPT_PROMPT, FIX_PROMPT
-from app_config import CAD_GEO_LINK_TOL_PCT, CAD_INSPECT_TIMEOUT_S
+from agents.a3_cad.prompts import (
+    DOMAIN_REF_PATTERNS,
+    PROMPT_VERSION,
+    build_fix_prompt,
+    build_system_prompt,
+)
+from app_config import CAD_GEO_LINK_TOL_PCT, CAD_INSPECT_TIMEOUT_S, REF_CODE_DIR
 from cad_engine import sandbox, validators
 from cad_engine.reference import CodeSearchService, strip_markdown
 from ir_contract import validate_ir
@@ -70,7 +75,7 @@ class A3Agent:
         self._llm = llm
         self._fix_max_rounds = fix_max_rounds
         self._timeout_s = execute_timeout_s
-        self._ref_service = CodeSearchService()
+        self._ref_service = CodeSearchService(REF_CODE_DIR or None)
 
     # ------------------------------------------------------------------
     def run(self, session_id: str, ir2: dict[str, Any]) -> dict[str, Any]:
@@ -79,10 +84,18 @@ class A3Agent:
         if self._llm is None:
             raise RuntimeError("A3 依赖 LLM 生成 CadQuery 脚本，当前无可用供应商")
 
-        # Step 1: 参考范例 + 代码生成（L1 codegen 缓存，T9.6：键=IR2 参数指纹，TTL 30d；
+        # Step 1: 参考范例 + 代码生成（L1 codegen 缓存，T9.6 键=IR2 参数指纹；T16.0 A0-3 起
+        # 键另含生成配置指纹（范例/提示词/领域规则版本），值=JSON envelope 可追溯旧生成配置；
         # 沙箱执行/几何实测链路照跑，IR3 真实性不受缓存影响；修复循环 _fix 不查缓存）
         ref_code, match_info = self._ref_service.select_reference(design_doc)
-        logger.info("A3 参考范例: %s", (match_info or {}).get("filename", "无（默认）"))
+        if match_info:
+            logger.info(
+                "A3 参考范例: %s (grade=%s score=%s)", match_info["file"], match_info["grade"], match_info["score"],
+            )
+        else:
+            logger.info("A3 未使用参考范例（reason=%s，无领域范例模式）", self._ref_service.last_reason)
+        # A0-5 领域策略边界：领域随 catalog 条目声明（domain 字段），未匹配=无领域规则
+        domain: str | None = (match_info or {}).get("domain") or None
         from storage import cache
 
         _m = _metrics()
@@ -94,20 +107,41 @@ class A3Agent:
             provider_tag = f"{p.base_url}|{p.model}"
         except Exception:  # noqa: BLE001 - 无供应商（单测/降级）时退化指纹
             provider_tag = ""
-        cache_key = cache.codegen_cache_key(ir2, provider_tag)
-        cached_script = cache.get_str("codegen", cache_key)
-        if cached_script:
-            logger.info("A3 codegen 缓存命中（IR2 参数指纹一致），跳过 LLM 生成")
-            script = cached_script
+        ref_fingerprint = f"{match_info['catalog_version']}:{match_info['sha256']}" if match_info else None
+        cache_key = cache.codegen_cache_key(
+            ir2, provider_tag, ref_fingerprint, PROMPT_VERSION, validators.DOMAIN_RULES_VERSION,
+        )
+        cached = cache.get_json("codegen", cache_key)
+        if isinstance(cached, dict) and cached.get("script"):
+            # 缓存命中可追溯旧生成配置（A0-3 验收）：来源以 envelope 内 gen_meta 为准，
+            # 不归因到当前刚检索的候选
+            gen_meta: dict[str, Any] = cached.get("gen_meta") or {}
+            logger.info(
+                "A3 codegen 缓存命中（IR2+生成配置指纹一致），旧生成配置: ref=%s prompt=v%s rules=v%s source=%s",
+                (gen_meta.get("ref") or {}).get("file"), gen_meta.get("prompt_version"),
+                gen_meta.get("rules_version"), gen_meta.get("generation_source"),
+            )
+            script = cached["script"]
         else:
-            script = self._generate(design_doc, ref_code)
+            script = self._generate(design_doc, ref_code, domain)
+            gen_meta = {
+                "ref": match_info,
+                "ref_reason": self._ref_service.last_reason,
+                "generation_source": "fresh_llm",
+                "domain": domain,
+                "prompt_version": PROMPT_VERSION,
+                "rules_version": validators.DOMAIN_RULES_VERSION,
+                "provider_tag": provider_tag,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
             if script.strip():
-                cache.set_str(cache_key, script, cache.TTL_CODEGEN_S)
+                cache.set_json(cache_key, {"script": script, "gen_meta": gen_meta}, cache.TTL_CODEGEN_S)
         if _m:
             _m.observe_a3_codegen(time.perf_counter() - t_gen)
 
-        # Step 2: 静态校验链（★★迁移；未过但代码非空不丢弃，交执行修复循环）
-        script, static_ok, errors, warnings = validators.validate_chain(script)
+        # Step 2: 静态校验链（★★迁移；未过但代码非空不丢弃，交执行修复循环；
+        # A0-5：领域诊断/自动修复仅对声明领域执行，语法/完整性/配色修复恒执行）
+        script, static_ok, errors, warnings = validators.validate_chain(script, domain=domain)
         for w in warnings:
             logger.warning("A3 模式诊断: %s", w)
         if not script.strip():
@@ -124,8 +158,8 @@ class A3Agent:
             logger.warning(
                 "A3 执行失败（第 %s/%s 轮修复）: %s", fix_round, self._fix_max_rounds, result["error"]
             )
-            script = self._fix(script, result["error"])
-            script = validators.auto_fix_patterns(script)
+            script = self._fix(script, result["error"], domain)
+            script = validators.auto_fix_patterns(script, domain)
             t_sbx = time.perf_counter()
             result = sandbox.run_in_subprocess(script, self._timeout_s)
             if _m:
@@ -142,7 +176,7 @@ class A3Agent:
         # 旧 IR3 快照引用各自的对象，任意历史版本可完整复现。
         step_file = result["step_files"][0]
         step_ref, script_ref = _upload_artifacts(session_id, step_file, script)
-        return self._build_ir3(script, step_ref, script_ref, ir2, step_file, fix_round)
+        return self._build_ir3(script, step_ref, script_ref, ir2, step_file, fix_round, gen_meta)
 
     # ------------------------------------------------------------------
     def _inspect_step(self, step_local_path: str) -> dict[str, Any] | None:
@@ -187,10 +221,12 @@ class A3Agent:
         ir2: dict[str, Any],
         step_local_path: str,
         fix_round: int,
+        gen_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """IR3 组装（T7.3 重写）：features 由 STEP 实测分段构造，长度类参数自动联动
         （geometry_link.link_params），未联动如实 null——不再按参数 id 批量造占位镜像
         （A-16）。提取失败/禁用降级 features=[] + geometry_summary 如实标注，管线继续。
+        T16.0 A0-4：gen_meta（生成配置，含参考来源/缓存命中）组装为 reference_used 契约字段。
         """
         params: list[dict[str, Any]] = ir2.get("parameters", [])
         inspect = self._inspect_step(step_local_path)
@@ -239,8 +275,10 @@ class A3Agent:
             "step_file": step_ref,
             "features": features,
             "geometry_summary": summary,
+            "reference_used": self._reference_used_payload(gen_meta or {}),
         })
-        # 执行元数据（修复轮数/脚本引用）只进日志，不进 IR3 契约（A-04：快照与 schema 严格一致）
+        # 来源信息 reference_used 自 T16.0 A0-4 起进 IR3 契约（溯源，加法演进旧快照可读）；
+        # 其余执行元数据（修复轮数/脚本引用）仍只进日志，不进契约（A-04：快照与 schema 严格一致）
         logger.info(
             "A3 完成：fix_rounds=%s script_ref=%s features=%s geo=%s",
             fix_round, script_ref, len(features), summary.get("source"),
@@ -248,28 +286,62 @@ class A3Agent:
         return ir3
 
     # ------------------------------------------------------------------
-    def _generate(self, design_doc: str, ref_code: str) -> str:
+    @staticmethod
+    def _reference_used_payload(gen_meta: dict[str, Any]) -> dict[str, Any]:
+        """A0-4 来源契约（ir3.schema.json `reference_used`，加法演进旧快照可读）。
+
+        字段对应脚本**实际生成所用**参考：缓存命中取 envelope 内旧生成配置
+        （gen_meta.ref），不归因当前刚检索的候选（A0-3 验收）；未注入如实记录
+        reason（A-14），无分数不造值（A-16）。
+        """
+        ref = gen_meta.get("ref") if isinstance(gen_meta, dict) else None
+        if isinstance(ref, dict) and ref.get("file"):
+            payload: dict[str, Any] = {
+                "used": True,
+                "ref_id": str(ref.get("ref_id", "")),
+                "file": str(ref.get("file", "")),
+                "sha256": str(ref.get("sha256", "")),
+                "match_grade": str(ref.get("grade", "")),
+                "generation_source": str(gen_meta.get("generation_source") or "fresh_llm"),
+            }
+            if ref.get("catalog_version"):
+                payload["catalog_version"] = str(ref["catalog_version"])
+            if ref.get("score") is not None:
+                payload["score"] = float(ref["score"])
+            if gen_meta.get("prompt_version"):
+                payload["prompt_version"] = str(gen_meta["prompt_version"])
+            if gen_meta.get("rules_version"):
+                payload["rules_version"] = str(gen_meta["rules_version"])
+            return payload
+        payload = {"used": False}
+        reason = gen_meta.get("ref_reason") if isinstance(gen_meta, dict) else None
+        if reason:
+            payload["reason"] = str(reason)
+        return payload
+
+    # ------------------------------------------------------------------
+    def _generate(self, design_doc: str, ref_code: str, domain: str | None = None) -> str:
+        """LLM 生成（A0-5：system prompt 与领域注入模板按匹配领域选择，未注册领域
+        只有通用段——其他类型不误用拖曳阵强制建模模式）。"""
         user_msg = f"根据以下设计文档生成完整的 CadQuery Python 脚本：\n\n{design_doc}"
         if ref_code:
-            user_msg = (
+            # 领域注入模板（A0-5）：通用语句 +（仅注册领域）领域专属"必须复制"模式；
+            # 无匹配领域时不注入任何领域模式（其他类型不误用拖曳阵强制模式）
+            injection = (
                 "以下是一份参考代码，展示了 CadQuery 建模的标准模式和 API 用法。\n"
                 "你需要从中提取【建模模式】，然后用设计文档的参数独立生成代码。\n\n"
-                "【必须复制的建模模式】（CadQuery API 调用方式）：\n"
-                "- 柔性段：get_spline_pts() -> spline(pts) -> circle().sweep(path)\n"
-                "- 空心管：outer_sweep.cut(inner_sweep)\n"
-                "- 沿曲线放置元件：sin² 偏移 + atan(dxdz) 切线角 + rotate + translate\n"
-                "- 对接件：sweep + intersect 截取两端\n"
-                "- 变径件：分段 extrude + loft(combine=True)\n"
-                "- 装配：z_cursor 递增 + cq.Assembly() + assy.add()\n"
-                "- 坐标偏移：多区域布局通过 translate 实现空间隔离\n\n"
+            )
+            injection += DOMAIN_REF_PATTERNS.get(domain or "", "")
+            injection += (
                 "【必须替换的内容】（来自设计文档，不来自参考代码）：\n"
                 "- 所有组件名称、数量、尺寸参数\n- 配色方案（Color 值）\n"
                 "- 空间布局参数（坐标偏移量等）\n- 组件列表和装配顺序\n\n"
-                f"```python\n{ref_code}\n```\n\n---\n\n" + user_msg
+                f"```python\n{ref_code}\n```\n\n---\n\n"
             )
+            user_msg = injection + user_msg
         raw = self._llm.chat(
             [
-                {"role": "system", "content": CADQUERY_SCRIPT_PROMPT},
+                {"role": "system", "content": build_system_prompt(domain)},
                 {"role": "user", "content": user_msg},
             ],
             max_tokens=8192,
@@ -278,11 +350,11 @@ class A3Agent:
         )
         return strip_markdown(raw)
 
-    def _fix(self, code: str, error_message: str) -> str:
+    def _fix(self, code: str, error_message: str, domain: str | None = None) -> str:
         raw = self._llm.chat(
             [
-                {"role": "system", "content": CADQUERY_SCRIPT_PROMPT},
-                {"role": "user", "content": FIX_PROMPT % (error_message, code)},
+                {"role": "system", "content": build_system_prompt(domain)},
+                {"role": "user", "content": build_fix_prompt(domain) % (error_message, code)},
             ],
             max_tokens=8192,
             temperature=0.2,

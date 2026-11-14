@@ -10,7 +10,10 @@
 version: "1.0"
 
 reference_files:
-  - file: "towed_array_system_twin.py"
+  - id: "towed_array_system_twin"
+    file: "towed_array_system_twin.py"
+    domain: "towed_array"            # 适用领域（A0-5）：声明后 prompt/校验/修复按领域注册表注入
+    domain_rules: "towed_array_v1"   # 领域规则集标识（运行规则版本见 validators.DOMAIN_RULES_VERSION）
     description: "拖曳线列阵声呐完整系统数字孪生（湿端阵列+干端母船）"
     sonar_types:
       - "拖曳线列阵声呐"

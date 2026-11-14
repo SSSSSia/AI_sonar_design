@@ -127,8 +127,17 @@ class TestValidators:
 
     def test_sin_auto_fix(self):
         bad = GOOD_SCRIPT.replace("math.sin(math.pi * pct) ** 2", "math.sin(math.pi * pct)")
-        code, ok, errors, warnings = validators.validate_chain(bad)
+        # T16.0 A0-5：sin² 修复属拖曳阵领域规则，需声明 domain 才执行
+        code, ok, errors, warnings = validators.validate_chain(bad, domain="towed_array")
         assert "** 2" in code  # 自动修复
+
+    def test_sin_no_fix_without_domain(self):
+        """T16.0 A0-5：未声明领域不误用拖曳阵领域修复（通用修复 RGB 不受影响）。"""
+        bad = GOOD_SCRIPT.replace("math.sin(math.pi * pct) ** 2", "math.sin(math.pi * pct)")
+        code, ok, errors, warnings = validators.validate_chain(bad)
+        assert "** 2" not in code
+        code_towed, _, _, _ = validators.validate_chain(bad, domain="towed_array")
+        assert "** 2" in code_towed  # 声明领域后才修复
 
     def test_missing_markers_rejected(self):
         code, ok, errors, _ = validators.validate_chain("x = 1")

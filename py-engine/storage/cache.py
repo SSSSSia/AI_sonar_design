@@ -6,8 +6,9 @@
 - cache:kb:query:{sha256(query+kb_ids)}                         TTL 24h  KB 任何变更必清 cache:kb:*
   （文档增删/抽取确认/索引重建/删库——kb_store 变更方法统一挂钩）；降级级 text/unavailable 不缓存，
   避免劣化结果被粘住；
-- cache:codegen:{sha256(IR2 参数指纹)}                           TTL 30d  参数方案变更自然 miss；
-  A3 修复循环（_fix）不查缓存，保证失败重试真实执行。
+- cache:codegen:{sha256(IR2 参数指纹+生成配置指纹)}               TTL 30d  参数方案或生成配置
+  （参考范例/提示词/领域规则版本，T16.0 A0-3）变更自然 miss；值=JSON envelope（script+gen_meta，
+  命中可追溯旧生成配置）；A3 修复循环（_fix）不查缓存，保证失败重试真实执行。
 
 运行纪律：Redis 不可用一律静默旁路（缓存故障不阻断主链路，60s 后重试连接）；
 命中/未命中计数线程安全，GET /api/v1/kb/status 暴露（阶段 10 告警数据源；
@@ -151,10 +152,22 @@ def kb_cache_key(query: str, kb_ids: list[str] | None) -> str:
     return f"cache:kb:query:{fingerprint(query, scope)}"
 
 
-def codegen_cache_key(ir2: dict[str, Any], provider_tag: str = "") -> str:
-    """IR2 参数指纹：design_document + parameters（A2 产物变动即 miss）+ 供应商标识
-    （同 IR2 换供应商应 miss——同上修订）。"""
-    return f"cache:codegen:{fingerprint(ir2.get('design_document', ''), ir2.get('parameters', []), provider_tag)}"
+def codegen_cache_key(
+    ir2: dict[str, Any],
+    provider_tag: str = "",
+    ref_fingerprint: str | None = None,
+    prompt_version: str = "",
+    rules_version: str = "",
+) -> str:
+    """IR2 参数指纹 + 生成配置指纹（T16.0 A0-3，PHASE-016）：design_document +
+    parameters（A2 产物变动即 miss）+ 供应商标识（同 IR2 换供应商应 miss）+
+    参考范例指纹（"{catalog_version}:{内容 sha256}"；None=未注入参考）+ 有效提示词
+    版本 + 领域规则版本——同 IR2 换范例/提示词/规则必须 miss，参考更新对既有方案生效。"""
+    key = fingerprint(
+        ir2.get("design_document", ""), ir2.get("parameters", []),
+        provider_tag, ref_fingerprint, prompt_version, rules_version,
+    )
+    return f"cache:codegen:{key}"
 
 
 def invalidate_kb() -> int:

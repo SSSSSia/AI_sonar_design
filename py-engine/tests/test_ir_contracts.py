@@ -170,6 +170,44 @@ def test_ir3_phase7_new_fields_constraints() -> None:
         _validate(schema, bad)
 
 
+def test_ir3_t160_reference_used_forms() -> None:
+    """T16.0 A0-4：reference_used 两形态合法、旧快照（无此字段）仍合法、未知名拒绝。"""
+    schema = _load("ir3.schema.json")
+    base = {
+        "cadquery_script": "import cadquery as cq\n...",
+        "step_file": {"bucket": "step-models", "object_key": "s1/sonar_model.step"},
+        "features": [],
+    }
+    # used=true：完整来源（catalog_version/score/prompt/rules 为可选）
+    _validate(schema, dict(base, reference_used={
+        "used": True, "ref_id": "towed_array_system_twin",
+        "file": "towed_array_system_twin.py", "sha256": "a" * 64,
+        "catalog_version": "2.0", "match_grade": "type_matched", "score": 0.6215,
+        "generation_source": "cache_hit", "prompt_version": "2", "rules_version": "2",
+    }))
+    # used=true：仅必填集合法（可选字段按实际有无给——无分数不造值，A-16）
+    _validate(schema, dict(base, reference_used={
+        "used": True, "ref_id": "x", "file": "x.py", "sha256": "b" * 64,
+        "match_grade": "weak_keyword", "generation_source": "fresh_llm",
+    }))
+    # used=true 缺必填（sha256）非法（if/then 约束）
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, reference_used={
+            "used": True, "ref_id": "x", "file": "x.py",
+            "match_grade": "type_matched", "generation_source": "fresh_llm",
+        }))
+    # used=false：如实记录 reason（A-14），无分数不造值
+    _validate(schema, dict(base, reference_used={"used": False, "reason": "no_match"}))
+    # reason 枚举外非法
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, reference_used={"used": False, "reason": "whatever"}))
+    # 未知名拒绝（additionalProperties: false）
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, reference_used={"used": False, "unknown": 1}))
+    # 旧快照（无 reference_used）依然合法（加法演进）
+    _validate(schema, base)
+
+
 def test_ir4_issue_suggestion_only_local_back() -> None:
     schema = _load("ir4.schema.json")
     ir4 = {

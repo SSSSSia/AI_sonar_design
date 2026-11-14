@@ -1,16 +1,24 @@
 # -*- coding: utf-8 -*-
-"""A3 CadQuery 代码生成/修复提示词（T1.5）。
+"""A3 CadQuery 代码生成/修复提示词（T1.5 迁移；T16.0 A0-5 通用/领域边界拆分）。
 
-CADQUERY_SCRIPT_PROMPT 与 FIX_PROMPT 迁移自旧仓库 agent/prompts.py
-（ADR-001 ★资产直接入库），内容保持不变——方法链路已验证。
+CADQUERY_BASE_PROMPT / FIX_BASE_PROMPT 迁移自旧仓库 agent/prompts.py（ADR-001 ★资产
+直接入库）。A0-5（PHASE-016，DEV-001 §1.2）：原单块模板中的拖曳阵领域条款（sin²、
+柔性曲线、振幅 20~50 倍视口自适应、干端布局、spline 模板）收敛入 DOMAIN_PROMPTS /
+DOMAIN_FIX_PROMPTS / DOMAIN_REF_PATTERNS——**仅当参考匹配声明对应领域时注入**；
+其他类型不误用同一组强制建模模式，未支持类型如实只有通用段。
+
+T16.0 A0-3：提示词文本参与 codegen 缓存指纹——任何模板文本变更必须递增 PROMPT_VERSION。
 """
 
+# 有效提示词版本（A0-3 缓存指纹组件；v1=A0-5 拆分前单块模板，v2=通用/领域拆分）
+PROMPT_VERSION = "2"
+
 # ============================================================
-# Stage 2: CadQuery 代码生成 Prompt（★ 迁移）
+# 通用层：任何 CadQuery 生成任务都适用（领域无关）
 # ============================================================
 
-CADQUERY_SCRIPT_PROMPT = '''\
-你是一位精通 CadQuery 的 Python 高级工程师。用户会提供一份声呐设备的 CAD \
+CADQUERY_BASE_PROMPT = '''\
+你是一位精通 CadQuery 的 Python 高级工程师。用户会提供一份设备的 CAD \
 设计文档，你需要将其转换为高质量的 CadQuery Python 代码来生成三维模型。
 如果附带了参考代码片段，请理解其建模思路并根据当前设计文档的实际参数灵活调整，不要直接复制。
 
@@ -29,7 +37,6 @@ CADQUERY_SCRIPT_PROMPT = '''\
 ## 建模方法
 
 如果附带了参考代码片段，理解其建模思路并根据当前设计文档的实际参数灵活调整。
-- 柔性部件的弯曲建模方法参考参考代码片段中的实现
 - 刚性部件使用 circle().extrude() 或 rect().extrude() 直线建模
 - 过渡件使用 loft 放样
 - 对接件/套筒使用布尔操作（intersect/cut/union）
@@ -52,6 +59,114 @@ def build_complex_part(z_start, ...):
     moved = [(p.translate((0, 0, z_start)), c, n) for p, c, n in group]
     return moved, z_start + length
 ```
+
+**2. 刚性直线建模**
+```python
+# 实心圆柱
+part = cq.Workplane("XY").circle(radius).extrude(length)
+# 空心管
+part = (cq.Workplane("XY").circle(outer_r).circle(inner_r).extrude(length))
+# 方盒
+part = cq.Workplane("XY").box(width, height, depth)
+```
+
+**3. 变径过渡件（分段 extrude + loft）**
+```python
+# 底部圆柱
+boot = cq.Workplane("XY").circle(r1).extrude(h1)
+# 中段 loft 过渡
+mid = (cq.Workplane("XY").workplane(offset=h1).circle(r1)
+       .workplane(offset=h2).circle(r2).loft(combine=True))
+# 合并
+part = boot.union(mid)
+```
+
+**4. 主装配与导出模式**
+```python
+assy = cq.Assembly()
+z_cursor = 0
+
+# 单部件装配
+part, z_cursor = build_xxx(z_cursor)
+assy.add(part, color=C_XXX, name="部件名")
+
+# 部件组装配
+group, z_cursor = build_xxx(z_cursor)
+for p, c, n in group:
+    assy.add(p, color=c, name=n)
+
+# 多区域布局（如适用），通过坐标偏移定位
+for p, c, n in build_region(z_region_start):
+    assy.add(p, color=c, name=n)
+```
+
+## 关键反模式警告（必须避免）
+
+1. **变径过渡件应分阶段建模**：不要用嵌套 union+loft，应分段 extrude + loft：
+   - 底部圆柱 extrude → 中段 loft 放样 → 顶部 loft 收口
+   - 每段高度 50~150mm，避免过长的 loft 路径
+
+## 渲染配色
+
+严格按照设计文档第6节的配色方案为每个部件指定颜色，不得自行更改配色。
+如果设计文档中未指定某部件颜色，根据工程惯例选择合理的区分色。
+不同功能类型的部件必须使用不同颜色。
+
+## 运行环境（已预定义，无需 import）
+
+cq, math, os, pi, sqrt, radians, cos(d), sin(d), Color, OUTPUT_DIR
+
+**【重要】OUTPUT_DIR 是运行环境预定义的变量，直接使用即可。**
+- ✅ 正确写法：`os.makedirs(OUTPUT_DIR, exist_ok=True)` 然后 `assy.save(os.path.join(OUTPUT_DIR, "sonar_model.step"), "STEP")`
+- ❌ 禁止重新定义：`OUTPUT_DIR = os.environ.get("OUTPUT_DIR", ".")` — 这会覆盖预定义值导致路径错误
+- ❌ 禁止从环境变量读取：不要用 `os.environ` 获取 OUTPUT_DIR
+
+## 代码结构模板
+
+```python
+import math, os
+import cadquery as cq
+from cadquery import Color
+
+# ========== 参数定义 ==========
+# 所有部件尺寸常量（从设计文档提取，单位 mm）
+
+# ========== 空间布局参数（如适用）==========
+# 如果系统有多个安装区域，定义区域间的坐标偏移量
+
+# ========== 颜色配置 ==========
+# 为每个部件定义颜色常量，外壳使用半透明
+
+# ========== 辅助函数 ==========
+# 按需封装复用逻辑，避免重复代码模式
+
+# ========== 组件构建函数 ==========
+# 每个部件封装为独立函数，使用 z_cursor 模式顺序装配
+# 函数签名约定：build_xxx(z_start, ...) → (part_or_list, new_z_cursor)
+
+# ========== 主装配 ==========
+assy = cq.Assembly()
+z_cursor = 0
+
+# 按照设计文档的装配顺序，从首到末依次构建
+# 如有多区域布局，通过坐标偏移定位
+
+# ========== 导出 ==========
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+assy.save(os.path.join(OUTPUT_DIR, "sonar_model.step"), "STEP")
+```
+
+根据以下设计文档生成完整的 CadQuery Python 脚本：
+'''
+
+# ============================================================
+# 领域层：仅当参考匹配声明对应领域时拼接（A0-5 边界）
+# ============================================================
+
+DOMAIN_PROMPTS = {
+    "towed_array": '''\
+
+## 领域规范：拖曳线列阵声呐（随匹配范例注入，其他类型不适用）
 
 **2. 柔性弯曲建模（spline + sweep）**
 ```python
@@ -81,47 +196,7 @@ for z_pos in element_positions:
             .translate((lx, 0, z_pos)))
 ```
 
-**4. 刚性直线建模**
-```python
-# 实心圆柱
-part = cq.Workplane("XY").circle(radius).extrude(length)
-# 空心管
-part = (cq.Workplane("XY").circle(outer_r).circle(inner_r).extrude(length))
-# 方盒
-part = cq.Workplane("XY").box(width, height, depth)
-```
-
-**5. 变径过渡件（分段 extrude + loft）**
-```python
-# 底部圆柱
-boot = cq.Workplane("XY").circle(r1).extrude(h1)
-# 中段 loft 过渡
-mid = (cq.Workplane("XY").workplane(offset=h1).circle(r1)
-       .workplane(offset=h2).circle(r2).loft(combine=True))
-# 合并
-part = boot.union(mid)
-```
-
-**6. 主装配与导出模式**
-```python
-assy = cq.Assembly()
-z_cursor = 0
-
-# 单部件装配
-part, z_cursor = build_xxx(z_cursor)
-assy.add(part, color=C_XXX, name="部件名")
-
-# 部件组装配
-group, z_cursor = build_xxx(z_cursor)
-for p, c, n in group:
-    assy.add(p, color=c, name=n)
-
-# 多区域布局（干端等），通过坐标偏移定位
-for p, c, n in build_dry_end(z_dry_start):
-    assy.add(p, color=c, name=n)
-```
-
-## 关键反模式警告（必须避免）
+## 领域反模式警告（必须避免）
 
 1. **sin vs sin²**：弯曲轨迹函数必须使用 sin²（平方），确保两端斜率为零。
 2. **柔性部件必须用曲线建模**：不得对设计文档中标注为柔性的部件使用直线 extrude。
@@ -131,43 +206,14 @@ for p, c, n in build_dry_end(z_dry_start):
    - 缩放公式：`visual_amplitude = min(doc_amplitude, radius * 40)`
    - 相邻柔性段应交替使用正/负振幅（如 +400, -400），模拟自然弯曲
    - 示例：设计文档振幅 ±1500mm、半径 13.5mm → 实际使用 ±400~500mm
-5. **变径过渡件应分阶段建模**：不要用嵌套 union+loft，应分段 extrude + loft：
-   - 底部圆柱 extrude → 中段 loft 放样 → 顶部 loft 收口
-   - 每段高度 50~150mm，避免过长的 loft 路径
 
-## 渲染配色
-
-严格按照设计文档第6节的配色方案为每个部件指定颜色，不得自行更改配色。
-如果设计文档中未指定某部件颜色，根据工程惯例选择合理的区分色。
-不同功能类型的部件必须使用不同颜色。
-
-## 运行环境（已预定义，无需 import）
-
-cq, math, os, pi, sqrt, radians, cos(d), sin(d), Color, OUTPUT_DIR
-
-**【重要】OUTPUT_DIR 是运行环境预定义的变量，直接使用即可。**
-- ✅ 正确写法：`os.makedirs(OUTPUT_DIR, exist_ok=True)` 然后 `assy.save(os.path.join(OUTPUT_DIR, "sonar_model.step"), "STEP")`
-- ❌ 禁止重新定义：`OUTPUT_DIR = os.environ.get("OUTPUT_DIR", ".")` — 这会覆盖预定义值导致路径错误
-- ❌ 禁止从环境变量读取：不要用 `os.environ` 获取 OUTPUT_DIR
-
-## 代码结构模板
+## 领域代码结构模板补充
 
 ```python
-import math, os
-import cadquery as cq
-from cadquery import Color
+# ========== 参数定义（领域补充）==========
+# 弯曲振幅使用视觉自适应值（见领域反模式警告第4条）
 
-# ========== 参数定义 ==========
-# 所有部件尺寸常量（从设计文档提取，单位 mm）
-# 弯曲振幅使用视觉自适应值（见反模式警告第4条）
-
-# ========== 空间布局参数（如适用）==========
-# 如果系统有多个安装区域，定义区域间的坐标偏移量
-
-# ========== 颜色配置 ==========
-# 为每个部件定义颜色常量，外壳使用半透明
-
-# ========== 辅助函数 ==========
+# ========== 辅助函数（柔性段）==========
 def get_spline_pts(length, amplitude, z_start=0):
     """正弦平方弯曲轨迹点（11个控制点，CadQuery spline 推荐）"""
     pts = []
@@ -178,32 +224,40 @@ def get_spline_pts(length, amplitude, z_start=0):
         pts.append((x, z))  # XZ 平面
     return pts
 
-# ========== 组件构建函数 ==========
-# 每个部件封装为独立函数，使用 z_cursor 模式顺序装配
-# 函数签名约定：build_xxx(z_start, ...) → (part_or_list, new_z_cursor)
 # 柔性段使用 get_spline_pts + sweep 沿曲线建模
 # 元件沿曲线放置时需计算切线斜率角：angle = atan(amplitude * (pi/L) * sin(2*pi*u))
-
-# ========== 主装配 ==========
-assy = cq.Assembly()
-z_cursor = 0
-
-# 按照设计文档的装配顺序，从首到末依次构建
-# 如有多区域布局，通过坐标偏移定位
-
-# ========== 导出 ==========
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-assy.save(os.path.join(OUTPUT_DIR, "sonar_model.step"), "STEP")
 ```
+''',
+}
 
-根据以下设计文档生成完整的 CadQuery Python 脚本：
-'''
+# 参考代码注入的领域专属"必须复制"模式（原 _generate 硬编码 7 条收敛于此；A0-5）
+DOMAIN_REF_PATTERNS = {
+    "towed_array": (
+        "【必须复制的建模模式】（拖曳线列阵声呐 CadQuery API 调用方式）：\n"
+        "- 柔性段：get_spline_pts() -> spline(pts) -> circle().sweep(path)\n"
+        "- 空心管：outer_sweep.cut(inner_sweep)\n"
+        "- 沿曲线放置元件：sin² 偏移 + atan(dxdz) 切线角 + rotate + translate\n"
+        "- 对接件：sweep + intersect 截取两端\n"
+        "- 变径件：分段 extrude + loft(combine=True)\n"
+        "- 装配：z_cursor 递增 + cq.Assembly() + assy.add()\n"
+        "- 坐标偏移：多区域布局通过 translate 实现空间隔离\n\n"
+    ),
+}
+
+
+def build_system_prompt(domain: str | None = None) -> str:
+    """A0-5：通用规范 +（仅当领域已注册时）领域段。未支持领域如实只有通用段，
+    不误用其他领域的强制建模模式。"""
+    if domain and domain in DOMAIN_PROMPTS:
+        return CADQUERY_BASE_PROMPT + DOMAIN_PROMPTS[domain]
+    return CADQUERY_BASE_PROMPT
+
 
 # ============================================================
-# Stage 3: 代码修复 Prompt（★ 迁移，FIX_PROMPT % (error, code) 注入）
+# 代码修复 Prompt（★ 迁移，% (error, code) 注入）
 # ============================================================
 
-FIX_PROMPT = """\
+FIX_BASE_PROMPT = """\
 以下 CadQuery 代码执行时出错了，请修复代码。
 
 错误信息：%s
@@ -243,14 +297,6 @@ FIX_PROMPT = """\
    → 确保 .center(x, y) 在 .circle() 之前调用
    → 检查极坐标计算：x = BCR × cos(角度°), y = BCR × sin(角度°)
 
-8. **BRepOffsetAPI_MakePipeShell::MakeSolid 错误**
-   → 根因：sweep/pipe 路径在端点处斜率不为零，导致管道截面无法闭合为实体
-   → 检查所有弯曲轨迹函数（如 get_spline_pts），必须使用 sin² 形式：
-     - ✅ amplitude * math.sin(π * z / length) ** 2
-     - ❌ amplitude * math.sin(π * z / length)  （端点斜率不为零）
-   → sin² 保证 z=0 和 z=length 两端 x=0（斜率为零），sweep 管道才能闭合
-   → 如果发现 sin() 未平方，将所有弯曲轨迹中的 sin() 改为 sin() ** 2
-
 ## 修复规则
 
 1. 仅返回修复后的完整代码，不要附加解释，不要使用 markdown 代码围栏。
@@ -259,3 +305,25 @@ FIX_PROMPT = """\
 4. 不要添加 import 语句（命名空间已预定义）。
 5. 如果某操作只是缺少必要前提（如未先生成实体就选面），补充前提操作而非删除。
 """
+
+DOMAIN_FIX_PROMPTS = {
+    "towed_array": """
+8. **BRepOffsetAPI_MakePipeShell::MakeSolid 错误**
+   → 根因：sweep/pipe 路径在端点处斜率不为零，导致管道截面无法闭合为实体
+   → 检查所有弯曲轨迹函数（如 get_spline_pts），必须使用 sin² 形式：
+     - ✅ amplitude * math.sin(π * z / length) ** 2
+     - ❌ amplitude * math.sin(π * z / length)  （端点斜率不为零）
+   → sin² 保证 z=0 和 z=length 两端 x=0（斜率为零），sweep 管道才能闭合
+   → 如果发现 sin() 未平方，将所有弯曲轨迹中的 sin() 改为 sin() ** 2
+""",
+}
+
+
+def build_fix_prompt(domain: str | None = None) -> str:
+    """A0-5：通用修复策略 +（仅当领域已注册时）领域修复策略（sin² 条款属拖曳阵领域）。"""
+    if domain and domain in DOMAIN_FIX_PROMPTS:
+        return FIX_BASE_PROMPT.replace(
+            "## 修复规则",
+            DOMAIN_FIX_PROMPTS[domain] + "\n## 修复规则",
+        )
+    return FIX_BASE_PROMPT

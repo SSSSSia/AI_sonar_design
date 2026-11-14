@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sonarcad.local/contracts/ir/ir3.schema.json",
   "title": "IR3 建模产物（A3 输出）",
-  "description": "CadQuery 脚本 + STEP 文件引用 + 特征参数表。A3 边界：严格继承 IR2 参数值，不擅自改数（宪法 A-08）；发现矛盾抛回 A2。PHASE-007 加法演进：features 由 STEP 实测提取构造（geometry 数值结构 + 顶层 geometry_summary + linked_param_id 可空），旧形态仍合法。",
+  "description": "CadQuery 脚本 + STEP 文件引用 + 特征参数表。A3 边界：严格继承 IR2 参数值，不擅自改数（宪法 A-08）；发现矛盾抛回 A2。PHASE-007 加法演进：features 由 STEP 实测提取构造（geometry 数值结构 + 顶层 geometry_summary + linked_param_id 可空），旧形态仍合法。T16.0 A0-4 加法演进：顶层可选 reference_used 记录建模参考来源（旧快照无此字段合法）。",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,6 +27,9 @@
     },
     "geometry_summary": {
       "$ref": "#/$defs/geometry_summary"
+    },
+    "reference_used": {
+      "$ref": "#/$defs/reference_used"
     }
   },
   "$defs": {
@@ -157,6 +160,92 @@
           "type": "string",
           "description": "补充说明（如失败原因、提取器信息）"
         }
+      }
+    },
+    "reference_used": {
+      "type": "object",
+      "description": "建模参考来源（T16.0 A0-4 加法演进，旧快照无此字段合法）。used=true 时各字段对应脚本实际生成所用参考——缓存命中取旧生成配置，不归因当前刚检索的候选（A0-3）；不将'有类型列表'当实际类型匹配，无分数不造值（A-16）。used=false 如实记录未注入原因（A-14）。",
+      "additionalProperties": false,
+      "required": [
+        "used"
+      ],
+      "properties": {
+        "used": {
+          "type": "boolean",
+          "description": "本次建模是否注入了参考范例"
+        },
+        "ref_id": {
+          "type": "string",
+          "description": "范例 ID（catalog 条目 id；无 id 时为文件名去扩展名）"
+        },
+        "file": {
+          "type": "string",
+          "description": "参考脚本文件名"
+        },
+        "sha256": {
+          "type": "string",
+          "description": "参考脚本内容 SHA-256（实际读取内容，A0-1 同快照固化）"
+        },
+        "catalog_version": {
+          "type": "string",
+          "description": "catalog.yaml version（实际读取快照）"
+        },
+        "match_grade": {
+          "type": "string",
+          "enum": [
+            "type_matched",
+            "weak_keyword"
+          ],
+          "description": "匹配分级（A0-2）：type_matched=标题命中 sonar_types；weak_keyword=纯关键词达阈值（默认被过滤，开启 REF_MATCH_ALLOW_WEAK 才可能注入）"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "匹配综合分（标题/关键词各 0.5 加权）；仅目录匹配产生分数时存在"
+        },
+        "generation_source": {
+          "type": "string",
+          "enum": [
+            "fresh_llm",
+            "cache_hit"
+          ],
+          "description": "脚本生成来源：LLM 新生成 / codegen 缓存命中（命中时本对象取旧生成配置）"
+        },
+        "prompt_version": {
+          "type": "string",
+          "description": "生成时有效提示词版本（A0-3 缓存指纹组件）"
+        },
+        "rules_version": {
+          "type": "string",
+          "description": "生成时领域规则版本（A0-3 缓存指纹组件）"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "no_catalog",
+            "no_match",
+            "weak_filtered",
+            "read_failed"
+          ],
+          "description": "used=false 时的未注入原因（A0-2 三级匹配语义，如实降级记录）"
+        }
+      },
+      "if": {
+        "properties": {
+          "used": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "ref_id",
+          "file",
+          "sha256",
+          "match_grade",
+          "generation_source"
+        ]
       }
     }
   }

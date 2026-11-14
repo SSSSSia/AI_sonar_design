@@ -133,6 +133,21 @@ def test_codegen_key_tracks_ir2_parameters():
     assert cache.codegen_cache_key(ir2_a, "http://x|m") != cache.codegen_cache_key(ir2_a, "http://y|m")
 
 
+def test_codegen_key_tracks_generation_config():
+    """T16.0 A0-3：生成配置指纹入键——同 IR2 换范例/提示词/领域规则必 miss，
+    参考更新对既有方案生效（PHASE-016，DEV-001 §1.2 A0-3 验收）。"""
+    ir2 = {"design_document": "d", "parameters": []}
+    base = cache.codegen_cache_key(ir2, "http://x|m")
+    # 参考指纹：None（未注入）与具体范例、不同范例内容/版本互相不同
+    assert cache.codegen_cache_key(ir2, "http://x|m", None) == base
+    assert cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa") != base
+    assert cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa") != cache.codegen_cache_key(ir2, "http://x|m", "1.0:bbb")
+    assert cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa") != cache.codegen_cache_key(ir2, "http://x|m", "2.0:aaa")
+    # 提示词版本 / 领域规则版本入键
+    assert cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa", "1") != cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa", "2")
+    assert cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa", "1", "1") != cache.codegen_cache_key(ir2, "http://x|m", "1.0:aaa", "1", "2")
+
+
 # ----------------------------------------------------------------------
 # 真 Redis（不可达跳过）
 # ----------------------------------------------------------------------

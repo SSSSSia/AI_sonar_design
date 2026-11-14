@@ -74,6 +74,15 @@ CAD_GEO_LINK_TOL_PCT = float(_env("CAD_GEO_LINK_TOL_PCT", "20"))
 # A4 数值复核容差（linked 参数 vs 实测 bbox 维度相对偏差，百分比；对齐 mockup 06「2.1% 超容差」口径）
 CAD_GEO_NUM_TOL_PCT = float(_env("CAD_GEO_NUM_TOL_PCT", "2"))
 
+# ---- 参考范例库（T16.0 A0-1/A0-2，PHASE-016）----
+# 外置参考目录：空=受控包内 cad_engine/ref_code/ 回退。切换属配置变更需重启 worker
+# （运行契约见 PHASE-016 §3 A0-1；容器模式用卷挂载+env，内容更新免重建镜像）
+REF_CODE_DIR = _env("REF_CODE_DIR")
+# 弱匹配（纯关键词达阈值、标题未命中）是否允许注入：默认关（止血保守防错域；B2 实验后再评估）
+REF_MATCH_ALLOW_WEAK = _env("REF_MATCH_ALLOW_WEAK", "0").lower() in ("1", "true", "yes")
+# 匹配入选阈值（标题信号与关键词各 0.5 加权；达阈值但标题未命中=weak_keyword）
+REF_MATCH_MIN_SCORE = float(_env("REF_MATCH_MIN_SCORE", "0.05"))
+
 # ---- CAD 交互微调（T8.1，PHASE-008，ADR-004）----
 BUCKET_CAD_TUNES = "cad-tunes"                            # 微调每轮产物（STEP/FCStd/脚本/截图）
 # 工具调用等待插件回传的超时：超时标 timeout 并注入修复提示（主线程执行无法强制超时的服务端兜底）
