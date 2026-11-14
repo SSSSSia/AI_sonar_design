@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.a3_cad.geometry_link import link_params
-from agents.a3_cad.identity import parse_display_transforms
+from agents.a3_cad.identity import build_param_mapping, parse_display_transforms, parse_object_declarations
 from agents.a3_cad.prompts import (
     DOMAIN_REF_PATTERNS,
     PROMPT_VERSION,
@@ -235,6 +235,7 @@ class A3Agent:
 
         features: list[dict[str, Any]] = []
         summary: dict[str, Any]
+        param_mapping: dict[str, Any] | None = None
         if inspect is None:
             summary = {
                 "source": "extraction_failed",
@@ -271,6 +272,19 @@ class A3Agent:
                 "part_count": overall.get("part_count"),
                 "detail": f"{meta.get('segmentation', '?')} · {meta.get('extractor', '?')}",
             }
+            # T15.2（B-2，ADR-014 §2）：脚本 @obj 声明 → 声明制身份映射（声明+几何互证）。
+            # 仅实测成功时构建（无测量即无互证）；无声明→省略字段=legacy 位置身份（A-16）。
+            decls = parse_object_declarations(script)
+            if decls:
+                param_mapping = build_param_mapping(decls, parts, params, CAD_GEO_LINK_TOL_PCT)
+                if param_mapping:
+                    n_ok = sum(1 for o in param_mapping["objects"] if o["status"] == "verified")
+                    logger.info(
+                        "A3 对象映射: %d 声明 → verified=%d ambiguous=%d unmatched=%d",
+                        len(param_mapping["objects"]), n_ok,
+                        sum(1 for o in param_mapping["objects"] if o["status"] == "ambiguous"),
+                        sum(1 for o in param_mapping["objects"] if o["status"] == "unmatched"),
+                    )
 
         ir3_payload: dict[str, Any] = {
             "cadquery_script": script,
@@ -285,6 +299,9 @@ class A3Agent:
         transforms = parse_display_transforms(script)
         if transforms:
             ir3_payload["display_transforms"] = transforms
+        # T15.2（B-2，ADR-014 §2）：声明制参数→对象映射（加法演进，旧快照可读）
+        if param_mapping:
+            ir3_payload["param_mapping"] = param_mapping
         ir3 = validate_ir("IR3", ir3_payload)
         # 来源信息 reference_used 自 T16.0 A0-4 起进 IR3 契约（溯源，加法演进旧快照可读）；
         # 其余执行元数据（修复轮数/脚本引用）仍只进日志，不进契约（A-04：快照与 schema 严格一致）

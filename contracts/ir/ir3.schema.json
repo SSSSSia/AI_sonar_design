@@ -37,6 +37,9 @@
       "items": {
         "$ref": "#/$defs/display_transform"
       }
+    },
+    "param_mapping": {
+      "$ref": "#/$defs/param_mapping"
     }
   },
   "$defs": {
@@ -166,6 +169,151 @@
         "detail": {
           "type": "string",
           "description": "补充说明（如失败原因、提取器信息）"
+        }
+      }
+    },
+    "param_mapping": {
+      "type": "object",
+      "description": "参数→对象映射（T15.2 加法演进，ADR-014 §2，旧快照无此字段合法）：脚本 @obj 声明（结构锚）+ 实测几何互证；LLM 声明非真值、绑定不以数值相近为门槛（超差由 A4 语义检查器报 error）；ambiguous/unmatched 如实呈现（A-16）。无声明模型省略整个字段=legacy 位置身份。",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "identity_basis",
+        "objects"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "映射契约自身版本（v1）"
+        },
+        "identity_basis": {
+          "type": "string",
+          "enum": [
+            "declared_objects"
+          ],
+          "description": "身份依据：脚本对象声明+几何互证"
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mapped_object"
+          }
+        }
+      }
+    },
+    "mapped_object": {
+      "type": "object",
+      "description": "单个声明对象的映射结果：verified=唯一一致绑定（必有 basis）；ambiguous=评分并列/计数不齐/无法唯一划归；unmatched=无可绑定段。feature_id=null 与 measured_mm=null 均为如实缺省（A-16）",
+      "additionalProperties": false,
+      "required": [
+        "object_id",
+        "role",
+        "feature_id",
+        "status",
+        "params"
+      ],
+      "properties": {
+        "object_id": {
+          "type": "string",
+          "description": "稳定语义对象 ID（脚本声明，跨版本不变）"
+        },
+        "role": {
+          "type": "string",
+          "description": "对象语义角色（自由文本，如 array_element）"
+        },
+        "feature_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "绑定的实测分段特征 ID（F-xxx）；null=未绑定"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "ambiguous",
+            "unmatched"
+          ],
+          "description": "绑定状态"
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "declared_tag",
+            "geometry_unique",
+            "symmetric_class"
+          ],
+          "description": "绑定依据（verified 必有，if/then 约束）：declared_tag=声明+尺寸证据唯一；geometry_unique=剩余段唯一消除；symmetric_class=对称类计数核验"
+        },
+        "symmetric_size": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "所属对称类实例数（≥2 时存在）"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mapped_param"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "verified"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "basis"
+        ]
+      }
+    },
+    "mapped_param": {
+      "type": "object",
+      "description": "对象声明的单参数约束记录：measured_mm 仅在 verified 且有测量证据时有值；diameter 证据只认 radius_derived（圆度证据），无证据如实 none（案例 03 硬前提）",
+      "additionalProperties": false,
+      "required": [
+        "param_id",
+        "dim_type",
+        "measured_mm",
+        "measurement"
+      ],
+      "properties": {
+        "param_id": {
+          "type": "string",
+          "description": "IR2 参数 id"
+        },
+        "dim_type": {
+          "type": "string",
+          "enum": [
+            "length",
+            "diameter",
+            "width",
+            "height",
+            "thickness",
+            "other"
+          ],
+          "description": "尺寸语义类型（v1 语义检查器实现 length/diameter）"
+        },
+        "measured_mm": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "实测值 mm；null=不可测/未绑定（A-16 不造值）"
+        },
+        "measurement": {
+          "type": "string",
+          "enum": [
+            "radius_derived",
+            "bbox_axis",
+            "bbox_axis_longest",
+            "none"
+          ],
+          "description": "测量依据；none=无证据/未绑定"
         }
       }
     },

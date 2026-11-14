@@ -14,6 +14,9 @@ Agent 管线签名一致而保留，未使用）。
   数值复核  → linked 参数 vs 实测 bbox 维度（T7.4，PHASE-007；容差可配默认 2%，无 LLM）
   显示变换  → IR3 display_transforms 逐条 info 呈现（T15.1，ADR-014 §3；物理/显示分离
              显性化，禁止静默缩小工程参数；声明引用未知参数 → warning）
+  映射状态  → IR3 param_mapping 中 ambiguous/unmatched 对象的声明参数 → CHK-SEM-MAPPING
+             unverified（T15.2，ADR-014 §2；应检未检显性，verified 对象由语义检查器
+             在 semantics.py 按尺寸语义核对——T15.3）
 
 三级风险：error=高（须回环）/ warning=中（来源冲突存疑）/ info=低（提示）。
 overall：存在任一 error 即 fail。输出经 contracts/ir/ir4.schema.json 契约校验（A-04）。
@@ -65,6 +68,7 @@ class A4Agent:
         issues += self._check_estimated(params)
         issues += self._check_geometry(ir2, ir3 or {}, stats, cov)
         issues += self._check_display_transform(ir2, ir3 or {})
+        issues += self._check_semantic_mapping(ir2, ir3 or {})
         issues += self._check_document(ir2, params)
 
         total = stats["pass"] + stats["violation"]
@@ -476,6 +480,33 @@ class A4Agent:
                 f"显示变换：{label} 物理值 {physical} mm → 视觉值 {visual} mm{shrink_note}"
                 f"（rule={rule}）——建模使用视觉值，物理原值保留于参数表（显性呈现，A-16）",
                 [str(pid)] if pid else []))
+        return issues
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _check_semantic_mapping(ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
+        """映射状态显性化（T15.2，ADR-014 §2）。param_mapping 中 ambiguous/unmatched
+        对象的声明参数 → CHK-SEM-MAPPING unverified（应检未检，T14.4 状态学）：
+        映射未确立即无法按尺寸语义核对——不允许静默漏检；role-only 对象（无声明参数）
+        不产生检查语义（无噪声）。verified 对象的参数由语义检查器核对（semantics.py，T15.3）。
+        """
+        mapping = ir3.get("param_mapping") or {}
+        issues: list[dict[str, Any]] = []
+        known = {str(p.get("id")) for p in ir2.get("parameters", [])}
+        for obj in mapping.get("objects", []):
+            if obj.get("status") == "verified":
+                continue
+            pids = [str(p.get("param_id")) for p in obj.get("params", []) if p.get("param_id")]
+            if not pids:
+                continue
+            dangling = [pid for pid in pids if pid not in known]
+            note = f"；声明引用了 IR2 不存在的参数 {dangling}（请核对声明）" if dangling else ""
+            issues.append(_issue(
+                "CHK-SEM-MAPPING", "unverified",
+                f"对象 {obj.get('object_id')}（role={obj.get('role')}）映射状态为 "
+                f"{obj.get('status')}——声明的 {len(pids)} 个参数未做尺寸语义核对，请人工复核"
+                f"或回 A3 修正声明{note}",
+                pids, [obj["feature_id"]] if obj.get("feature_id") else []))
         return issues
 
 

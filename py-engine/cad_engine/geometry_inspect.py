@@ -13,11 +13,15 @@
       "ok": true,
       "overall": {"bbox_mm": [dx, dy, dz], "volume_mm3": float, "part_count": int},
       "parts": [
-        {"index": 1, "center_mm": [x, y, z], "bbox_mm": [dx, dy, dz], "volume_mm3": float}
+        {"index": 1, "center_mm": [x, y, z], "bbox_mm": [dx, dy, dz], "volume_mm3": float,
+         "radius_mm": float, "axis": 0}
       ],
       "meta": {"extractor": "cadquery-occt/trimesh", "tolerance_mm": float, "elapsed_s": float,
                "segmentation": "connected_components|radius_profile|fallback_single"}
     }
+
+T15.2（ADR-014 §2）：parts 可选 radius_mm/axis——圆度证据半径（B-rep 圆柱面中位半径，
+或网格路径圆度检验通过的中位横向距离；检验不过/无圆柱面如实缺省）与测量轴下标。
 
 - 单位一律 mm / mm³（STEP 默认单位制）；center_mm 为该段包围盒中心；
   parts 按最长轴坐标升序（index 1 = 轴向起点）。
@@ -118,7 +122,9 @@ def inspect_step(step_bytes: bytes) -> dict:
 
 def _parts_from_brep_solids(solids) -> list[dict]:
     """多体模型逐 solid 取 B-rep 精确性质（OCCT GProp，无镶嵌）：体积精确、
-    bbox 为 OCCT 快速包围盒（含 ~0.1mm 容差膨胀，远小于 A4 的 2% 容差口径）。"""
+    bbox 为 OCCT 快速包围盒（含 ~0.1mm 容差膨胀，远小于 A4 的 2% 容差口径）。
+    T15.2：solid 含圆柱面时附 radius_mm（中位半径）与 axis（最大面积圆柱面轴向）——
+    圆柱面存在即圆度证据（孔径语义检查的测量依据，ADR-014 §2）。"""
     parts: list[dict] = []
     for s in solids:
         try:
@@ -126,12 +132,44 @@ def _parts_from_brep_solids(solids) -> list[dict]:
             vol = abs(float(s.Volume()))
         except Exception:
             continue  # 单个 solid 性质失败如实跳过，不影响其余
-        parts.append(_make_part(
+        part = _make_part(
             (bb.xlen, bb.ylen, bb.zlen),
             ((bb.xmin + bb.xmax) / 2.0, (bb.ymin + bb.ymax) / 2.0, (bb.zmin + bb.zmax) / 2.0),
             vol,
-        ))
+        )
+        stats = _cylinder_stats_brep(s)
+        if stats:
+            part.update(stats)
+        parts.append(part)
     return parts
+
+
+def _cylinder_stats_brep(solid) -> dict | None:
+    """B-rep 圆柱面 → {"radius_mm": 中位半径, "axis": 主轴下标}；无圆柱面/失败 → None。
+
+    圆柱面存在即圆度证据（区别于 bbox 启发式——同值宽度的方形截面不会误报直径，
+    案例 03 的硬前提）。轴向取面积最大圆柱面的旋转轴；失败如实缺省（A-16）。
+    """
+    try:
+        radii: list[float] = []
+        best: tuple[float, int] | None = None  # (面积, 轴下标)
+        for f in solid.Faces():
+            if f.geomType() != "CYLINDER":
+                continue
+            cyl = f._geomAdaptor().Cylinder()
+            r = abs(float(cyl.Radius()))
+            d = cyl.Axis().Direction()
+            comps = (abs(float(d.X())), abs(float(d.Y())), abs(float(d.Z())))
+            area = abs(float(f.Area()))
+            radii.append(r)
+            if best is None or area > best[0]:
+                best = (area, int(max(range(3), key=lambda i: comps[i])))
+        if not radii or best is None:
+            return None
+        radii.sort()
+        return {"radius_mm": round(radii[len(radii) // 2], 4), "axis": best[1]}
+    except Exception:  # noqa: BLE001 —— 半径提取失败如实缺省，不影响其余性质
+        return None
 
 
 def _segment_by_mesh(shape, tol: float) -> tuple[list[dict], str, list[float], float]:
@@ -212,8 +250,14 @@ def _segment(mesh, tol: float) -> tuple[list[dict], str]:
             parts = _parts_by_cuts(mesh, axis, segs, cuts)
             return _finalize(parts, [float(v) for v in (mesh.bounds[1] - mesh.bounds[0])]), "radius_profile"
 
-    # 3) 兜底整体单段
-    return _finalize([_part_from_mesh(mesh)]), "fallback_single"
+    # 3) 兜底整体单段（T15.2：圆度证据半径如实在缺/附）
+    part = _part_from_mesh(mesh)
+    axis_fb = int(np.argmax(mesh.bounds[1] - mesh.bounds[0]))
+    part["axis"] = axis_fb
+    r_fb = _mesh_part_radius(mesh, np.arange(len(mesh.faces)), axis_fb)
+    if r_fb is not None:
+        part["radius_mm"] = r_fb
+    return _finalize([part]), "fallback_single"
 
 
 def _radius_profile_cuts(mesh, axis: int, tol: float) -> list[tuple[float, float, float]]:
@@ -304,7 +348,9 @@ def _assign_and_merge(mesh, axis: int, cuts: list[tuple[float, float, float]]) -
 
 
 def _parts_by_cuts(mesh, axis: int, segs: list, cuts: list[float]) -> list[dict]:
-    """逐段构造 part：体积 = 面片有符号和 + 切面虚拟封盖修正（守恒：相邻段一加一减）。"""
+    """逐段构造 part：体积 = 面片有符号和 + 切面虚拟封盖修正（守恒：相邻段一加一减）。
+    T15.2：附 axis（剖面轴）与 radius_mm（段内侧面质心横向距离中位数，剖面路径本身
+    即圆度证据）。"""
     b0 = mesh.bounds[0]
     length = float((mesh.bounds[1] - mesh.bounds[0])[axis])
     delta = 1e-4 * length + 1e-6  # 截面采样面偏离切点一小步，避开面片顶点/共面特征
@@ -319,8 +365,42 @@ def _parts_by_cuts(mesh, axis: int, segs: list, cuts: list[float]) -> list[dict]
             c_abs = float(b0[axis] + cuts[k])
             area = abs(_section_area(mesh, axis, cuts[k], delta))
             vol += c_abs * area / 3.0
-        parts.append(_part_from_faces(mesh, faces, volume=abs(vol)))
+        part = _part_from_faces(mesh, faces, volume=abs(vol))
+        part["axis"] = axis
+        r = _mesh_part_radius(mesh, faces, axis)
+        if r is not None:
+            part["radius_mm"] = r
+        parts.append(part)
     return parts
+
+
+def _mesh_part_radius(mesh, faces, axis: int) -> float | None:
+    """面片子集的圆度证据半径（T15.2，ADR-014 §2）：侧面（|法向·轴|<0.9）质心到
+    轴线的横向距离中位数；变异系数 > 0.1 判非圆柱 → 如实缺省（不造半径，A-16）。
+    轴线横向位置取侧面质心中位数（鲁棒，兼容任意横向偏置的部件）。"""
+    import numpy as np
+
+    faces = np.asarray(faces)
+    if len(faces) == 0:
+        return None
+    tri = mesh.triangles[faces]
+    centroids = tri.mean(axis=1)
+    normals = mesh.face_normals[faces]
+    lateral = np.abs(normals[:, axis]) < 0.9
+    if int(lateral.sum()) < 8:
+        lateral = np.ones(len(tri), dtype=bool)
+    c = centroids[lateral]
+    lat = np.delete(c, axis, axis=1)
+    if len(lat) == 0:
+        return None
+    lat = lat - np.median(lat, axis=0)
+    dist = np.linalg.norm(lat, axis=1)
+    mean = float(dist.mean())
+    if mean <= 0:
+        return None
+    if float(dist.std()) / mean > 0.1:
+        return None
+    return round(float(np.median(dist)), 4)
 
 
 def _section_area(mesh, axis: int, c_rel: float, delta: float) -> float:
@@ -403,16 +483,22 @@ def _make_part(bbox_mm, center_mm, volume_mm3) -> dict:
 
 
 def _finalize(parts: list[dict], overall_bbox: list[float] | None = None) -> list[dict]:
-    """按最长轴坐标升序定序并编号（index 1 = 轴向起点）。"""
+    """按最长轴坐标升序定序并编号（index 1 = 轴向起点）。T15.2 起透传可选
+    radius_mm/axis（圆度证据半径与测量轴，仅测量路径产生时存在）。"""
     import numpy as np
 
     if overall_bbox:
         axis = int(np.argmax(overall_bbox))
         parts = sorted(parts, key=lambda p: p["center_mm"][axis])
-    return [
-        {"index": i, "center_mm": p["center_mm"], "bbox_mm": p["bbox_mm"], "volume_mm3": p["volume_mm3"]}
-        for i, p in enumerate(parts, 1)
-    ]
+    out = []
+    for i, p in enumerate(parts, 1):
+        item = {"index": i, "center_mm": p["center_mm"], "bbox_mm": p["bbox_mm"],
+                "volume_mm3": p["volume_mm3"]}
+        for k in ("radius_mm", "axis"):
+            if k in p:
+                item[k] = p[k]
+        out.append(item)
+    return out
 
 
 # ------------------------------------------------------------------------------

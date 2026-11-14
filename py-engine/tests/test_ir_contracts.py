@@ -321,3 +321,53 @@ def test_ir3_t151_display_transforms_forms() -> None:
             {"param_id": None, "physical_mm": 1.0, "visual_mm": 1.0, "unknown": 1}]))
     # 旧快照（无 display_transforms）依然合法（加法演进）
     _validate(schema, base)
+
+
+def test_ir3_t152_param_mapping_forms() -> None:
+    """T15.2（ADR-014 §2）：param_mapping 三态合法、verified 缺 basis 非法（if/then）、
+    未知名拒绝、旧快照（无此字段）仍合法。"""
+    schema = _load("ir3.schema.json")
+    base = {
+        "cadquery_script": "import cadquery as cq\n...",
+        "step_file": {"bucket": "step-models", "object_key": "s1/sonar_model.step"},
+        "features": [],
+    }
+    full = {
+        "version": "1", "identity_basis": "declared_objects",
+        "objects": [
+            {"object_id": "elem-01", "role": "array_element", "feature_id": "F-003",
+             "status": "verified", "basis": "symmetric_class", "symmetric_size": 16,
+             "params": [{"param_id": "P-D", "dim_type": "diameter",
+                         "measured_mm": 12.0, "measurement": "radius_derived"}]},
+            {"object_id": "x", "role": "bracket", "feature_id": None,
+             "status": "ambiguous",
+             "params": [{"param_id": "P-L", "dim_type": "length",
+                         "measured_mm": None, "measurement": "none"}]},
+            {"object_id": "y", "role": "rod", "feature_id": None, "status": "unmatched",
+             "params": []},
+        ],
+    }
+    _validate(schema, dict(base, param_mapping=full))
+    # verified 缺 basis 非法（if/then）
+    bad = {"version": "1", "identity_basis": "declared_objects",
+           "objects": [{"object_id": "a", "role": "r", "feature_id": "F-001",
+                        "status": "verified",
+                        "params": [{"param_id": "P", "dim_type": "length",
+                                    "measured_mm": 1.0, "measurement": "bbox_axis"}]}]}
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, param_mapping=bad))
+    # status 枚举外 / measurement 枚举外 / 未知名拒绝
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, param_mapping={
+            "version": "1", "identity_basis": "declared_objects",
+            "objects": [{"object_id": "a", "role": "r", "feature_id": None,
+                         "status": "maybe", "params": []}]}))
+    with pytest.raises(Exception):
+        _validate(schema, dict(base, param_mapping={
+            "version": "1", "identity_basis": "declared_objects",
+            "objects": [{"object_id": "a", "role": "r", "feature_id": None,
+                         "status": "unmatched",
+                         "params": [{"param_id": "P", "dim_type": "length",
+                                     "measured_mm": None, "measurement": "guessed"}]}]}))
+    # 旧快照（无 param_mapping）依然合法（加法演进）
+    _validate(schema, base)
