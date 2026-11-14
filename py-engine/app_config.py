@@ -73,6 +73,8 @@ CAD_INSPECT_TIMEOUT_S = int(_env("CAD_INSPECT_TIMEOUT_S", "60"))
 CAD_GEO_LINK_TOL_PCT = float(_env("CAD_GEO_LINK_TOL_PCT", "20"))
 # A4 数值复核容差（linked 参数 vs 实测 bbox 维度相对偏差，百分比；对齐 mockup 06「2.1% 超容差」口径）
 CAD_GEO_NUM_TOL_PCT = float(_env("CAD_GEO_NUM_TOL_PCT", "2"))
+# A4 语义检查器默认容差（T15.3，按声明映射核对长度/孔径等尺寸语义；注册表可按 dim_type 覆盖）
+SEMANTIC_TOL_PCT = float(_env("SEMANTIC_TOL_PCT", "2"))
 
 # ---- 参考范例库（T16.0 A0-1/A0-2，PHASE-016）----
 # 外置参考目录：空=受控包内 cad_engine/ref_code/ 回退。切换属配置变更需重启 worker

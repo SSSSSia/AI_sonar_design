@@ -17,6 +17,9 @@ Agent 管线签名一致而保留，未使用）。
   映射状态  → IR3 param_mapping 中 ambiguous/unmatched 对象的声明参数 → CHK-SEM-MAPPING
              unverified（T15.2，ADR-014 §2；应检未检显性，verified 对象由语义检查器
              在 semantics.py 按尺寸语义核对——T15.3）
+  尺寸语义  → verified 映射对象的声明参数过 semantics 注册表（T15.3，ADR-014 §4）：
+             CHK-SEM-LENGTH / CHK-SEM-DIAMETER（violation→error+back_to_A3，pass→info，
+             无测量/无检查器→unverified）；被映射覆盖参数从 legacy 数值复核排除
 
 三级风险：error=高（须回环）/ warning=中（来源冲突存疑）/ info=低（提示）。
 overall：存在任一 error 即 fail。输出经 contracts/ir/ir4.schema.json 契约校验（A-04）。
@@ -29,7 +32,8 @@ import re
 from typing import Any
 
 from agents.a3_cad.geometry_link import UNIT_TO_MM
-from app_config import CAD_GEO_NUM_TOL_PCT
+from agents.a4_validation import semantics
+from app_config import CAD_GEO_NUM_TOL_PCT, SEMANTIC_TOL_PCT
 from ir_contract import validate_ir
 from solver import deps, intervals, recompute, standards
 from solver.formulas import REGISTRY, _first_number
@@ -67,6 +71,7 @@ class A4Agent:
         issues += self._check_standard(params, stats, cov)
         issues += self._check_estimated(params)
         issues += self._check_geometry(ir2, ir3 or {}, stats, cov)
+        issues += self._check_semantic(ir2, ir3 or {}, stats, cov)
         issues += self._check_display_transform(ir2, ir3 or {})
         issues += self._check_semantic_mapping(ir2, ir3 or {})
         issues += self._check_document(ir2, params)
@@ -392,13 +397,16 @@ class A4Agent:
                 f"几何提取结果退化（part_count={part_count}，volume_mm3={volume}），模型可能为空或非实体",
                 [], [], suggestion="back_to_A3"))
 
-        # 数值比对（只对「已联动」的特征；A-09：只报告）
+        # 数值比对（只对「已联动」的特征；A-09：只报告）。
+        # T15.3（ADR-014 §4）：被 param_mapping 覆盖的参数由语义检查器核对（声明制身份），
+        # 从 legacy 数值复核中排除——避免同一参数双重裁决与 coverage 重复计数。
+        covered = semantics.covered_param_ids(ir3)
         tol = CAD_GEO_NUM_TOL_PCT
         linked_any = False
         for f in features:
             fid = f.get("feature_id", "?")
             linked = f.get("linked_param_id")
-            if not linked:
+            if not linked or linked in covered:
                 continue
             linked_any = True
             p = params_by_id.get(linked)
@@ -435,11 +443,81 @@ class A4Agent:
                     f"实测 {measured:g} mm，偏差 {dev_pct:.1f}%（容差 {tol:g}%），"
                     "建议在审阅关结合 IR4 裁决",
                     [linked], [fid], suggestion="back_to_A3"))
-        if not linked_any:
+        if not linked_any and not covered:
             issues.append(_issue(
                 "CHK-GEO-NUM-SKIP", "unverified",
                 "几何为实测提取，但无已联动的长度类参数可做数值复核（联动容差内无匹配）——"
                 "关键尺寸未经实测核对，请人工复核或回 A3 建立参数联动"))
+        return issues
+
+    # ------------------------------------------------------------------
+    def _check_semantic(self, ir2: dict[str, Any], ir3: dict[str, Any],
+                        stats: dict[str, int], cov: dict[str, int]) -> list[dict[str, Any]]:
+        """尺寸语义检查（T15.3，ADR-014 §4）：verified 映射对象的声明参数逐一过
+        semantics.SEMANTIC_CHECKERS 注册表（length/diameter 首批）。
+
+        - violation → error + suggestion=back_to_A3（案例 02/03 的落点：声明制映射
+          不受联动容差断链影响，100 vs 150 必报超差；孔径不被同值宽度顶替）；
+        - pass → info（计 CSR 通过）；unverified → 应检未检显性（无测量/单位非长度/
+          无该维检查器/声明参数缺失），不计 checked；
+        - coverage：verified 对象的声明参数计入 applicable，产出判定计 checked；
+          ambiguous/unmatched 对象的参数由 CHK-SEM-MAPPING 承担（与 legacy skip 同口径，
+          不计 applicable）。
+        """
+        mapping = ir3.get("param_mapping") or {}
+        params_by_id = {str(p["id"]): p for p in ir2.get("parameters", [])}
+        issues: list[dict[str, Any]] = []
+        for obj in mapping.get("objects", []):
+            if obj.get("status") != "verified":
+                continue  # 非 verified 由 _check_semantic_mapping 显性（unverified）
+            oid = str(obj.get("object_id", "?"))
+            role = str(obj.get("role", "?"))
+            feats = [obj["feature_id"]] if obj.get("feature_id") else []
+            for entry in obj.get("params", []):
+                pid = str(entry.get("param_id", ""))
+                dim = str(entry.get("dim_type", "other"))
+                cov["applicable"] += 1  # 已声明且已确证绑定的参数 = 必检项
+                param = params_by_id.get(pid)
+                if param is None:
+                    issues.append(_issue(
+                        f"CHK-SEM-{dim.upper()}", "unverified",
+                        f"对象 {oid}（role={role}）声明的参数 {pid} 不在 IR2 中——声明与参数表"
+                        "不一致，请人工复核或回 A3 修正声明", [pid] if pid else [], feats))
+                    continue
+                checker = semantics.SEMANTIC_CHECKERS.get(dim)
+                if checker is None:
+                    issues.append(_issue(
+                        f"CHK-SEM-{dim.upper()}", "unverified",
+                        f"参数 {pid}「{param.get('name')}」的尺寸语义 {dim} 尚无注册检查器——"
+                        "该维度未做语义核对（如需覆盖请在 semantics.py 注册）", [pid], feats))
+                    continue
+                tol = semantics.resolve_tolerance(dim, SEMANTIC_TOL_PCT)
+                verdict = checker(param, entry, tol)
+                if verdict["verdict"] == "pass":
+                    stats["pass"] += 1
+                    cov["checked"] += 1
+                    issues.append(_issue(
+                        f"CHK-SEM-{dim.upper()}", "info",
+                        f"语义一致：参数 {pid}「{param.get('name')}」= {_first_number(param.get('value'))}"
+                        f"{param.get('unit')}，对象 {oid}（role={role}）实测 "
+                        f"{verdict['measured_mm']:g} mm（{entry.get('measurement')}），"
+                        f"偏差 {verdict['deviation_pct']:.2f}%（容差 {tol:g}%）", [pid], feats))
+                elif verdict["verdict"] == "violation":
+                    stats["violation"] += 1
+                    cov["checked"] += 1
+                    issues.append(_issue(
+                        f"CHK-SEM-{dim.upper()}", "error",
+                        f"{pid}「{param.get('name')}」= {_first_number(param.get('value'))}"
+                        f"{param.get('unit')}（期望 {verdict['expected_mm']:g} mm），但对象 {oid}"
+                        f"（role={role}）实测 {verdict['measured_mm']:g} mm"
+                        f"（{entry.get('measurement')}），偏差 {verdict['deviation_pct']:.1f}%"
+                        f"（容差 {tol:g}%）——建议回 A3 修正建模",
+                        [pid], feats, suggestion="back_to_A3"))
+                else:
+                    issues.append(_issue(
+                        f"CHK-SEM-{dim.upper()}", "unverified",
+                        f"参数 {pid}「{param.get('name')}」语义核对未执行：{verdict.get('reason', '')}"
+                        "（A-16 如实未检，请人工复核）", [pid], feats))
         return issues
 
     # ------------------------------------------------------------------
