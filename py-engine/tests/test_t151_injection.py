@@ -52,7 +52,7 @@ class TestPromptContract:
 
     def test_prompt_version_bumped(self):
         """T15.1 文本变更 → PROMPT_VERSION 递增（A0-3 缓存指纹自动失效）。"""
-        assert PROMPT_VERSION == "3"
+        assert PROMPT_VERSION == "4"
 
 
 # ------------------------------------------------------------------------------

@@ -211,12 +211,35 @@ def test_towed_array_full_chain(stack):
     assert len(feats) >= 1 and summary.get("part_count") == len(feats), \
         f"features 数应等于实测段数: part_count={summary.get('part_count')} features={len(feats)}"
     assert any(f.get("linked_param_id") for f in feats), "至少一个长度类参数应自动联动"
+
+    # 6.6 T15.1/T15.2（PHASE-015，ADR-014）：@display 显示变换声明 + 声明制参数→对象映射
+    dt = contents["IR3"].get("display_transforms") or []
+    assert len(dt) >= 1, f"IR3 应携带 @display 显示变换声明: {dt}"
+    pm = contents["IR3"].get("param_mapping") or {}
+    assert pm.get("identity_basis") == "declared_objects" and pm.get("objects"), \
+        f"IR3 应携带声明制对象映射: {pm}"
+    verified = [o for o in pm["objects"] if o.get("status") == "verified"]
+    assert verified, f"至少一个声明对象应 verified: {pm}"
+    arr = next((o for o in verified if o.get("object_id") == "array_section"), None)
+    assert arr is not None, f"array_section 应 verified: {pm}"
+    meas = {p["dim_type"]: p for p in arr["params"]}
+    assert meas["diameter"]["measurement"] == "radius_derived", f"孔径证据应为圆度半径: {meas}"
+    assert abs(meas["diameter"]["measured_mm"] - 27.0) < 0.5, f"外径实测应≈27mm: {meas}"
+    assert abs(meas["length"]["measured_mm"] - 24000.0) < 1.0, f"总长实测应≈24000mm: {meas}"
+
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/irs/IR4", headers=headers, timeout=10)
     assert r.status_code == 200, f"IR4 快照缺失: {r.text}"
     ir4 = r.json()["data"]["content"]
     ir4 = ir4 if isinstance(ir4, dict) else json.loads(ir4)
     codes = [i["constraint_id"] for i in ir4["issues"]]
-    assert "CHK-GEO-NUM" in codes, f"IR4 缺少数值复核条目: {codes}"
+    # T15.3 后检查景观：被映射覆盖的参数（P-001/P-004）由语义检查器核对（legacy 数值复核
+    # 排除避免双重裁决）；mock 声明覆盖下长度/孔径均有语义判定
+    assert ("CHK-GEO-NUM" in codes) or ("CHK-SEM-LENGTH" in codes), \
+        f"IR4 缺少数值/语义复核条目: {codes}"
+    assert "CHK-SEM-LENGTH" in codes and "CHK-SEM-DIAMETER" in codes, \
+        f"IR4 应含首批语义检查器判定（长度/孔径）: {codes}"
+    assert "CHK-SEM-MAPPING" not in codes, f"声明绑定应全链一致无歧义: {codes}"
+    assert "CHK-DISPLAY-TRANSFORM" in codes, f"IR4 应显性呈现显示变换声明: {codes}"
     assert "CHK-GEO-NUM-SKIP" not in codes, "新会话不得命中数值复核跳过分支"
 
     # 7. 会话 stage=A5（管线走满五棒：A3 之后 A4 校验、gate2 批准、A5 沉淀）

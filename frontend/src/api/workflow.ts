@@ -102,6 +102,39 @@ export interface Ir3 {
   features: Ir3Feature[]
   geometry_summary?: Ir3GeometrySummary
   reference_used?: Ir3ReferenceUsed
+  /** T15.1：显示变换声明（ADR-014 §3，旧快照无此字段） */
+  display_transforms?: Ir3DisplayTransform[]
+  /** T15.2：声明制参数→对象映射（ADR-014 §2，旧快照无此字段） */
+  param_mapping?: Ir3ParamMapping
+}
+/** T15.1：显示变换声明（ADR-014 §3，加法演进旧快照无此字段） */
+export interface Ir3DisplayTransform {
+  param_id?: string | null
+  physical_mm: number
+  visual_mm: number
+  rule?: string
+  reason?: string
+}
+/** T15.2：声明制参数→对象映射（ADR-014 §2，加法演进旧快照无此字段） */
+export interface Ir3MappedParam {
+  param_id: string
+  dim_type: 'length' | 'diameter' | 'width' | 'height' | 'thickness' | 'other'
+  measured_mm?: number | null
+  measurement?: 'radius_derived' | 'bbox_axis' | 'bbox_axis_longest' | 'none'
+}
+export interface Ir3MappedObject {
+  object_id: string
+  role: string
+  feature_id?: string | null
+  status: 'verified' | 'ambiguous' | 'unmatched'
+  basis?: 'declared_tag' | 'geometry_unique' | 'symmetric_class'
+  symmetric_size?: number
+  params: Ir3MappedParam[]
+}
+export interface Ir3ParamMapping {
+  version: string
+  identity_basis: 'declared_objects'
+  objects: Ir3MappedObject[]
 }
 
 // ---- IR4 ----

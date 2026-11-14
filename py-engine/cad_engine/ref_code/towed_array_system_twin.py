@@ -124,7 +124,8 @@ def build_acoustic_segment(z_start, name, amplitude=400):
     path = cq.Workplane("XZ").spline(pts)
 
     # 核心算子组合：通过 cut（布尔求减）生成内外径分明的空心管状护套
-    # @obj acoustic_skin role=array_section params=p_array_outer_diameter:diameter,p_array_length:length
+    # @obj acoustic_skin role=array_section params=P-001:diameter,P-002:length
+    # （params 须引用结构化参数表中的参数 id 原文；不确定对应参数时省略 params 仅声明 role）
     skin = (cq.Workplane("XY").circle(AS_outer_radius).sweep(path)
             .cut(cq.Workplane("XY").circle(AS_inner_radius).sweep(path)))
     segment_group.append((skin, C_ACOUSTIC_SKIN, f"{name}_外护套"))

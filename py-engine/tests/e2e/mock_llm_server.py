@@ -117,6 +117,8 @@ ARRAY_INNER_R = 10.5
 SECTION_LEAD = 2000.0
 SECTION_ARRAY = 24000.0
 SECTION_TAIL = 2000.0
+# @display param=none physical_mm=1500 visual_mm=400 rule=min(doc_amplitude,radius*40)
+# （设计文档振幅 ±1500mm 为工程物理值，按视觉规则缩至 400mm 建模——显性声明，禁止静默缩小）
 TAIL_AMPLITUDE = 400.0  # 视觉自适应振幅
 
 C_LEAD = Color(0.55, 0.55, 0.55, 0.9)
@@ -137,6 +139,7 @@ def build_lead(z_start):
     return (part.translate((0, 0, z_start)), z_start + SECTION_LEAD)
 
 def build_array(z_start):
+    # @obj array_section role=array_section params=P-001:diameter,P-004:length
     outer = cq.Workplane("XY").circle(ARRAY_OUTER_R).circle(ARRAY_INNER_R).extrude(SECTION_ARRAY)
     group = []
     # 内部水听器：段内居中、等间距

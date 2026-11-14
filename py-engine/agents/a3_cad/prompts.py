@@ -15,8 +15,8 @@ T16.0 A0-3：提示词文本参与 codegen 缓存指纹——任何模板文本�
 """
 
 # 有效提示词版本（A0-3 缓存指纹组件；v1=A0-5 拆分前单块模板，v2=通用/领域拆分，
-# v3=T15.1 对象声明注释节+振幅条款物理/显示分离）
-PROMPT_VERSION = "3"
+# v3=T15.1 对象声明注释节+振幅条款物理/显示分离，v4=声明 params 须引用参数表 id 原文）
+PROMPT_VERSION = "4"
 
 # ============================================================
 # 通用层：任何 CadQuery 生成任务都适用（领域无关）
@@ -49,6 +49,8 @@ CADQUERY_BASE_PROMPT = '''\
    - role：对象语义角色（如 lead_cable / array_section / array_element / tail_flex）
    - params：该对象受哪些设计参数约束及尺寸语义（冒号分隔，多项逗号分隔），
      尺寸类型 ∈ length|diameter|width|height|thickness|other；不受参数约束可省略 params
+   - params 中的参数 id 必须使用「结构化参数表」中的 id 原文（逐字符一致）；
+     无法确定对应参数时省略 params，仅声明 role
    - 循环构建的同角色元件用区间语法：`# @obj elem-[01-16] role=array_element params=p_elem_diameter:diameter`
    - 示例：`# @obj array_section role=array_section params=p_array_outer_diameter:diameter,p_array_length:length`
 
