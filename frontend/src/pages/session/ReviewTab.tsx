@@ -530,16 +530,15 @@ export function ReviewTab({
         </Card>
       )}
 
-      {gate === 'gate2' && (
-        <ComboCard
-          sessionId={sessionId}
-          reviews={reviews}
-          versions={versions}
-          ir1={ir1}
-          ir2={ir2}
-          ir4={ir4}
-        />
-      )}
+      {/* T15.6/C-2：组合卡在批准后（gate=null）才是关键读侧视图——组件自隐藏（无 gate2 批准凭证不渲染） */}
+      <ComboCard
+        sessionId={sessionId}
+        reviews={reviews}
+        versions={versions}
+        ir1={ir1}
+        ir2={ir2}
+        ir4={ir4}
+      />
 
       {reviews.length > 0 && (
         <Card title="裁决历史" size="small" styles={{ body: { padding: 0 } }}>
