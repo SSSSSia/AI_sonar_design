@@ -204,18 +204,76 @@ class ReviewServiceComboTest {
     }
 
     @Test
-    void gate2ApproveMissingComboPieceConflicts409() {
+    void gate2ApproveMissingIr2OrIr3Conflicts409() {
+        // 被审主对象（IR3）与上游方案（IR2）必须有效在位——缺失仍 409（不同于 IR4 的诚实缺省）
         when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate2"));
-        // IR4 缺失（第三次 selectOne 返回 null）
         when(irSnapshotMapper.selectOne(any()))
                 .thenReturn(snapshot("IR2", 1, "{}"))
-                .thenReturn(snapshot("IR3", 1, "{}"))
                 .thenReturn(null);
 
         ResponseStatusException exc = assertThrows(ResponseStatusException.class,
                 () -> service.decide("s1", "gate2", "approved", null, null, null, "r",
                         null, null, null, null));
-        assertTrue(exc.getReason().contains("IR4"), exc.getReason());
+        assertTrue(exc.getReason().contains("IR3"), exc.getReason());
+        verify(reviewRecordMapper, never()).insert(any(ReviewRecordEntity.class));
+    }
+
+    @Test
+    void gate2ApproveWithMissingIr4RecordsHonestCombo() throws Exception {
+        // T14.5 语义：IR4 无任何版本（异常路径）→ 不阻断批准，组合如实记 missing + unresolved
+        when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate2"));
+        when(irSnapshotMapper.selectOne(any()))
+                .thenReturn(snapshot("IR2", 1, "{}"))
+                .thenReturn(snapshot("IR3", 1, "{}"))
+                .thenReturn(null)          // latestValidSnapshot IR4 → 无有效版
+                .thenReturn(null);         // latestSnapshot IR4 → 无任何版本
+
+        service.decide("s1", "gate2", "approved", null, null, null, "r", null, null, null, null);
+
+        JsonNode meta = JSON.readTree(capturedRecord().getMetadata());
+        assertFalse(meta.path("snapshot_combo").has("IR4"), "IR4 缺失 → 组合不含该条目（诚实缺省）");
+        assertEquals("missing", meta.path("combo_policy").path("ir4_overall").asText());
+        assertEquals("IR4", meta.path("combo_policy").path("unresolved").get(0).path("source").asText());
+        verify(sessionService).resumeFromGate("s1", "A5");
+    }
+
+    @Test
+    void gate2ApproveWithInvalidatedIr4RecordsHonestComboNoExceptionNeeded() throws Exception {
+        // T14.5 微调定稿失效语义：IR4 最新版已失效 → 组合记 valid=false + ir4_overall=invalidated，
+        // 批准不阻断、无需例外（失效报告的 fail 结论不再治理当前批准）
+        when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate2"));
+        IrSnapshotEntity stale = snapshot("IR4", 1, ir4Of("fail"));
+        stale.setInvalidatedAt(java.time.OffsetDateTime.now());
+        when(irSnapshotMapper.selectOne(any()))
+                .thenReturn(snapshot("IR2", 1, "{}"))
+                .thenReturn(snapshot("IR3", 1, "{}"))
+                .thenReturn(null)          // latestValidSnapshot IR4 → 无有效版
+                .thenReturn(stale);        // latestSnapshot IR4 → 失效行
+
+        service.decide("s1", "gate2", "approved", null, null, null, "r", null, null, null, null);
+
+        JsonNode meta = JSON.readTree(capturedRecord().getMetadata());
+        assertEquals(false, meta.path("snapshot_combo").path("IR4").path("valid").asBoolean());
+        assertEquals("invalidated", meta.path("combo_policy").path("ir4_overall").asText());
+        assertTrue(meta.path("combo_policy").path("exception").isNull());
+        assertTrue(meta.path("combo_policy").path("unresolved").get(0).path("ref").asText().contains("已失效"));
+    }
+
+    @Test
+    void gate2ApproveInvalidatedIr4RejectsExceptionRequest() {
+        // IR4 失效/缺失时无 fail 结论可例外——携带例外 → 400
+        when(sessionMapper.selectById("s1")).thenReturn(session("paused", "gate2"));
+        IrSnapshotEntity stale = snapshot("IR4", 1, ir4Of("fail"));
+        stale.setInvalidatedAt(java.time.OffsetDateTime.now());
+        when(irSnapshotMapper.selectOne(any()))
+                .thenReturn(snapshot("IR2", 1, "{}"))
+                .thenReturn(snapshot("IR3", 1, "{}"))
+                .thenReturn(null)
+                .thenReturn(stale);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.decide("s1", "gate2", "approved", null, null, null, "r",
+                        null, true, "无效例外", null));
         verify(reviewRecordMapper, never()).insert(any(ReviewRecordEntity.class));
     }
 

@@ -354,48 +354,76 @@ public class ReviewService {
                                        String exceptionReason, Integer expectedIr4Version) {
         IrSnapshotEntity ir2 = latestValidSnapshot(sessionId, "IR2");
         IrSnapshotEntity ir3 = latestValidSnapshot(sessionId, "IR3");
-        IrSnapshotEntity ir4 = latestValidSnapshot(sessionId, "IR4");
-        List<String> missing = new ArrayList<>();
-        if (ir2 == null) missing.add("IR2");
-        if (ir3 == null) missing.add("IR3");
-        if (ir4 == null) missing.add("IR4");
-        if (!missing.isEmpty()) {
+        if (ir2 == null || ir3 == null) {
+            List<String> missing = new ArrayList<>();
+            if (ir2 == null) missing.add("IR2");
+            if (ir3 == null) missing.add("IR3");
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "gate2 批准要求批准组合三件套齐备（各取最新有效版），缺少: "
+                    "gate2 批准要求 IR2/IR3 最新有效快照在位（被审主对象），缺少: "
                             + String.join("、", missing));
         }
-        // 并发条件扩展（ADR-014 §5 修订 3）：IR4 版本条件——防批准冻结进过期校验报告
-        assertExpectedVersion("IR4", expectedIr4Version, ir4.getVersion());
+        // T14.5 微调定稿失效 IR4/IR5（重验由复审链路触发）→ gate2 时点可能【无有效 IR4】：
+        // 组合如实记录（entry.valid=false / 条目缺省 + ir4_overall=invalidated|missing + unresolved
+        // 显性入档），不阻断批准；fail 例外政策仅对【有效】IR4 的 fail 结论生效。
+        IrSnapshotEntity ir4Valid = latestValidSnapshot(sessionId, "IR4");
 
-        String overall = readJsonField(ir4.getContent(), "overall");
-        boolean fail = "fail".equals(overall);
-        if (Boolean.TRUE.equals(exceptionGranted) && !fail) {
-            throw new IllegalArgumentException(
-                    "仅 IR4 overall=fail 的批准允许携带人工例外（当前 overall=" + overall + "）");
-        }
+        String overall = null;
         Map<String, Object> exception = null;
-        if (fail) {
-            if (!Boolean.TRUE.equals(exceptionGranted)
-                    || exceptionReason == null || exceptionReason.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "IR4 overall=fail 的批准必须携带显式人工例外（exceptionGranted=true + 非空 "
-                                + "exceptionReason）——gate2 批准 ≠ 几何全合格，不得静默放行（ADR-014 §5）");
+        List<Map<String, String>> unresolved = new ArrayList<>();
+        Map<String, Object> ir4Entry = null;
+        if (ir4Valid != null) {
+            // 并发条件扩展（ADR-014 §5 修订 3）：IR4 版本条件——防批准冻结进过期校验报告
+            assertExpectedVersion("IR4", expectedIr4Version, ir4Valid.getVersion());
+            overall = readJsonField(ir4Valid.getContent(), "overall");
+            boolean fail = "fail".equals(overall);
+            if (Boolean.TRUE.equals(exceptionGranted) && !fail) {
+                throw new IllegalArgumentException(
+                        "仅 IR4 overall=fail 的批准允许携带人工例外（当前 overall=" + overall + "）");
             }
-            exception = new LinkedHashMap<>();
-            exception.put("granted", true);
-            exception.put("reason", exceptionReason);
+            if (fail) {
+                if (!Boolean.TRUE.equals(exceptionGranted)
+                        || exceptionReason == null || exceptionReason.isBlank()) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "IR4 overall=fail 的批准必须携带显式人工例外（exceptionGranted=true + 非空 "
+                                    + "exceptionReason）——gate2 批准 ≠ 几何全合格，不得静默放行（ADR-014 §5）");
+                }
+                exception = new LinkedHashMap<>();
+                exception.put("granted", true);
+                exception.put("reason", exceptionReason);
+            }
+            unresolved = collectUnresolved(ir4Valid, latestValidSnapshot(sessionId, "IR1"));
+        } else {
+            if (Boolean.TRUE.equals(exceptionGranted)) {
+                throw new IllegalArgumentException(
+                        "IR4 校验报告已失效/缺失，无 fail 结论可例外——不得携带人工例外");
+            }
+            IrSnapshotEntity ir4Any = latestSnapshot(sessionId, "IR4");
+            if (ir4Any != null) {
+                ir4Entry = comboEntry(ir4Any, OffsetDateTime.now());
+                ir4Entry.put("valid", false);
+                overall = "invalidated";
+                unresolved.add(Map.of("source", "IR4", "ref",
+                        "IR4 v" + ir4Any.getVersion() + " 已失效（T14.5 微调定稿失效语义），重验前不构成合格结论"));
+            } else {
+                overall = "missing";
+                unresolved.add(Map.of("source", "IR4", "ref", "IR4 校验报告缺失（无任何版本）"));
+            }
         }
 
         OffsetDateTime validAt = OffsetDateTime.now();
         Map<String, Object> combo = new LinkedHashMap<>();
         combo.put("IR2", comboEntry(ir2, validAt));
         combo.put("IR3", comboEntry(ir3, validAt));
-        combo.put("IR4", comboEntry(ir4, validAt));
+        if (ir4Entry != null) {
+            combo.put("IR4", ir4Entry);
+        } else if (ir4Valid != null) {
+            combo.put("IR4", comboEntry(ir4Valid, validAt));
+        }
 
         Map<String, Object> policy = new LinkedHashMap<>();
         policy.put("ir4_overall", overall == null ? "unknown" : overall);
         policy.put("exception", exception);
-        policy.put("unresolved", collectUnresolved(ir4, latestValidSnapshot(sessionId, "IR1")));
+        policy.put("unresolved", unresolved);
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("contract", "ADR-014§5");
@@ -407,13 +435,14 @@ public class ReviewService {
 
     /** 组合条目。content_sha256 口径 = sha256(PG jsonb 规范文本 content::text)——pgjdbc getString
      *  直出与 py-engine 侧 SELECT content::text 同源字节，跨语言复现（ADR-014 §5 修订 1），
-     *  C-1 导出按此校验「内容与批准时一致」。 */
+     *  C-1 导出按此校验「内容与批准时一致」。valid=判定时点快照有效性（失效态如实记录不阻断）。 */
     private Map<String, Object> comboEntry(IrSnapshotEntity snap, OffsetDateTime validAt) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("snapshot_id", snap.getId());
         entry.put("version", snap.getVersion());
         entry.put("content_sha256", sha256Hex(snap.getContent() == null ? "" : snap.getContent()));
         entry.put("valid_at_decision", validAt.toString());
+        entry.put("valid", snap.getInvalidatedAt() == null);
         return entry;
     }
 
