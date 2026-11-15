@@ -11,6 +11,13 @@ T16.0（PHASE-016，DEV-001 §1.2）语义：
 - A0-2 匹配语义：三级 grade（type_matched=标题命中 / weak_keyword=纯关键词达阈值 /
   none）；**无匹配不注入任何默认文件**——旧版"catalog 缺失时回退第一个 .py"是错域
   静默注入根因，已删除。弱匹配默认不注入（REF_MATCH_ALLOW_WEAK=1 可开，B2 实验后再评估）。
+
+T16.1（B1 最小管理，ADR-015）双源：`REF_SOURCE=file（默认）|db`——db 模式从 ref_scripts 表
+装载 active 行（管理 API 启停/确认直接影响检索），快照指纹热更新对齐 A0-1；匹配/评分/弱过滤
+逻辑零改动（"表数据源与文件回退遵守相同领域策略"）。DB 不可用 → 诚实降级
+（reason=db_unavailable）**绝不静默回退文件源**（生成来源必须可追溯，A-14/A-16）。
+db 模式 match.catalog_version = "ref-scripts@v{version}"，自然进入 A0-3 缓存指纹与
+A0-4 reference_used（IR3 schema 零改动）。REF_SOURCE 为进程级 env，切换需重启 worker。
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from typing import Optional
 import yaml
 
 import app_config
+from storage import object_store, ref_store
 
 logger = logging.getLogger("sonarcad.refcode")
 
@@ -37,10 +45,11 @@ REASON_NO_CATALOG = "no_catalog"       # 目录缺失/坏 YAML/空索引
 REASON_NO_MATCH = "no_match"           # 有索引但无候选达阈值
 REASON_WEAK_FILTERED = "weak_filtered" # 仅弱匹配候选且未开 REF_MATCH_ALLOW_WEAK
 REASON_READ_FAILED = "read_failed"     # 命中条目对应文件读取失败
+REASON_DB_UNAVAILABLE = "db_unavailable"  # db 源不可达/读取失败（T16.1，诚实降级不回退文件源）
 
 
 class CodeSearchService:
-    """catalog.yaml 关键词匹配检索（T16.0 起带热更新与三级匹配语义）。"""
+    """catalog.yaml / ref_scripts 双源关键词匹配检索（T16.0 热更新与三级匹配 + T16.1 双源）。"""
 
     def __init__(self, catalog_dir: Optional[str | Path] = None):
         if catalog_dir:
@@ -48,11 +57,18 @@ class CodeSearchService:
         else:
             # 受控包内回退：REF_CODE_DIR 未配置时用包内 ref_code/（A0-1）
             self._catalog_dir = Path(app_config.REF_CODE_DIR) if app_config.REF_CODE_DIR else DEFAULT_REF_DIR
+        self._source = "db" if app_config.REF_SOURCE == "db" else "file"
         self._loaded = False
+        # file 源状态（A0-1）
         self._fingerprint: Optional[list] = None
         self._catalog: Optional[dict] = None
         self._catalog_version = ""
         self._file_cache: dict[str, tuple[str, str]] = {}  # filename -> (content, sha256)
+        # db 源状态（T16.1，ADR-015）
+        self._db_fingerprint: Optional[list] = None
+        self._db_entries: Optional[list[dict]] = None
+        self._db_content_cache: dict[str, tuple[str, str]] = {}  # file_name -> (content, sha256)
+        self._db_error = False
         # 最近一次 select_reference 未注入原因（None=已注入）；供调用方/A0-4 契约取用
         self.last_reason: Optional[str] = None
 
@@ -119,6 +135,90 @@ class CodeSearchService:
         return self._file_cache.get(filename, ("", ""))[1]
 
     # ------------------------------------------------------------------
+    # T16.1（ADR-015）：db 源装载（ref_scripts active 行），热更新对齐 A0-1 语义
+    # ------------------------------------------------------------------
+    def _ensure_fresh_db(self) -> None:
+        """快照指纹变化则整体重载 active 行；DB 不可用 → 诚实降级（不回退文件源）。"""
+        try:
+            fp = ref_store.snapshot_fingerprint()
+        except Exception as exc:  # noqa: BLE001 - DB 不可达：降级不注入，恢复后自动重读
+            logger.warning("范例 DB 源不可达（诚实降级不注入，恢复后下次访问自动重读）: %s", exc)
+            self._db_error = True
+            self._db_entries = None
+            return
+        self._db_error = False
+        if self._loaded and fp == self._db_fingerprint:
+            return
+        try:
+            rows = ref_store.get_active_rows()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("范例 DB 源 active 行读取失败（诚实降级不注入）: %s", exc)
+            self._db_error = True
+            self._db_entries = None
+            self._db_fingerprint = None  # 下次强制重试
+            return
+        if self._loaded:
+            logger.info("范例 DB 源变更，整体重载 active 行（%s 行）", len(rows))
+        self._loaded = True
+        self._db_fingerprint = fp
+        entries: list[dict] = []
+        cache: dict[str, tuple[str, str]] = {}
+        for r in rows:
+            file_name = r["file_name"]
+            entries.append({
+                "id": r["ref_id"],
+                "file": file_name,
+                "domain": str(r.get("domain") or ""),
+                "domain_rules": r.get("domain_rules"),
+                "sonar_types": r.get("sonar_types") or [],
+                "keywords": r.get("keywords") or [],
+                "description": r.get("description"),
+                # 版本记录对应实际读取内容（A0-1 验收语义的 db 侧）：进缓存指纹与 reference_used
+                "catalog_version": f"ref-scripts@v{r['version']}",
+            })
+            try:
+                content = object_store.download_text(r["bucket"], r["object_key"])
+            except Exception as exc:  # noqa: BLE001 - 对象读取失败：命中该条时不注入（read_failed 同款）
+                logger.warning("范例对象读取失败 %s/%s（命中时不注入）: %s", r["bucket"], r["object_key"], exc)
+                cache[file_name] = ("", r["content_sha256"])
+                continue
+            sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            if sha != r["content_sha256"]:
+                logger.warning(
+                    "范例内容哈希不符（登记 %s…，实际 %s…）——按读取失败处理: %s",
+                    r["content_sha256"][:12], sha[:12], file_name,
+                )
+                cache[file_name] = ("", sha)
+            else:
+                cache[file_name] = (content, sha)
+        self._db_entries = entries
+        self._db_content_cache = cache
+
+    # ------------------------------------------------------------------
+    # 双源统一钩子：匹配内核（评分/弱过滤/无匹配不注入）零改动，仅换装载与内容读取
+    # ------------------------------------------------------------------
+    def _entries(self) -> Optional[list[dict]]:
+        """候选条目；None/[] = 索引不可用（file: 目录/坏 YAML；db: DB 不可用）。"""
+        if self._source == "db":
+            self._ensure_fresh_db()
+            return self._db_entries
+        self._ensure_fresh()
+        catalog = self.load_catalog()
+        if catalog is None:
+            return None
+        return catalog.get("reference_files") or []
+
+    def _content_and_sha(self, filename: str) -> tuple[Optional[str], str]:
+        """按源读取正文与 sha256（同快照；读不到返回 (None, sha或"")）。"""
+        if self._source == "db":
+            content, sha = self._db_content_cache.get(filename, ("", ""))
+            return (content or None), sha
+        content = self.get_full_file(filename)
+        if not content:
+            return None, ""
+        return content, self.content_sha256(filename)
+
+    # ------------------------------------------------------------------
     # A0-2：双信号评分 + 三级匹配（无匹配不注入错域默认文件）
     # ------------------------------------------------------------------
     def select_reference(
@@ -127,16 +227,18 @@ class CodeSearchService:
         """返回 (content, match)。
 
         match=None 表示未注入任何参考（原因见 self.last_reason，A-14 如实）：
-        no_catalog / no_match / weak_filtered / read_failed。
-        命中时 match = {ref_id, file, sha256, catalog_version, grade, score}，
-        grade ∈ {type_matched, weak_keyword}（weak 默认被过滤，见 REASON_WEAK_FILTERED）。
+        no_catalog / no_match / weak_filtered / read_failed / db_unavailable（T16.1 db 源）。
+        命中时 match = {ref_id, file, sha256, catalog_version, grade, score, domain}，
+        grade ∈ {type_matched, weak_keyword}（weak 默认被过滤，见 REASON_WEAK_FILTERED）；
+        db 源的 catalog_version = ref-scripts@v{version}（ADR-015）。
         """
         if min_score is None:
             min_score = app_config.REF_MATCH_MIN_SCORE
-        catalog = self.load_catalog()
-        entries = (catalog or {}).get("reference_files") or []
+        entries = self._entries()
         if not entries:
-            self.last_reason = REASON_NO_CATALOG
+            self.last_reason = (
+                REASON_DB_UNAVAILABLE if (self._source == "db" and self._db_error) else REASON_NO_CATALOG
+            )
             return "", None
 
         title = self._extract_title(design_document)
@@ -173,22 +275,23 @@ class CodeSearchService:
                 reason = REASON_WEAK_FILTERED
                 continue
             filename = entry.get("file", "")
-            content = self.get_full_file(filename)
+            content, sha = self._content_and_sha(filename)
             if not content:
-                logger.warning("参考条目文件读取失败（不注入）: %s", filename)
+                logger.warning("参考条目内容读取失败（不注入）: %s", filename)
                 reason = REASON_READ_FAILED
                 continue
             ref_id = str(entry.get("id") or Path(filename).stem)
+            catalog_version = str(entry.get("catalog_version") or self._catalog_version)
             self.last_reason = None
             logger.info(
-                "参考范例命中: %s (grade=%s score=%.3f catalog_v=%s)",
-                filename, grade, score, self._catalog_version,
+                "参考范例命中: %s (grade=%s score=%.3f catalog_v=%s source=%s)",
+                filename, grade, score, catalog_version, self._source,
             )
             return content, {
                 "ref_id": ref_id,
                 "file": filename,
-                "sha256": self.content_sha256(filename),
-                "catalog_version": self._catalog_version,
+                "sha256": sha,
+                "catalog_version": catalog_version,
                 "grade": grade,
                 "score": round(score, 4),
                 "domain": str(entry.get("domain") or ""),

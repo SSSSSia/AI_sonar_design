@@ -81,6 +81,10 @@ SEMANTIC_TOL_PCT = float(_env("SEMANTIC_TOL_PCT", "2"))
 # 外置参考目录：空=受控包内 cad_engine/ref_code/ 回退。切换属配置变更需重启 worker
 # （运行契约见 PHASE-016 §3 A0-1；容器模式用卷挂载+env，内容更新免重建镜像）
 REF_CODE_DIR = _env("REF_CODE_DIR")
+# 范例检索数据源（T16.1 B1，ADR-015）：file=catalog.yaml 文件源（默认，回退口径）| db=ref_scripts 表
+# （经管理 API 启停/确认，检索只读 active 行）。切换属配置变更需重启 worker；DB 不可用诚实降级
+# （reason=db_unavailable）不注入，绝不静默回退文件源（A-14/A-16）
+REF_SOURCE = _env("REF_SOURCE", "file").strip().lower()
 # 弱匹配（纯关键词达阈值、标题未命中）是否允许注入：默认关（止血保守防错域；B2 实验后再评估）
 REF_MATCH_ALLOW_WEAK = _env("REF_MATCH_ALLOW_WEAK", "0").lower() in ("1", "true", "yes")
 # 匹配入选阈值（标题信号与关键词各 0.5 加权；达阈值但标题未命中=weak_keyword）
