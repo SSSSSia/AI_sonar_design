@@ -35,6 +35,42 @@ describe('formatParamMapping', () => {
     ]))
     expect(line).toBe('对象映射：1 个声明对象 · 0 已验证 · 0 歧义 · 0 未匹配（声明制身份 v1）')
   })
+
+  it('legacy 几何候选映射：候选参数措辞（T15.4，候选不是声明，A-16 不修饰）', () => {
+    const line = formatParamMapping({
+      version: '1',
+      identity_basis: 'geometry_candidates',
+      objects: [
+        { object_id: 'P-A', role: 'legacy_param', feature_id: 'F-001', status: 'verified',
+          basis: 'geometry_candidate',
+          params: [{ param_id: 'P-A', dim_type: 'length', measured_mm: 480, measurement: 'bbox_axis' }] },
+        { object_id: 'P-B', role: 'legacy_param', feature_id: null, status: 'ambiguous', params: [] },
+      ],
+    })
+    expect(line).toBe('对象映射：2 个候选参数 · 1 已验证 · 1 歧义 · 0 未匹配（几何候选身份 v1）')
+  })
+
+  it('未知 identity_basis 原样透出（A-16 不修饰）', () => {
+    const line = formatParamMapping({
+      version: '1',
+      identity_basis: 'future_basis' as never,
+      objects: [
+        { object_id: 'a', role: 'r', feature_id: null, status: 'verified', params: [] },
+      ],
+    })
+    expect(line).toBe('对象映射：1 个对象 · 1 已验证 · 0 歧义 · 0 未匹配（future_basis v1）')
+  })
+
+  it('version 为空串时不带 vN 后缀（防御分支）', () => {
+    const line = formatParamMapping({
+      version: '',
+      identity_basis: 'geometry_candidates',
+      objects: [
+        { object_id: 'P-A', role: 'legacy_param', feature_id: null, status: 'unmatched', params: [] },
+      ],
+    })
+    expect(line).toBe('对象映射：1 个候选参数 · 0 已验证 · 0 歧义 · 1 未匹配（几何候选身份）')
+  })
 })
 
 describe('formatMappedObjectParams', () => {

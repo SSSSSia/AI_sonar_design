@@ -127,13 +127,15 @@ export interface Ir3MappedObject {
   role: string
   feature_id?: string | null
   status: 'verified' | 'ambiguous' | 'unmatched'
-  basis?: 'declared_tag' | 'geometry_unique' | 'symmetric_class'
+  /** T15.4：+geometry_candidate=无声明路径唯一最优几何候选绑定（ADR-014 §6） */
+  basis?: 'declared_tag' | 'geometry_unique' | 'symmetric_class' | 'geometry_candidate'
   symmetric_size?: number
   params: Ir3MappedParam[]
 }
 export interface Ir3ParamMapping {
   version: string
-  identity_basis: 'declared_objects'
+  /** T15.4：+geometry_candidates=无声明模型（旧 STEP）legacy 几何候选身份（ADR-014 §6） */
+  identity_basis: 'declared_objects' | 'geometry_candidates'
   objects: Ir3MappedObject[]
 }
 

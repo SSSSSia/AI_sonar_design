@@ -17,18 +17,33 @@ const DIM_LABEL: Record<string, string> = {
   other: '其他',
 }
 
+// 身份依据文案（T15.4）：声明制=声明对象；legacy 几何候选=候选参数（不是声明，A-16 不修饰）；
+// 未知 basis 原样透出。
+const IDENTITY_NOUN: Record<string, string> = {
+  declared_objects: '声明对象',
+  geometry_candidates: '候选参数',
+}
+const IDENTITY_LABEL: Record<string, string> = {
+  declared_objects: '声明制身份',
+  geometry_candidates: '几何候选身份',
+}
+
 /** 映射摘要行：`对象映射：19 个声明对象 · 17 已验证 · 2 歧义 · 0 未匹配（声明制身份 v1）`。
+ * legacy 几何候选映射 → `对象映射：3 个候选参数 · …（几何候选身份 v1）`。
  * 无字段/无对象 → null。 */
 export function formatParamMapping(pm?: Ir3ParamMapping): string | null {
   if (!pm || !Array.isArray(pm.objects) || pm.objects.length === 0) return null
   const count = (s: string) => pm.objects.filter((o) => o.status === s).length
+  const basis = pm.identity_basis ?? 'declared_objects'
+  const noun = IDENTITY_NOUN[basis] ?? '对象'
+  const label = IDENTITY_LABEL[basis] ?? basis
   const parts = [
-    `对象映射：${pm.objects.length} 个声明对象`,
+    `对象映射：${pm.objects.length} 个${noun}`,
     `${count('verified')} 已验证`,
     `${count('ambiguous')} ${STATUS_LABEL.ambiguous}`,
     `${count('unmatched')} ${STATUS_LABEL.unmatched}`,
   ]
-  const version = pm.version ? `（声明制身份 v${pm.version}）` : '（声明制身份）'
+  const version = pm.version ? `（${label} v${pm.version}）` : `（${label}）`
   return `${parts.join(' · ')}${version}`
 }
 
