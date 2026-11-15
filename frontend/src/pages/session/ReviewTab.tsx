@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, App as AntdApp, Button, Card, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography,
+  Alert, App as AntdApp, Button, Card, Checkbox, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  postReview, reviseIr1, type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
+  getIrVersion, parseIr, postReview, reviseIr1,
+  type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
 } from '../../api/workflow'
 import { updateParameter, type ParamProposal } from '../../api/cadAgent'
 import { ApiError } from '../../api/client'
@@ -13,6 +14,10 @@ import { confirmParamProposals, ignoreParamProposal, listParamProposals, listTun
 import { summarizeTunes } from './tuneSummary'
 import { formatReferenceUsed } from './referenceUsed'
 import { formatDisplayTransforms, formatParamMapping } from './paramMapping'
+import {
+  aggregateUnresolved, buildVersionList, diffIr2Params, latestApprovedGate2,
+  type ComboVersionRow, type ParamDiffRow,
+} from './comboView'
 import { ParamTable, parseKbRef } from '../../components/ParamTable'
 import { TraceDrawer } from '../../components/TraceDrawer'
 import { KbRefDrawer } from '../../components/KbRefDrawer'
@@ -156,6 +161,9 @@ export function ReviewTab({
   const [decision, setDecision] = useState<'approved' | 'rejected'>('approved')
   const [reworkStage, setReworkStage] = useState<string>(gate === 'gate2' ? (ir4?.issues.find((i) => i.suggestion)?.suggestion?.replace('back_to_', '') ?? 'A2') : 'A2')
   const [annotations, setAnnotations] = useState('')
+  // T15.6/C-0：IR4 fail 批准的显式人工例外（后端强制校验，前端同步拦截）
+  const [exceptionGranted, setExceptionGranted] = useState(false)
+  const [exceptionReason, setExceptionReason] = useState('')
   const [editParam, setEditParam] = useState<Ir2Param | null>(null)
   const [editForm] = Form.useForm()
   const [ir1Editing, setIr1Editing] = useState(false)
@@ -165,6 +173,12 @@ export function ReviewTab({
   async function submit() {
     if (decision === 'rejected' && !annotations.trim()) {
       message.warning('驳回必须填写批注（整改依据）')
+      return
+    }
+    // T15.6/C-0（ADR-014 §5）：IR4 fail 批准必须显式人工例外（granted + 非空 reason）
+    if (gate === 'gate2' && decision === 'approved' && ir4?.overall === 'fail'
+        && (!exceptionGranted || !exceptionReason.trim())) {
+      message.warning('IR4 总体结论为 fail：批准必须勾选「人工例外」确认并填写例外理由（不得静默放行）')
       return
     }
     if (decision === 'approved' && ir2 && params(ir2).length === 0) {
@@ -186,12 +200,17 @@ export function ReviewTab({
     try {
       // T14.6（审查用例 09）：携带审阅人实际查看的快照版本——后台生成新版本后
       // 旧页面提交会被 409 SNAPSHOT_STALE 拒绝，提示刷新复核，不自动代批。
+      // T15.6/C-0：gate2 批准额外携带 IR4 版本条件与（fail 时）人工例外字段。
       const expected = gate === 'gate1' ? versions?.IR2 : gate === 'gate2' ? versions?.IR3 : versions?.IR5
+      const failApproval = gate === 'gate2' && decision === 'approved' && ir4?.overall === 'fail'
       const effects = await postReview(sessionId, gate ?? 'gate1', {
         decision,
         annotations: annotations.trim() ? [annotations.trim()] : [],
         reworkStage: decision === 'rejected' ? reworkStage : undefined,
         expectedSnapshotVersion: expected,
+        expectedIr4Version: gate === 'gate2' ? versions?.IR4 : undefined,
+        exceptionGranted: failApproval ? true : undefined,
+        exceptionReason: failApproval ? exceptionReason.trim() : undefined,
       })
       message.success(
         decision === 'approved'
@@ -199,6 +218,8 @@ export function ReviewTab({
           : `已驳回，回退${stageLabel(effects.rework_stage)}重算（原 ${effects.invalidated?.length ?? 0} 份下游产物已作废）`,
       )
       setAnnotations('')
+      setExceptionGranted(false)
+      setExceptionReason('')
       onDecided()
     } catch (e) {
       message.error(e instanceof ApiError ? e.message : '裁决提交失败')
@@ -488,8 +509,36 @@ export function ReviewTab({
                 <Button type="primary" loading={submitting} disabled={!canDecide} onClick={submit}>提交裁决</Button>
               </Space>
             </div>
+            {gate === 'gate2' && decision === 'approved' && ir4?.overall === 'fail' && (
+              <div style={{ gridColumn: '1 / -1', border: '1px solid rgba(239,68,68,.4)', borderRadius: 8, padding: '10px 12px' }}>
+                <Alert
+                  type="error" showIcon style={{ marginBottom: 8 }}
+                  message={`IR4 总体结论为 fail（${errCount} 项 error）——按 ADR-014 §5，批准必须携带显式人工例外，不得静默放行`}
+                />
+                <Checkbox checked={exceptionGranted} onChange={(e) => setExceptionGranted(e.target.checked)}>
+                  确认人工例外：本人已复核全部 error 项并决定放行
+                </Checkbox>
+                <Input.TextArea
+                  style={{ marginTop: 8 }} rows={2}
+                  value={exceptionReason}
+                  onChange={(e) => setExceptionReason(e.target.value)}
+                  placeholder="例外理由（必填，将随批准组合凭证入档，并出现在正式批准版文档中）"
+                />
+              </div>
+            )}
           </div>
         </Card>
+      )}
+
+      {gate === 'gate2' && (
+        <ComboCard
+          sessionId={sessionId}
+          reviews={reviews}
+          versions={versions}
+          ir1={ir1}
+          ir2={ir2}
+          ir4={ir4}
+        />
       )}
 
       {reviews.length > 0 && (
@@ -631,6 +680,128 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
           {displayLine}
         </div>
       )}
+    </Card>
+  )
+}
+
+// ---- 批准组合卡（T15.6/C-2 首批读侧，ADR-014 §5）：组合版本清单/未决项聚合/全参数 diff。
+//      只读视图——不承担批准判定（服务端政策校验为准）；无批准凭证（历史会话）时整体隐藏。 ----
+function ComboCard({ sessionId, reviews, versions, ir1, ir2, ir4 }: {
+  sessionId: string
+  reviews: ReviewRecord[]
+  versions?: { IR1?: number; IR2?: number; IR3?: number; IR4?: number; IR5?: number }
+  ir1: Ir1 | null
+  ir2: Ir2 | null
+  ir4: Ir4 | null
+}) {
+  const combo = latestApprovedGate2(reviews)
+  const comboIr2Version = combo?.metadata.snapshot_combo?.IR2?.version ?? null
+  const latestIr2Version = versions?.IR2 ?? null
+  // 组合 IR2 ≠ 当前 latest IR2 → 按版本拉取批准时内容做 diff（getIrVersion，C-2 读侧配套端点）
+  const needsHistorical = comboIr2Version != null && latestIr2Version != null && comboIr2Version !== latestIr2Version
+  const historicalQuery = useQuery({
+    queryKey: ['ir-version', sessionId, 'IR2', comboIr2Version],
+    queryFn: () => getIrVersion(sessionId, 'IR2', comboIr2Version as number),
+    enabled: needsHistorical,
+  })
+  if (!combo) return null
+  const policy = combo.metadata.combo_policy
+  const comboIr2: Ir2 | null = needsHistorical ? parseIr<Ir2>(historicalQuery.data) : ir2
+  const diffRows = diffIr2Params(comboIr2?.parameters, ir2?.parameters)
+  const changedRows = diffRows.filter((r) => r.state !== 'same')
+  const unresolved = aggregateUnresolved(policy, ir4, ir1)
+  const versionRows = buildVersionList(combo.metadata.snapshot_combo, {
+    IR2: versions?.IR2, IR3: versions?.IR3, IR4: versions?.IR4,
+  })
+  const exception = policy?.exception
+  const overallColor = policy?.ir4_overall === 'pass' ? 'success'
+    : policy?.ir4_overall === 'fail' ? 'error' : 'warning'
+
+  const versionColumns: ColumnsType<ComboVersionRow> = [
+    { title: 'IR', dataIndex: 'ir_type', width: 70, render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+    { title: '组合版本', dataIndex: 'combo_version', width: 90, render: (v) => (v == null ? '—' : `v${v}`) },
+    { title: '当前最新', dataIndex: 'latest_version', width: 90, render: (v) => (v == null ? '—' : `v${v}`) },
+    {
+      title: '钉定状态', key: 'pinned', width: 150,
+      render: (_, r) => r.pinned_is_latest == null
+        ? <Tag>—</Tag>
+        : r.pinned_is_latest
+          ? <Tag color="success">组合即最新</Tag>
+          : <Tag color="warning">已有新版本（正式导出将被拒绝）</Tag>,
+    },
+    { title: '快照ID', dataIndex: 'snapshot_id', render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{v ?? '—'}</span> },
+    { title: '内容哈希', dataIndex: 'sha16', width: 160, render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{v ? `${v}…` : '—'}</span> },
+  ]
+  const diffColumns: ColumnsType<ParamDiffRow> = [
+    { title: '参数ID', dataIndex: 'param_id', width: 90, render: (v) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+    { title: '名称', dataIndex: 'name', width: 150, ellipsis: true },
+    { title: '批准时值', dataIndex: 'combo_value', width: 130 },
+    { title: '当前值', dataIndex: 'latest_value', width: 130 },
+    {
+      title: '状态', dataIndex: 'state', width: 100,
+      render: (s) => s === 'changed' ? <Tag color="orange">已变更</Tag>
+        : s === 'added' ? <Tag color="blue">批准后新增</Tag>
+        : s === 'removed' ? <Tag color="red">批准后移除</Tag>
+        : <Tag>一致</Tag>,
+    },
+  ]
+
+  return (
+    <Card
+      title="批准版本组合（gate2 批准凭证）"
+      size="small"
+      extra={
+        <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+          批准于 {String(combo.record.decided_at).replace('T', ' ').slice(0, 19)} · 政策 v{String(combo.metadata.policy_version ?? '1')}
+        </Typography.Text>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            批准时 IR4 总体结论：
+          </Typography.Text>{' '}
+          <Tag color={overallColor}>{String(policy?.ir4_overall ?? 'unknown')}</Tag>
+          {exception?.granted && (
+            <Typography.Text style={{ fontSize: 12.5, color: '#ef4444' }}>
+              人工例外已授予：{exception.reason}
+            </Typography.Text>
+          )}
+          <Table rowKey="ir_type" size="small" pagination={false} columns={versionColumns} dataSource={versionRows} />
+        </div>
+        <div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            未决项（凭证入档 + 现场聚合，{unresolved.length} 项）
+          </Typography.Text>
+          <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {unresolved.length === 0 ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>无未决项</Typography.Text>
+            ) : unresolved.map((u) => (
+              <Tag key={`${u.source}::${u.ref}`} color={u.source === 'IR1' ? 'blue' : 'gold'} style={{ fontSize: 11 }}>
+                {u.source}：{u.ref}{u.from_record ? '' : '（现场）'}
+              </Tag>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            全参数对照（批准组合 IR2{comboIr2Version != null ? ` v${comboIr2Version}` : ''} vs 当前{latestIr2Version != null ? ` v${latestIr2Version}` : ''}）——{changedRows.length} 项差异
+          </Typography.Text>
+          {needsHistorical && historicalQuery.isLoading ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5, display: 'block', marginTop: 6 }}>组合 IR2 内容读取中…</Typography.Text>
+          ) : comboIr2 == null ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5, display: 'block', marginTop: 6 }}>
+              批准组合 IR2 内容不可读（可能已被清理），参数对照不可用——正式导出同样将被拒绝。
+            </Typography.Text>
+          ) : changedRows.length === 0 ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5, display: 'block', marginTop: 6 }}>
+              参数与批准组合一致（批准后未发生参数变更）。
+            </Typography.Text>
+          ) : (
+            <Table rowKey="param_id" size="small" pagination={false} columns={diffColumns} dataSource={changedRows} style={{ marginTop: 6 }} />
+          )}
+        </div>
+      </div>
     </Card>
   )
 }

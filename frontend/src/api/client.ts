@@ -26,7 +26,7 @@ interface HttpErrorLike {
   response?: {
     status?: number
     headers?: Record<string, unknown>
-    data?: { message?: unknown; retryAfterSeconds?: unknown }
+    data?: { message?: unknown; detail?: unknown; retryAfterSeconds?: unknown }
   }
   message?: string
 }
@@ -51,7 +51,7 @@ function retryAfterSeconds(error: HttpErrorLike): number | null {
 function toApiError(error: HttpErrorLike): ApiError {
   const status: number | undefined = error.response?.status
   if (status === 401) handleUnauthorized()
-  const message = String(error.response?.data?.message ?? error.message ?? '网络错误')
+  const message = String(error.response?.data?.message ?? error.response?.data?.detail ?? error.message ?? '网络错误')
   return new ApiError(status ?? -1, message)
 }
 
@@ -107,7 +107,22 @@ http.interceptors.response.use(
     }
     return resp
   },
-  (error) => retryIdempotentGet(error as HttpErrorLike),
+  async (error) => {
+    // T15.6/C-1：blob 响应（文件下载）的错误体也是 Blob——FastAPI HTTPException 的
+    // {detail} 需解析出来，正式导出拒绝原因（组合失效/哈希不符等）才能在 toast 明确呈现。
+    const data = (error as HttpErrorLike).response?.data
+    if (data instanceof Blob && data.type.includes('application/json')) {
+      try {
+        const parsed = JSON.parse(await data.text()) as { detail?: unknown; message?: unknown }
+        if (parsed && typeof parsed === 'object') {
+          ;(error as HttpErrorLike).response!.data = parsed
+        }
+      } catch {
+        // 非 JSON 错误体，按原样处理
+      }
+    }
+    return retryIdempotentGet(error as HttpErrorLike)
+  },
 )
 
 export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {

@@ -196,10 +196,33 @@ export interface ReviewRecord {
   decision: string
   ir_snapshot_id?: string
   annotations: unknown[]
+  /** T15.6/C-0 批准组合凭证（jsonb 字符串，'' = 组合契约前历史记录） */
+  metadata?: string
   reviewer_id?: string
   /** 实际操作者用户名（后端 join users；历史缺失时前端回退短 id） */
   reviewer_name?: string
   decided_at: string
+}
+
+/** T15.6/C-0 批准版本组合（ADR-014 §5，review_records.metadata jsonb）——只读视图类型 */
+export interface IrComboEntry {
+  snapshot_id: string
+  version: number
+  content_sha256: string
+  valid_at_decision?: string
+}
+
+export interface IrComboPolicy {
+  ir4_overall?: string
+  exception?: { granted: boolean; reason: string } | null
+  unresolved?: { source: string; ref: string }[]
+}
+
+export interface IrReviewMetadata {
+  contract?: string
+  policy_version?: string
+  snapshot_combo?: Partial<Record<'IR2' | 'IR3' | 'IR4', IrComboEntry>>
+  combo_policy?: IrComboPolicy
 }
 
 export interface ReviewEffects {
@@ -228,6 +251,11 @@ export function parseIr<T>(env: IrEnvelope | undefined | null): T | null {
 
 export function getIr(sid: string, type: 'IR0' | 'IR1' | 'IR2' | 'IR3' | 'IR4' | 'IR5') {
   return get<IrEnvelope>(`/workflow/sessions/${sid}/irs/${type}`)
+}
+
+/** T15.6/C-2 读侧配套：按精确版本取快照（批准组合卡全参数 diff 用；历史/失效版本均可读）。 */
+export function getIrVersion(sid: string, type: 'IR0' | 'IR1' | 'IR2' | 'IR3' | 'IR4' | 'IR5', version: number) {
+  return get<IrEnvelope>(`/workflow/sessions/${sid}/irs/${type}/versions/${version}`)
 }
 
 export function getTrace(traceId: string) {
@@ -259,6 +287,12 @@ export function postReview(
     /** T14.6 审阅版本条件（外部审查问题 4c）：审阅人实际查看的快照版本——
      * 与裁决时刻最新不符时后端 409 SNAPSHOT_STALE（旧页面不能批准新模型）。 */
     expectedSnapshotVersion?: number
+    /** T15.6/C-0（ADR-014 §5）：IR4 overall=fail 批准的显式人工例外（granted+reason 必填，
+     * 仅 fail 可携带；缺失时后端 409 不得静默放行）。 */
+    exceptionGranted?: boolean
+    exceptionReason?: string
+    /** T15.6/C-0 并发条件扩展：审阅人查看的 IR4 版本（gate2 批准校验，防冻结进过期校验报告）。 */
+    expectedIr4Version?: number
   },
 ) {
   return post<ReviewEffects>(`/workflow/sessions/${sid}/reviews/${gate}`, body)

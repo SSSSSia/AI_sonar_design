@@ -9,6 +9,7 @@ import { hasAnyRole, useAuthStore } from '../../stores/authStore'
 import { ReviewAnnotation } from '../../components/ReviewAnnotation'
 import { CandidateContent, CandidateDedupTag, CandidateKindTag, writebackToastText } from '../../components/CandidateContent'
 import { gateLabel, WRITEBACK_LABEL, checkLabel } from '../../lib/stageLabel'
+import { latestApprovedGate2 } from './comboView'
 import EChart, { CHART_COLORS } from '../../components/EChart'
 import type { EChartsCoreOption } from 'echarts/core'
 
@@ -159,21 +160,29 @@ export function ReportTab({
     }
   }
 
-  // T11.5 军标格式 Word 导出（P2-11）：IR2 三章渲染，docx 二进制下载
+  // T11.5 Word 导出（P2-11）+ T15.6/C-1 双口径：工作稿（latest）/ 正式批准版（按批准组合读取校验）
+  const combo = latestApprovedGate2(reviews)
   const [exporting, setExporting] = useState(false)
+  const [exportingFormal, setExportingFormal] = useState(false)
+
+  async function downloadExport(path: string, fallbackExt: string, okText: string) {
+    const { blob, disposition } = await getBlob(path)
+    const m = /filename\*=UTF-8''([^;]+)/.exec(disposition ?? '')
+    const filename = m ? decodeURIComponent(m[1]) : `设计方案_${sessionId}.${fallbackExt}`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success(okText)
+  }
+
   async function exportDocx() {
     setExporting(true)
     try {
-      const { blob, disposition } = await getBlob(`/cad/sessions/${sessionId}/export/docx`)
-      const m = /filename\*=UTF-8''([^;]+)/.exec(disposition ?? '')
-      const filename = m ? decodeURIComponent(m[1]) : `设计方案_${sessionId}.docx`
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
-      message.success('已导出 Word 文档（内置模板；正式军标模板待授权后替换）')
+      await downloadExport(`/cad/sessions/${sessionId}/export/docx`, 'docx',
+        '已导出 Word 工作稿（未冻结组合，数据取当前 latest；内置模板，正式军标模板待授权后替换）')
     } catch (e) {
       message.error(e instanceof ApiError ? e.message : '导出失败')
     } finally {
@@ -181,25 +190,47 @@ export function ReportTab({
     }
   }
 
-  // T13.5 军标格式 PDF 导出（§5.2）：docx 模板链复用 → gotenberg(LibreOffice) 转换；未部署 503 如实
+  async function exportFormalDocx() {
+    if (!combo) return
+    setExportingFormal(true)
+    try {
+      await downloadExport(
+        `/cad/sessions/${sessionId}/export/docx?record_id=${encodeURIComponent(combo.record.id)}`,
+        'docx', '已导出正式批准版 Word（按批准组合读取并校验，含批准版本组合章）')
+    } catch (e) {
+      // 拒绝原因（组合失效/哈希不符等）由服务端 detail 明确返回
+      message.error(e instanceof ApiError ? e.message : '正式版导出失败')
+    } finally {
+      setExportingFormal(false)
+    }
+  }
+
+  // T13.5 PDF 导出（§5.2）：docx 模板链复用 → gotenberg(LibreOffice) 转换；未部署 503 如实
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportingFormalPdf, setExportingFormalPdf] = useState(false)
   async function exportPdf() {
     setExportingPdf(true)
     try {
-      const { blob, disposition } = await getBlob(`/cad/sessions/${sessionId}/export/pdf`)
-      const m = /filename\*=UTF-8''([^;]+)/.exec(disposition ?? '')
-      const filename = m ? decodeURIComponent(m[1]) : `设计方案_${sessionId}.pdf`
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
-      message.success('已导出 PDF 文档（内置模板；正式军标模板待授权后替换）')
+      await downloadExport(`/cad/sessions/${sessionId}/export/pdf`, 'pdf',
+        '已导出 PDF 工作稿（未冻结组合，数据取当前 latest；内置模板，正式军标模板待授权后替换）')
     } catch (e) {
       message.error(e instanceof ApiError ? e.message : '导出失败')
     } finally {
       setExportingPdf(false)
+    }
+  }
+
+  async function exportFormalPdf() {
+    if (!combo) return
+    setExportingFormalPdf(true)
+    try {
+      await downloadExport(
+        `/cad/sessions/${sessionId}/export/pdf?record_id=${encodeURIComponent(combo.record.id)}`,
+        'pdf', '已导出正式批准版 PDF（与 Word 同一批准组合，数据一致）')
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.message : '正式版导出失败')
+    } finally {
+      setExportingFormalPdf(false)
     }
   }
 
@@ -208,10 +239,20 @@ export function ReportTab({
       <Card
         title={<>IR4 合规校验报告 {ir4Version ? <Typography.Text code style={{ fontSize: 12 }}>v{ir4Version}</Typography.Text> : null}</>}
         extra={
-          <Space size={8}>
+          <Space size={8} wrap>
             {ir4 ? <OVERALL_TAG overall={ir4.overall} /> : null}
-            <Button size="small" loading={exporting} onClick={() => void exportDocx()}>导出 Word</Button>
-            <Button size="small" loading={exportingPdf} onClick={() => void exportPdf()}>导出 PDF</Button>
+            <Tooltip title="工作稿：数据取当前 latest 有效版本，未冻结批准组合">
+              <Button size="small" loading={exporting} onClick={() => void exportDocx()}>工作稿 Word</Button>
+            </Tooltip>
+            <Tooltip title="工作稿：数据取当前 latest 有效版本，未冻结批准组合">
+              <Button size="small" loading={exportingPdf} onClick={() => void exportPdf()}>工作稿 PDF</Button>
+            </Tooltip>
+            <Tooltip title={combo ? `按批准组合（${combo.record.id.slice(0, 8)}…）读取并校验有效性与哈希，含批准版本组合章` : '需先在审阅关②完成 gate2 批准（生成组合凭证后可用）'}>
+              <Button size="small" type="primary" ghost disabled={!combo} loading={exportingFormal} onClick={() => void exportFormalDocx()}>正式批准版 Word</Button>
+            </Tooltip>
+            <Tooltip title={combo ? '与 Word 同一批准组合，数据一致' : '需先在审阅关②完成 gate2 批准'}>
+              <Button size="small" type="primary" ghost disabled={!combo} loading={exportingFormalPdf} onClick={() => void exportFormalPdf()}>正式批准版 PDF</Button>
+            </Tooltip>
           </Space>
         }
       >
