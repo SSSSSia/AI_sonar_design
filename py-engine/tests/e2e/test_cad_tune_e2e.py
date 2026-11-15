@@ -162,6 +162,17 @@ def env():
         "geometry_summary": {"source": "extracted", "bbox_mm": [100.0, 20.0, 20.0],
                              "volume_mm3": 40000.0, "part_count": 1, "detail": "t87 e2e 基线"},
     }), created_by="t87")
+    # T15.6/C-0 校准：gate2 批准自本轮起固化批准组合（IR2/IR3/IR4 最新有效版，缺任一 409）——
+    # 夹具补齐 IR2/IR4，使 paused@gate2 夹具与会话真实暂停态一致（IR4=pass 无需人工例外）
+    ir_store.save_snapshot(SID, "IR2", validate_ir("IR2", {
+        "design_document": "# t87 微调 e2e 基线\n参数化占位文档（组合固化夹具校准）",
+        "parameters": [{"id": "P-001", "name": "基线长度", "value": 100, "unit": "mm",
+                        "source_type": "estimated", "source_ref": "t87 e2e 夹具",
+                        "derivation": "夹具直接给定", "confidence": "medium", "trace_id": "t87"}],
+    }), created_by="t87")
+    ir_store.save_snapshot(SID, "IR4", validate_ir("IR4", {
+        "overall": "pass", "issues": [],
+    }), created_by="t87")
 
     yield {"sid": SID, "base_ir_version": ir_store.get_latest_version(SID, "IR3")}
 

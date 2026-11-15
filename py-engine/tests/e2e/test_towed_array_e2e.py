@@ -246,5 +246,39 @@ def test_towed_array_full_chain(stack):
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
     assert r.json()["data"]["currentStage"] == "A5"
 
+    # 8. 批准组合与正式导出（T15.6/C-0/C-1，ADR-014 §5）：gate2 批准记录携带组合凭证；
+    #    正式导出按组合读取并校验（不读"当时 latest"），工作稿/正式版文件名分别标注
+    r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/reviews", headers=headers, timeout=10)
+    records = r.json()["data"]
+    gate2_ok = [x for x in records if x["gate"] == "gate2" and x["decision"] == "approved"]
+    assert gate2_ok, f"应有 gate2 批准记录: {[(x['gate'], x['decision']) for x in records]}"
+    metadata = json.loads(gate2_ok[0].get("metadata") or "{}")
+    combo = metadata.get("snapshot_combo") or {}
+    assert set(combo.keys()) >= {"IR2", "IR3", "IR4"}, f"组合应含 IR2/IR3/IR4: {list(combo)}"
+    for t, entry in combo.items():
+        assert entry.get("version"), f"{t} 组合条目缺版本"
+        assert entry.get("snapshot_id"), f"{t} 组合条目缺快照ID"
+        assert entry.get("content_sha256") and len(entry["content_sha256"]) == 64, \
+            f"{t} 组合条目缺 sha256（口径=content::text）"
+    policy = metadata.get("combo_policy") or {}
+    assert policy.get("ir4_overall") in ("pass", "fail", "incomplete"), \
+        f"combo_policy 应含 ir4_overall: {policy}"
+    assert isinstance(policy.get("unresolved"), list), "combo_policy 应含 unresolved 列表"
+
+    from urllib.parse import unquote
+
+    record_id = gate2_ok[0]["id"]
+    r = httpx.get(f"{GATEWAY}/api/v1/cad/sessions/{sid}/export/docx",
+                  params={"record_id": record_id}, headers=headers, timeout=120)
+    assert r.status_code == 200, f"正式导出应通过组合校验: {r.status_code} {r.text[:200]}"
+    assert "正式批准" in unquote(r.headers.get("content-disposition", "")), "正式版文件名应标注"
+    r = httpx.get(f"{GATEWAY}/api/v1/cad/sessions/{sid}/export/docx", headers=headers, timeout=120)
+    assert r.status_code == 200, "工作稿导出不应回归"
+    assert "工作稿" in unquote(r.headers.get("content-disposition", "")), "工作稿文件名应标注"
+    r = httpx.get(f"{GATEWAY}/api/v1/cad/sessions/{sid}/export/docx",
+                  params={"record_id": "00000000-0000-0000-0000-000000000000"},
+                  headers=headers, timeout=30)
+    assert r.status_code == 404, f"伪造批准记录应 404: {r.status_code}"
+
     print(f"\ne2e 通过：session={sid} run={run_tag} step={step_ref}")
     _cleanup(headers, sid, pid)
