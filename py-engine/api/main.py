@@ -33,6 +33,7 @@ from api.cad import router as cad_router
 from api.cad_agent import router as cad_agent_router
 from api.logs import router as logs_router
 from api.metadata import router as metadata_router
+from api.ref_scripts import router as ref_scripts_router
 from llm.adapter import active_provider, llm_adapter, reload_providers
 from worker.celery_app import celery_app
 from worker.tasks import always_fail_task, echo_task
@@ -77,6 +78,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 app.include_router(kb_router, prefix="/api/v1")
+app.include_router(ref_scripts_router, prefix="/api/v1")  # gateway /api/v1/kb/references/**（T16.1 范例库）
 app.include_router(cad_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
 app.include_router(cad_agent_router, prefix="/api/v1")  # gateway /api/v1/cad-agent/**（T8.3 微调）
 app.include_router(logs_router, prefix="/api/v1")  # gateway /api/v1/logs/**（会话运行日志留存回放）

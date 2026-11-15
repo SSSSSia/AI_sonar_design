@@ -45,6 +45,11 @@ _RULES: list[tuple[str, re.Pattern[str], str, str | None, str | None]] = [
     ("POST", re.compile(r"^/api/v1/kb/llm-providers$"), "kb.create_provider", "llm_provider", None),
     ("PATCH", re.compile(r"^/api/v1/kb/llm-providers/(?P<rid>[^/]+)$"), "kb.update_provider", "llm_provider", "rid"),
     ("DELETE", re.compile(r"^/api/v1/kb/llm-providers/(?P<rid>[^/]+)$"), "kb.delete_provider", "llm_provider", "rid"),
+    # 范例库管理域（T16.1 B1，ADR-015；import-catalog 路由更长先于 {row_id} 无冲突）
+    ("POST", re.compile(r"^/api/v1/kb/references/import-catalog$"), "kb.ref_import", None, None),
+    ("POST", re.compile(r"^/api/v1/kb/references$"), "kb.ref_create", "ref_script", None),
+    ("PATCH", re.compile(r"^/api/v1/kb/references/(?P<rid>[^/]+)$"), "kb.ref_update", "ref_script", "rid"),
+    ("POST", re.compile(r"^/api/v1/kb/references/(?P<rid>[^/]+)/confirm$"), "kb.ref_confirm", "ref_script", "rid"),
     # 图谱快照（T11.7 备份链路的人工/定时触发留痕）
     ("POST", re.compile(r"^/api/v1/kb/graph/snapshot$"), "kb.graph_snapshot", None, None),
     # 知识回写（§9.4 明列「知识回写」；T14.8 补——端点无 /api/v1 前缀，此前漏覆盖）

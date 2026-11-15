@@ -19,6 +19,7 @@ from app_config import (
     BUCKET_CAD_TUNES,
     BUCKET_KB_DOCS,
     BUCKET_KNOWLEDGE_DUMPS,
+    BUCKET_REF_SCRIPTS,
     BUCKET_STEP_MODELS,
     MINIO_ACCESS_KEY,
     MINIO_ENDPOINT,
@@ -48,7 +49,7 @@ def _ensure_buckets() -> None:
     if _buckets_ready:
         return
     c = _get_client()
-    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, BUCKET_KB_DOCS, BUCKET_CAD_TUNES, BUCKET_KNOWLEDGE_DUMPS):
+    for bucket in (BUCKET_STEP_MODELS, BUCKET_CAD_SCRIPTS, BUCKET_KB_DOCS, BUCKET_CAD_TUNES, BUCKET_KNOWLEDGE_DUMPS, BUCKET_REF_SCRIPTS):
         if not c.bucket_exists(bucket):
             c.make_bucket(bucket)
             logger.info("MinIO 桶已创建: %s", bucket)
@@ -76,6 +77,17 @@ def upload_bytes(data: bytes, bucket: str, object_key: str, content_type: str = 
 
 def upload_text(text: str, bucket: str, object_key: str) -> dict[str, str]:
     return upload_bytes(text.encode("utf-8"), bucket, object_key, content_type="text/plain")
+
+
+def download_text(bucket: str, object_key: str) -> str:
+    """读取对象正文文本（T16.1 范例 DB 源/管理查看）。失败抛异常由调用方降级（A-14）。"""
+    _ensure_buckets()
+    resp = _get_client().get_object(bucket, object_key)
+    try:
+        return resp.read().decode("utf-8")
+    finally:
+        resp.close()
+        resp.release_conn()
 
 
 def remove_object(bucket: str, object_key: str) -> None:
