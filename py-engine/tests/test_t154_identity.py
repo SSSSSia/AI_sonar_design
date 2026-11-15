@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""T15.4 身份匹配扩展单测——WP1 legacy 几何候选身份（PHASE-015 §3.8，ADR-014 §6）。
+"""T15.4 身份匹配扩展与跨版本演进单测（PHASE-015 §3.8，ADR-014 §6）。
 
-- build_candidate_mapping：四态落点（唯一最优→verified geometry_candidate /
-  并列→ambiguous / 被占用→unmatched / 无候选→不进映射）、同段 diameter 优先、
-  案例 03 口径（无圆度证据不造孔径）、旋转不变、单位换算；
+- build_candidate_mapping（WP1，legacy 几何候选身份）：四态落点（唯一最优→verified
+  geometry_candidate / 并列→ambiguous / 被占用→unmatched / 无候选→不进映射）、
+  同段 diameter 优先、案例 03 口径（无圆度证据不造孔径）、旋转不变、单位换算；
+- match_parts_between_versions（WP2，跨版本对应）：旋转反例（换轴重编号不乱对）、
+  同尺寸并列、拆分/合并如实、案例 04 对位回归、空输入；
+- role-only 几何聚类绑定（WP3 候选）负结果固化：个体不可分辨/无锚 → 维持 ambiguous；
 - A3Agent._build_ir3 集成：无声明→geometry_candidates 映射 / A3_LEGACY_MAPPING=0 回退
   T15.2 口径 / 声明制脚本不受影响；
 - A4 文案按 identity_basis 区分「声明/几何候选」（A-16 不修饰）+ covered_param_ids。
@@ -19,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 
 from agents.a3_cad.agent import A3Agent
-from agents.a3_cad.identity import build_candidate_mapping
+from agents.a3_cad.cross_version import match_parts_between_versions
+from agents.a3_cad.identity import build_candidate_mapping, build_param_mapping
 from agents.a4_validation.agent import A4Agent
 from agents.a4_validation.semantics import covered_param_ids
 from ir_contract import validate_ir
@@ -210,6 +214,108 @@ class TestA4LegacyWording:
     def test_covered_param_ids_includes_legacy(self):
         ir3 = {"param_mapping": self._legacy_mapping_ambiguous()}
         assert covered_param_ids(ir3) == {"P-LEN"}
+
+
+# ------------------------------------------------------------------------------
+# match_parts_between_versions（WP2，跨版本对应四态）
+def _cyl(idx, length, dia, axis=2, z=0.0, volume=None):
+    r = dia / 2.0
+    bbox = [0.0] * 3
+    bbox[axis] = float(length)
+    for i in range(3):
+        if i != axis:
+            bbox[i] = float(dia)
+    import math
+
+    vol = volume if volume is not None else math.pi * r * r * length
+    return _part(idx, bbox, radius=r, axis=axis, z=z, volume=round(vol, 1))
+
+
+class TestCrossVersionMatching:
+    def test_unique_correspondence_order_independent(self):
+        """对位跟随几何签名而非编号顺序（案例 04 交换回归：对角互换不乱对）。"""
+        base = [_cyl(1, 480, 54), _cyl(2, 1200, 40)]
+        new = [_cyl(1, 1200, 40), _cyl(2, 480, 54)]  # 位置对调
+        m = match_parts_between_versions(base, new)
+        by_base = {x["base_index"]: x for x in m["matches"]}
+        assert by_base[1]["status"] == "verified" and by_base[1]["new_index"] == 2
+        assert by_base[2]["status"] == "verified" and by_base[2]["new_index"] == 1
+
+    def test_rotation_renumbered_segments(self):
+        """旋转反例：整体换轴 + SEG 重编号后，对应关系不乱（旋转不变证据）。"""
+        base = [_cyl(1, 480, 54, axis=2), _cyl(2, 1200, 40, axis=2)]
+        new = [_cyl(1, 1200, 40, axis=0), _cyl(2, 480, 54, axis=0)]  # 换轴+重编号
+        m = match_parts_between_versions(base, new)
+        by_base = {x["base_index"]: x for x in m["matches"]}
+        assert by_base[1]["new_index"] == 2 and by_base[2]["new_index"] == 1
+        assert all(x["status"] == "verified" for x in m["matches"])
+
+    def test_same_size_tie_ambiguous(self):
+        """同尺寸反例：两对同尺寸孪生段——个体对应不可分辨 → ambiguous（不假装）。"""
+        base = [_cyl(1, 480, 54, z=0.0), _cyl(2, 480, 54, z=600.0)]
+        new = [_cyl(1, 480, 54, z=0.0), _cyl(2, 480, 54, z=600.0)]
+        m = match_parts_between_versions(base, new)
+        statuses = sorted(x["status"] for x in m["matches"])
+        assert statuses == ["ambiguous", "ambiguous", "unmatched", "unmatched"]
+
+    def test_split_visible(self):
+        """拆分反例：1 段拆 2 段——基段对应至更近者，另一新段 surplus unmatched。"""
+        base = [_cyl(1, 1200, 40)]
+        new = [_cyl(1, 720, 40), _cyl(2, 480, 54)]
+        m = match_parts_between_versions(base, new)
+        by_base = {x["base_index"]: x for x in m["matches"]}
+        assert by_base[1]["status"] == "verified" and by_base[1]["new_index"] == 1
+        surplus = [x for x in m["matches"] if x["base_index"] is None]
+        assert [x["new_index"] for x in surplus] == [2]
+        assert surplus[0]["status"] == "unmatched"
+
+    def test_split_uniform_ambiguous(self):
+        """均匀段对半拆 → 两个新段签名并列 → ambiguous + surplus（不假装选半段）。"""
+        base = [_cyl(1, 960, 54)]
+        new = [_cyl(1, 480, 54), _cyl(2, 480, 54)]
+        m = match_parts_between_versions(base, new)
+        own = [x for x in m["matches"] if x["base_index"] == 1]
+        assert own[0]["status"] == "ambiguous"
+        assert len([x for x in m["matches"] if x["base_index"] is None]) == 2
+
+    def test_merge_visible(self):
+        """合并反例：2 段并 1 段——距离最优者 verified，另一基段 unmatched（不假装两组对）。"""
+        base = [_cyl(1, 480, 54), _cyl(2, 720, 40)]
+        new = [_cyl(1, 1200, 40)]
+        m = match_parts_between_versions(base, new)
+        by_base = {x["base_index"]: x for x in m["matches"]}
+        assert by_base[2]["status"] == "verified" and by_base[2]["new_index"] == 1
+        assert by_base[1]["status"] == "unmatched"
+
+    def test_empty_new_parts_all_unmatched(self):
+        m = match_parts_between_versions([_cyl(1, 480, 54)], [])
+        assert m["matches"] == [{"base_index": 1, "new_index": None,
+                                 "status": "unmatched", "distance_pct": None}]
+        assert match_parts_between_versions([], []) == {"version": "1", "matches": []}
+
+
+# ------------------------------------------------------------------------------
+# role-only 几何聚类绑定（roadmap 候选）负结果固化（ADR-014 §6）：
+# role-only 声明个体互相可交换、剩余段无期望值可锚——个体级绑定必然任意（=假装挑选），
+# 聚类只能给类级归属而 schema 无类级表达。裁决=维持 ambiguous，负结果如实记录。
+class TestRoleOnlyClusteringNegative:
+    def test_surplus_role_only_stays_ambiguous(self):
+        decls = [{"object_id": f"elem-0{i}", "role": "array_element", "params": []}
+                 for i in (1, 2, 3)]
+        parts = [_part(i, [100.0 + i, 50.0, 30.0]) for i in (1, 2, 3, 4, 5)]
+        m = build_param_mapping(decls, parts, [], 20.0)
+        assert m is not None and m["identity_basis"] == "declared_objects"
+        assert all(o["status"] == "ambiguous" for o in m["objects"])
+        assert all(o["feature_id"] is None for o in m["objects"])
+
+    def test_distinct_signatures_cannot_bind(self):
+        """剩余段签名互异且多于声明数 → 仍 ambiguous：聚类无法回答「保留哪 2/3 段」。"""
+        decls = [{"object_id": "a", "role": "bracket", "params": []},
+                 {"object_id": "b", "role": "bracket", "params": []}]
+        parts = [_part(1, [100.0, 50.0, 30.0]), _part(2, [140.0, 60.0, 20.0]),
+                 _part(3, [80.0, 80.0, 80.0])]
+        m = build_param_mapping(decls, parts, [], 20.0)
+        assert all(o["status"] == "ambiguous" for o in m["objects"])
 
 
 if __name__ == "__main__":  # pragma: no cover
