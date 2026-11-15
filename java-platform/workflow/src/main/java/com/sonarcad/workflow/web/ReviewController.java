@@ -33,10 +33,14 @@ public class ReviewController {
     /**
      * T14.6（外部审查问题 4c）：expectedSnapshotVersion = 审阅人实际查看的快照版本——
      * 与裁决时刻最新版本不符时 409 SNAPSHOT_STALE（旧页面不能批准新模型）。
-     * 可选字段：缺省（旧客户端/脚本）保持现行为。
+     * T15.6/C-0（ADR-014 §5）：exceptionGranted/exceptionReason = IR4 overall=fail 时的显式人工例外
+     * （必填且仅 fail 可携带）；expectedIr4Version = IR4 并发条件（防批准冻结进过期校验报告）。
+     * 全部可选字段：缺省（旧客户端/脚本）保持现行为——但 fail 静默批准自此被 409 拒绝（政策收口）。
      */
     public record DecideRequest(String decision, List<Object> annotations, String reworkStage,
-                                String kbId, Integer expectedSnapshotVersion) {
+                                String kbId, Integer expectedSnapshotVersion,
+                                Boolean exceptionGranted, String exceptionReason,
+                                Integer expectedIr4Version) {
     }
 
     @PostMapping("/{gate}")
@@ -50,7 +54,8 @@ public class ReviewController {
         }
         Map<String, Object> result = reviewService.decide(
                 sid, gate, req.decision(), req.annotations(), req.reworkStage(), req.kbId(),
-                reviewerId, req.expectedSnapshotVersion());
+                reviewerId, req.expectedSnapshotVersion(),
+                req.exceptionGranted(), req.exceptionReason(), req.expectedIr4Version());
         Map<String, Object> detail = new java.util.LinkedHashMap<>();
         detail.put("decision", req.decision());
         if (req.reworkStage() != null) {
@@ -75,6 +80,8 @@ public class ReviewController {
             row.put("decision", r.getDecision());
             row.put("ir_snapshot_id", r.getIrSnapshotId() == null ? "" : r.getIrSnapshotId());
             row.put("annotations", r.getAnnotations() == null ? "" : r.getAnnotations());
+            // T15.6/C-0：批准组合凭证原样透出（jsonb 字符串，前端解析；NULL=组合契约前记录）
+            row.put("metadata", r.getMetadata() == null ? "" : r.getMetadata());
             row.put("reviewer_id", reviewerId);
             row.put("reviewer_name", reviewerName == null ? "" : reviewerName);
             row.put("decided_at", String.valueOf(r.getDecidedAt()));

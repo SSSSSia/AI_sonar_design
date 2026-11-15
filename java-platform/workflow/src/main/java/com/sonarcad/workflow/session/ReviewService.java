@@ -63,6 +63,19 @@ public class ReviewService {
     public Map<String, Object> decide(String sessionId, String gate, String decision,
                                       List<Object> annotations, String reworkStage, String kbId,
                                       String reviewerId, Integer expectedSnapshotVersion) {
+        return decide(sessionId, gate, decision, annotations, reworkStage, kbId, reviewerId,
+                expectedSnapshotVersion, null, null, null);
+    }
+
+    /** T15.6/C-0 完整裁决入口（ADR-014 §5）：gate2 批准须过组合固化与政策校验——IR4 overall=fail
+     *  必须携带显式人工例外（exceptionGranted=true + 非空 exceptionReason，否则 409 不得静默放行）；
+     *  expectedIr4Version 为 IR4 并发条件（防批准冻结进过期校验报告）。组合落 review_records.metadata（V20）。 */
+    @Transactional
+    public Map<String, Object> decide(String sessionId, String gate, String decision,
+                                      List<Object> annotations, String reworkStage, String kbId,
+                                      String reviewerId, Integer expectedSnapshotVersion,
+                                      Boolean exceptionGranted, String exceptionReason,
+                                      Integer expectedIr4Version) {
         validateGate(gate);
         if (!"approved".equals(decision) && !"rejected".equals(decision)) {
             throw new IllegalArgumentException("decision 只允许 approved|rejected: " + decision);
@@ -91,10 +104,21 @@ public class ReviewService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "会话未在 " + gate + " 暂停（当前 " + status + " / " + session.getCurrentStage() + "）");
         }
-        IrSnapshotEntity snapshot = latestSnapshot(sessionId, snapshotIrType);
-        if (snapshot == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    gate + " 缺少被审快照 " + snapshotIrType);
+        // C-0（T15.6）：gate2 批准先固化批准组合——组合内 IR3（最新有效版）即被审主快照，二者永不分叉；
+        // 其余路径（gate1 批准 / 各关驳回）维持原 latestSnapshot 语义，无组合诉求
+        String metadataJson = null;
+        IrSnapshotEntity snapshot;
+        if ("gate2".equals(gate) && "approved".equals(decision)) {
+            Gate2Combo combo = buildGate2Combo(sessionId, exceptionGranted, exceptionReason,
+                    expectedIr4Version);
+            snapshot = combo.ir3();
+            metadataJson = combo.metadataJson();
+        } else {
+            snapshot = latestSnapshot(sessionId, snapshotIrType);
+            if (snapshot == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        gate + " 缺少被审快照 " + snapshotIrType);
+            }
         }
         assertExpectedVersion(snapshotIrType, expectedSnapshotVersion, snapshot.getVersion());
 
@@ -126,7 +150,7 @@ public class ReviewService {
                 annotations, reviewerId, Map.of(
                         "reviewed_ir", snapshotIrType + " v" + snapshot.getVersion(),
                         "rework_stage", rework == null ? "" : rework,
-                        "invalidated", invalidated));
+                        "invalidated", invalidated), metadataJson);
         effects.put("record_id", record.getId());
         effects.put("resumed_to", nextStage);
         return effects;
@@ -156,6 +180,8 @@ public class ReviewService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "缺少 IR5 快照");
         }
         assertExpectedVersion("IR5", expectedSnapshotVersion, ir5.getVersion());
+        // C-0（T15.6）：knowledge 关组合凭证（IR5 版本+人工选定目标库 kbId）随裁决入档
+        String metadataJson = knowledgeMetadata(ir5, kbId);
         String wbStatus = readJsonField(ir5.getContent(), "writeback_status");
         if ("rejected".equals(decision)) {
             // 跳过=显式终态：IR5 pending→skipped（幂等校验在此，重复点击 409，不再堆裁决记录）
@@ -175,7 +201,7 @@ public class ReviewService {
                 effects.put("writeback", "failed");
             }
             ReviewRecordEntity record = insertRecord(sessionId, "knowledge", ir5.getId(), decision,
-                    annotations, reviewerId, auto);
+                    annotations, reviewerId, auto, metadataJson);
             effects.put("record_id", record.getId());
             return;
         }
@@ -196,7 +222,7 @@ public class ReviewService {
             effects.put("writeback", "failed");
         }
         ReviewRecordEntity record = insertRecord(sessionId, "knowledge", ir5.getId(), decision,
-                annotations, reviewerId, auto);
+                annotations, reviewerId, auto, metadataJson);
         effects.put("record_id", record.getId());
     }
 
@@ -255,7 +281,8 @@ public class ReviewService {
     // ------------------------------------------------------------------
     private ReviewRecordEntity insertRecord(String sessionId, String gate, String irSnapshotId,
                                             String decision, List<Object> annotations,
-                                            String reviewerId, Map<String, Object> autoFields) {
+                                            String reviewerId, Map<String, Object> autoFields,
+                                            String metadataJson) {
         ReviewRecordEntity record = new ReviewRecordEntity();
         record.setSessionId(sessionId);
         record.setGate(gate);
@@ -269,6 +296,9 @@ public class ReviewService {
         annotationPayload.put("trace_id", syntheticTraceId);
         annotationPayload.putAll(autoFields);
         record.setAnnotations(toJson(annotationPayload));
+        if (metadataJson != null) {
+            record.setMetadata(metadataJson);
+        }
         reviewRecordMapper.insert(record);
         // 溯源链 confirm 行（T2.4）：裁决以合成 trace_id（rv- 前缀）可反查
         TraceChainEntity trace = new TraceChainEntity();
@@ -309,6 +339,148 @@ public class ReviewService {
             byId.put(r.getId().replace("-", "").toLowerCase(), r.getUsername());
         }
         return byId;
+    }
+
+    // ------------------------------------------------------------------
+    // T15.6 / C-0 批准版本组合（ADR-014 §5）：gate2 批准时固化 IR2/IR3/IR4 最新有效版组合
+    // 与政策（ir4_overall / 人工例外 / 未决项）进 review_records.metadata（V20 jsonb）；
+    // knowledge 关记 {ir5_version, kb_id}。历史行 metadata NULL=组合契约前记录，诚实可辨。
+    // ------------------------------------------------------------------
+
+    /** gate2 组合固化结果：ir3 兼作被审主快照（被审对象=组合内版本，二者永不分叉）。 */
+    private record Gate2Combo(IrSnapshotEntity ir3, String metadataJson) {}
+
+    private Gate2Combo buildGate2Combo(String sessionId, Boolean exceptionGranted,
+                                       String exceptionReason, Integer expectedIr4Version) {
+        IrSnapshotEntity ir2 = latestValidSnapshot(sessionId, "IR2");
+        IrSnapshotEntity ir3 = latestValidSnapshot(sessionId, "IR3");
+        IrSnapshotEntity ir4 = latestValidSnapshot(sessionId, "IR4");
+        List<String> missing = new ArrayList<>();
+        if (ir2 == null) missing.add("IR2");
+        if (ir3 == null) missing.add("IR3");
+        if (ir4 == null) missing.add("IR4");
+        if (!missing.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "gate2 批准要求批准组合三件套齐备（各取最新有效版），缺少: "
+                            + String.join("、", missing));
+        }
+        // 并发条件扩展（ADR-014 §5 修订 3）：IR4 版本条件——防批准冻结进过期校验报告
+        assertExpectedVersion("IR4", expectedIr4Version, ir4.getVersion());
+
+        String overall = readJsonField(ir4.getContent(), "overall");
+        boolean fail = "fail".equals(overall);
+        if (Boolean.TRUE.equals(exceptionGranted) && !fail) {
+            throw new IllegalArgumentException(
+                    "仅 IR4 overall=fail 的批准允许携带人工例外（当前 overall=" + overall + "）");
+        }
+        Map<String, Object> exception = null;
+        if (fail) {
+            if (!Boolean.TRUE.equals(exceptionGranted)
+                    || exceptionReason == null || exceptionReason.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "IR4 overall=fail 的批准必须携带显式人工例外（exceptionGranted=true + 非空 "
+                                + "exceptionReason）——gate2 批准 ≠ 几何全合格，不得静默放行（ADR-014 §5）");
+            }
+            exception = new LinkedHashMap<>();
+            exception.put("granted", true);
+            exception.put("reason", exceptionReason);
+        }
+
+        OffsetDateTime validAt = OffsetDateTime.now();
+        Map<String, Object> combo = new LinkedHashMap<>();
+        combo.put("IR2", comboEntry(ir2, validAt));
+        combo.put("IR3", comboEntry(ir3, validAt));
+        combo.put("IR4", comboEntry(ir4, validAt));
+
+        Map<String, Object> policy = new LinkedHashMap<>();
+        policy.put("ir4_overall", overall == null ? "unknown" : overall);
+        policy.put("exception", exception);
+        policy.put("unresolved", collectUnresolved(ir4, latestValidSnapshot(sessionId, "IR1")));
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("contract", "ADR-014§5");
+        metadata.put("policy_version", "1");
+        metadata.put("snapshot_combo", combo);
+        metadata.put("combo_policy", policy);
+        return new Gate2Combo(ir3, toJson(metadata));
+    }
+
+    /** 组合条目。content_sha256 口径 = sha256(PG jsonb 规范文本 content::text)——pgjdbc getString
+     *  直出与 py-engine 侧 SELECT content::text 同源字节，跨语言复现（ADR-014 §5 修订 1），
+     *  C-1 导出按此校验「内容与批准时一致」。 */
+    private Map<String, Object> comboEntry(IrSnapshotEntity snap, OffsetDateTime validAt) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("snapshot_id", snap.getId());
+        entry.put("version", snap.getVersion());
+        entry.put("content_sha256", sha256Hex(snap.getContent() == null ? "" : snap.getContent()));
+        entry.put("valid_at_decision", validAt.toString());
+        return entry;
+    }
+
+    /** 未决项入档（ADR-014 §5）：IR4 unverified 族（constraint_id）+ IR1 missing_items——
+     *  incomplete 批准放行但应检未检显性留档；C-1 正式导出按此渲染未决项章。 */
+    private List<Map<String, String>> collectUnresolved(IrSnapshotEntity ir4, IrSnapshotEntity ir1) {
+        List<Map<String, String>> unresolved = new ArrayList<>();
+        try {
+            var root = JSON.readTree(ir4.getContent() == null ? "{}" : ir4.getContent());
+            for (var issue : root.path("issues")) {
+                if ("unverified".equals(issue.path("severity").asText())) {
+                    String ref = issue.path("constraint_id").asText("");
+                    if (ref.isBlank()) {
+                        ref = "issues[" + unresolved.size() + "] " + issue.path("message").asText("");
+                    }
+                    unresolved.add(Map.of("source", "IR4", "ref", ref));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("C-0 未决项收集：IR4 content 解析失败 session={}（如实跳过，不影响批准）",
+                    ir4.getSessionId(), e);
+        }
+        if (ir1 != null) {
+            try {
+                var root = JSON.readTree(ir1.getContent());
+                for (var item : root.path("missing_items")) {
+                    unresolved.add(Map.of("source", "IR1", "ref", item.asText()));
+                }
+            } catch (Exception e) {
+                log.warn("C-0 未决项收集：IR1 content 解析失败（如实跳过）", e);
+            }
+        }
+        return unresolved;
+    }
+
+    /** knowledge 关组合凭证：IR5 版本 + 人工选定目标库 kbId（此前 kbId 仅入请求不入记录，T15.6 补齐）。 */
+    private String knowledgeMetadata(IrSnapshotEntity ir5, String kbId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("ir5_snapshot_id", ir5.getId());
+        metadata.put("ir5_version", ir5.getVersion());
+        metadata.put("kb_id", kbId);
+        return toJson(metadata);
+    }
+
+    /** 最新【有效】版本（invalidated_at IS NULL）：组合只冻结有效快照。不过滤的 latestSnapshot
+     *  语义保留给驳回目标推断等既有路径（审阅/前端经 workflow API 仍可查全部历史）。 */
+    private IrSnapshotEntity latestValidSnapshot(String sessionId, String irType) {
+        return irSnapshotMapper.selectOne(new LambdaQueryWrapper<IrSnapshotEntity>()
+                .eq(IrSnapshotEntity::getSessionId, sessionId)
+                .eq(IrSnapshotEntity::getIrType, irType)
+                .isNull(IrSnapshotEntity::getInvalidatedAt)
+                .orderByDesc(IrSnapshotEntity::getVersion)
+                .last("LIMIT 1"));
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : md.digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16))
+                        .append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 不可用", e);
+        }
     }
 
     // ------------------------------------------------------------------

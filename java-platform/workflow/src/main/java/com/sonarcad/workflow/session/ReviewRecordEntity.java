@@ -20,6 +20,9 @@ public class ReviewRecordEntity {
     private String decision;
     /** 批注与裁决上下文（JSON 数组/对象字符串，写入 jsonb） */
     private String annotations;
+    /** 批准版本组合凭证（T15.6/C-0，ADR-014 §5，V20 建列）：gate2 批准固化 snapshot_combo+combo_policy；
+     *  knowledge 关记 ir5_version/kb_id。历史行 NULL=组合契约前记录（诚实可辨，只加字段旧记录可读）。 */
+    private String metadata;
     private String reviewerId;
     private OffsetDateTime decidedAt;
 
@@ -35,6 +38,8 @@ public class ReviewRecordEntity {
     public void setDecision(String decision) { this.decision = decision; }
     public String getAnnotations() { return annotations; }
     public void setAnnotations(String annotations) { this.annotations = annotations; }
+    public String getMetadata() { return metadata; }
+    public void setMetadata(String metadata) { this.metadata = metadata; }
     public String getReviewerId() { return reviewerId; }
     public void setReviewerId(String reviewerId) { this.reviewerId = reviewerId; }
     public OffsetDateTime getDecidedAt() { return decidedAt; }
