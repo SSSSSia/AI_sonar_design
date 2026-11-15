@@ -85,6 +85,35 @@ def get_snapshot(session_id: str, ir_type: str, version: int) -> Optional[dict[s
     return row[0] if row else None
 
 
+def get_snapshot_full(session_id: str, ir_type: str, version: int) -> Optional[dict[str, Any]]:
+    """按版本取快照全量行（T15.6/C-1 正式导出按批准组合读取）：content、content::text、
+    invalidated_at、created_by；不存在返回 None。
+
+    - content::text = PG jsonb 规范文本，与 Java pgjdbc getString 同源字节——
+      sha256(content::text) 即批准组合 content_sha256 口径（ADR-014 §5 修订 1），
+      导出侧据此校验「内容与批准时一致」。
+    - 不过滤 invalidated_at——失效与否由调用方按组合政策裁决并显性报因（历史版本
+      本就是不可变审计对象，A-12）。
+    """
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id::text, version, content, content::text, invalidated_at, created_by
+               FROM ir_snapshots WHERE session_id = %s AND ir_type = %s AND version = %s""",
+            (session_id, ir_type, version),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "version": row[1],
+        "content": row[2],
+        "content_text": row[3],
+        "invalidated_at": row[4].isoformat() if row[4] else None,
+        "created_by": row[5],
+    }
+
+
 def save_snapshot(session_id: str, ir_type: str, content: dict[str, Any], created_by: str) -> int:
     """追加不可变快照，返回版本号（同 (session, type) 内 max+1）。"""
     with _connect() as conn, conn.cursor() as cur:

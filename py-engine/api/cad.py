@@ -166,23 +166,129 @@ def delete_session_artifacts(sid: str, user: str = Depends(require_user)) -> dic
     return {"session_id": sid, "minio_objects_removed": total, "per_bucket": per_bucket}
 
 
+EXPORT_IR_TYPES = ("IR2", "IR3", "IR4")
+
+
+def _export_filename(label: str, title: str | None, sid: str, versions: dict[str, int], ext: str) -> str:
+    """导出文件名（T15.6/C-1 工作稿/正式版标识）：{label}_设计方案_{title}_{IRxvN 组合}.{ext}"""
+    combo_part = "-".join(f"{t}v{versions[t]}" for t in EXPORT_IR_TYPES if t in versions)
+    return f"{label}_设计方案_{title or sid}_{combo_part}.{ext}"
+
+
+def _resolve_export_sources(sid: str, record_id: str | None) -> dict[str, Any]:
+    """导出素材解析（T15.6/C-1，DEV-001 §3 C-1；ADR-014 §5）：
+
+    - record_id=None → **工作稿**：读当前 latest 有效版（原 T11.5 行为），label=工作稿；
+    - record_id 给定 → **正式批准版**：按批准组合（review_records.metadata.snapshot_combo）
+      逐版本读取，**不读"当时 latest"**；校验链（全部拒绝路径返回明确原因——
+      "按明确政策允许或拒绝，不只检查前端按钮"）：
+      记录存在（404）→ gate2+approved（409）→ 组合凭证存在（409，C-0 契约前历史记录）
+      → 组合快照存在（409）→ 未失效（409，旧批准后重跑场景）→ sha256(content::text)
+      与批准时一致（409，内容完整性）。
+    """
+    from storage import review_store
+
+    title = ir_store.get_session_title(sid)
+    session = {"id": sid, "title": title, **(ir_store.get_session(sid) or {})}
+
+    if record_id is None:
+        ir2 = ir_store.get_latest_snapshot(sid, "IR2")
+        if ir2 is None:
+            raise HTTPException(status_code=404, detail="IR2 尚未生成，无可导出的方案文档")
+        return {
+            "session": session, "ir2": ir2,
+            "ir3": ir_store.get_latest_snapshot(sid, "IR3"),
+            "ir4": ir_store.get_latest_snapshot(sid, "IR4"),
+            "ir2_version": ir_store.get_latest_version(sid, "IR2"),
+            "versions": {"IR2": ir_store.get_latest_version(sid, "IR2")},
+            "combo": None, "label": "工作稿",
+        }
+
+    # ---- 正式批准版：按组合读取并校验 ----
+    record = review_store.get_review_record(sid, record_id)
+    if record is None:
+        raise HTTPException(status_code=404,
+                            detail=f"批准记录不存在（session={sid}, record={record_id}）")
+    if record.get("gate") != "gate2" or record.get("decision") != "approved":
+        raise HTTPException(status_code=409, detail=(
+            f"正式导出仅支持 gate2 批准记录（当前 gate={record.get('gate')}，"
+            f"decision={record.get('decision')}）——工作稿导出不带 record_id 参数"))
+    metadata = record.get("metadata") or {}
+    combo = metadata.get("snapshot_combo")
+    if not isinstance(combo, dict) or not combo:
+        raise HTTPException(status_code=409, detail=(
+            "该批准记录无组合凭证（C-0 契约前的历史记录），无法正式导出——"
+            "请使用工作稿导出（不带 record_id），或以最新批准记录重新批准"))
+
+    import hashlib
+
+    snaps: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    invalidated: list[str] = []
+    hash_mismatch: list[str] = []
+    for ir_type in EXPORT_IR_TYPES:
+        entry = combo.get(ir_type)
+        if not isinstance(entry, dict):
+            missing.append(ir_type)
+            continue
+        snap = ir_store.get_snapshot_full(sid, ir_type, int(entry.get("version") or 0))
+        if snap is None:
+            missing.append(f"{ir_type} v{entry.get('version')}")
+            continue
+        snaps[ir_type] = snap
+        if snap["invalidated_at"]:
+            invalidated.append(f"{ir_type} v{snap['version']}")
+        expected = str(entry.get("content_sha256") or "")
+        actual = hashlib.sha256((snap["content_text"] or "").encode("utf-8")).hexdigest()
+        if expected and actual != expected:
+            hash_mismatch.append(ir_type)
+    if missing:
+        raise HTTPException(status_code=409, detail=(
+            f"批准组合快照缺失（{'、'.join(missing)}）——数据不完整，拒绝正式导出"))
+    if invalidated:
+        raise HTTPException(status_code=409, detail=(
+            f"批准组合已失效（后续驳回/重跑使 {'、'.join(invalidated)} 失效）——"
+            "正式导出拒绝；请以最新批准记录导出（历史记录保留可查，A-12 不可变）"))
+    if hash_mismatch:
+        raise HTTPException(status_code=409, detail=(
+            f"快照内容与批准时哈希不符（{'、'.join(hash_mismatch)}）——"
+            "内容完整性校验失败，拒绝正式导出"))
+
+    combo_info = {
+        "record_id": record["id"],
+        "decided_at": record.get("decided_at"),
+        "snapshot_combo": {t: {"version": snaps[t]["version"], "snapshot_id": snaps[t]["id"],
+                               "content_sha256": combo[t].get("content_sha256"),
+                               "valid_at_decision": combo[t].get("valid_at_decision")}
+                           for t in EXPORT_IR_TYPES},
+        "combo_policy": metadata.get("combo_policy") or {},
+    }
+    return {
+        "session": session, "ir2": snaps["IR2"]["content"], "ir3": snaps["IR3"]["content"],
+        "ir4": snaps["IR4"]["content"], "ir2_version": snaps["IR2"]["version"],
+        "versions": {t: snaps[t]["version"] for t in EXPORT_IR_TYPES},
+        "combo": combo_info, "label": "正式批准",
+    }
+
+
 @router.get("/sessions/{sid}/export/docx")
-def export_docx(sid: str, user: str = Depends(require_user)) -> Response:
-    """军标格式 Word 导出（T11.5，P2-11）：IR2 三章渲染（设计文档/参数表+溯源/校验结论）。"""
+def export_docx(sid: str, record_id: str | None = None,
+                user: str = Depends(require_user)) -> Response:
+    """军标格式 Word 导出（T11.5，P2-11；T15.6/C-1 工作稿/正式批准版双口径）。
+
+    不带 record_id = 工作稿：IR2 三章渲染（设计文档/参数表+溯源/校验结论），数据取当前 latest；
+    record_id = 正式批准版：按批准组合读取并校验（有效性+哈希），加「批准版本组合」章
+    （版本清单/未决项/人工例外——gate2 批准 ≠ 几何全合格由文档本身承载）。
+    """
     import urllib.parse
 
     from docgen.export_docx import export_session_docx
 
-    ir2 = ir_store.get_latest_snapshot(sid, "IR2")
-    if ir2 is None:
-        raise HTTPException(status_code=404, detail="IR2 尚未生成，无可导出的方案文档")
-    ir2_version = ir_store.get_latest_version(sid, "IR2")
-    ir3 = ir_store.get_latest_snapshot(sid, "IR3")
-    ir4 = ir_store.get_latest_snapshot(sid, "IR4")
-    title = ir_store.get_session_title(sid)
-    session = {"id": sid, "title": title, **(ir_store.get_session(sid) or {})}
-    data = export_session_docx(session, ir2, ir3, ir4, ir2_version)
-    filename = f"设计方案_{title or sid}_IR2v{ir2_version}.docx"
+    src = _resolve_export_sources(sid, record_id)
+    data = export_session_docx(src["session"], src["ir2"], src["ir3"], src["ir4"],
+                               src["ir2_version"], combo=src["combo"])
+    filename = _export_filename(src["label"], src["session"].get("title"), sid,
+                                src["versions"], "docx")
     quoted = urllib.parse.quote(filename)
     return Response(
         content=data,
@@ -192,11 +298,13 @@ def export_docx(sid: str, user: str = Depends(require_user)) -> Response:
 
 
 @router.get("/sessions/{sid}/export/pdf")
-def export_pdf(sid: str, user: str = Depends(require_user)) -> Response:
+def export_pdf(sid: str, record_id: str | None = None,
+               user: str = Depends(require_user)) -> Response:
     """军标格式 PDF 导出（T13.5，§5.2）：复用 docx 模板链 → gotenberg(LibreOffice) 转换。
 
     gotenberg 未配置/不可达/返回异常 → 503 如实（A-14），不降级伪造；
     PDF 基于既有内置模板——正式军标模板仍待授权文本（外部依赖）。
+    T15.6/C-1：与 Word 同一素材解析（工作稿 latest / 正式版按组合校验）→ 数据一致。
     """
     import urllib.parse
 
@@ -205,23 +313,19 @@ def export_pdf(sid: str, user: str = Depends(require_user)) -> Response:
     from docgen.export_docx import export_session_docx
     from docgen.export_pdf import docx_to_pdf
 
-    ir2 = ir_store.get_latest_snapshot(sid, "IR2")
-    if ir2 is None:
-        raise HTTPException(status_code=404, detail="IR2 尚未生成，无可导出的方案文档")
-    ir2_version = ir_store.get_latest_version(sid, "IR2")
-    ir3 = ir_store.get_latest_snapshot(sid, "IR3")
-    ir4 = ir_store.get_latest_snapshot(sid, "IR4")
-    title = ir_store.get_session_title(sid)
-    session = {"id": sid, "title": title, **(ir_store.get_session(sid) or {})}
-    docx_bytes = export_session_docx(session, ir2, ir3, ir4, ir2_version)
-    docx_name = f"设计方案_{title or sid}_IR2v{ir2_version}.docx"
+    src = _resolve_export_sources(sid, record_id)
+    docx_bytes = export_session_docx(src["session"], src["ir2"], src["ir3"], src["ir4"],
+                                     src["ir2_version"], combo=src["combo"])
+    docx_name = _export_filename(src["label"], src["session"].get("title"), sid,
+                                 src["versions"], "docx")
     try:
         pdf = docx_to_pdf(docx_bytes, docx_name)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail=f"PDF 转换服务不可达: {exc}") from exc
-    filename = f"设计方案_{title or sid}_IR2v{ir2_version}.pdf"
+    filename = _export_filename(src["label"], src["session"].get("title"), sid,
+                                src["versions"], "pdf")
     quoted = urllib.parse.quote(filename)
     return Response(
         content=pdf,

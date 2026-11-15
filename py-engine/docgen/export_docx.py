@@ -178,10 +178,58 @@ def _add_validation_chapter(doc: Any, ir4: dict[str, Any] | None) -> None:
             table.cell(r, c).text = v
 
 
+def _add_combo_chapter(doc: Any, combo: dict[str, Any]) -> None:
+    """「批准版本组合」章（T15.6/C-1，ADR-014 §5）：版本清单 + 批准政策（未决项/人工例外）。
+
+    gate2 批准 ≠ 几何全合格 的语义由文档本身承载：incomplete 放行显性列未决项，
+    fail 批准显性声明人工例外理由。
+    """
+    doc.add_heading("批准版本组合", level=1)
+    doc.add_paragraph("本章由批准时冻结的组合凭证生成（正式批准版专用；数据均取自组合版本，非当前 latest）。")
+    combo_map = combo.get("snapshot_combo") or {}
+    rows = [(t, combo_map.get(t) or {}) for t in ("IR2", "IR3", "IR4")]
+    table = doc.add_table(rows=len(rows) + 1, cols=4)
+    table.style = "Light Grid Accent 1"
+    for c, h in enumerate(["快照", "版本", "快照ID", "内容哈希（sha256 前 16 位）"]):
+        table.cell(0, c).text = h
+    for r, (ir_type, entry) in enumerate(rows, 1):
+        sha = str(entry.get("content_sha256") or "")
+        values = [ir_type, f"v{entry.get('version') or '—'}",
+                  str(entry.get("snapshot_id") or "—"), (sha[:16] + "…") if sha else "—"]
+        for c, v in enumerate(values):
+            table.cell(r, c).text = v
+
+    policy = combo.get("combo_policy") or {}
+    doc.add_heading("批准政策", level=2)
+    overall = str(policy.get("ir4_overall") or "unknown")
+    overall_text = {"pass": "通过", "fail": "未通过（批准携带人工例外，见下）",
+                    "incomplete": "不完整（存在应检未检项，见未决项）"}.get(overall, overall)
+    doc.add_paragraph(f"批准时 IR4 总体结论：{overall_text}")
+    exception = policy.get("exception")
+    if isinstance(exception, dict) and exception.get("granted"):
+        doc.add_paragraph(f"人工例外：已授予 —— {exception.get('reason') or '（未记录理由）'}")
+    unresolved = policy.get("unresolved") or []
+    doc.add_paragraph(f"未决项（{len(unresolved)} 项，批准时显性入档）：")
+    if unresolved:
+        for item in unresolved:
+            if isinstance(item, dict):
+                doc.add_paragraph(f"{item.get('source')}：{item.get('ref')}", style="List Bullet")
+            else:
+                doc.add_paragraph(str(item), style="List Bullet")
+    else:
+        doc.add_paragraph("无未决项。")
+    doc.add_paragraph(f"批准记录：{combo.get('record_id') or '—'}"
+                      f"（{combo.get('decided_at') or '—'}）")
+
+
 def export_session_docx(session: dict[str, Any], ir2: dict[str, Any] | None,
                         ir3: dict[str, Any] | None, ir4: dict[str, Any] | None,
-                        ir2_version: int) -> bytes:
-    """会话交付文档 → docx 字节流。素材缺失各章如实标注，不造假。"""
+                        ir2_version: int, combo: dict[str, Any] | None = None) -> bytes:
+    """会话交付文档 → docx 字节流。素材缺失各章如实标注，不造假。
+
+    T15.6/C-1 双口径：combo=None → 工作稿（未冻结组合，数据取当前 latest，封面如实标注）；
+    combo 给定 → 正式批准版（封面标注 + 文末「批准版本组合」章）。
+    """
     docx = _docx()
     template_path = os.environ.get("DOCX_TEMPLATE_PATH", "")
     if template_path and os.path.exists(template_path):
@@ -191,12 +239,17 @@ def export_session_docx(session: dict[str, Any], ir2: dict[str, Any] | None,
     _set_base_styles(doc)
 
     title = str(session.get("title") or "声呐装备设计方案")
-    _add_cover(doc, title, [
+    cover_meta = [
         ("项目", str(session.get("project_name") or "—")),
         ("会话ID", str(session.get("id") or "")),
         ("IR2 版本", f"v{ir2_version}"),
+        ("文档类别", "工作稿（未冻结组合——数据取当前 latest 有效版本）" if combo is None
+         else "正式批准版（冻结批准组合，含批准版本组合章）"),
         ("生成方式", "平台自动排版（内置模板；正式军标模板待授权后替换）"),
-    ])
+    ]
+    if combo is not None:
+        cover_meta.insert(3, ("批准记录", str(combo.get("record_id") or "—")))
+    _add_cover(doc, title, cover_meta)
     doc.add_heading("设计文档", level=1)
     if ir2:
         _add_markdown_body(doc, str(ir2.get("design_document") or ""))
@@ -206,6 +259,8 @@ def export_session_docx(session: dict[str, Any], ir2: dict[str, Any] | None,
     _add_param_table(doc, params)
     _add_trace_chapter(doc, params)
     _add_validation_chapter(doc, ir4)
+    if combo is not None:
+        _add_combo_chapter(doc, combo)
 
     buf = io.BytesIO()
     doc.save(buf)
