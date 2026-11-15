@@ -295,3 +295,104 @@ def build_param_mapping(
         objects.append(obj)
 
     return {"version": _MAPPING_VERSION, "identity_basis": "declared_objects", "objects": objects}
+
+
+# ------------------------------------------------------------------------------
+# legacy 几何候选身份（T15.4，ADR-014 §6）——无声明模型（旧 STEP）的诚实匹配
+
+def build_candidate_mapping(
+    params: list[dict[str, Any]],
+    parts: list[dict[str, Any]],
+    tol_pct: float,
+) -> dict[str, Any] | None:
+    """无声明（旧 STEP/legacy）模型 → 几何候选身份映射（T15.4，ADR-014 §6）。
+
+    DEV-001 §2.1 前置 3：旧 STEP 使用几何/拓扑候选匹配但允许不确定。无声明结构锚时
+    身份只能来自几何证据本身，故 verified 仅在唯一最优候选时给出，并列必显性（歧义
+    必须可见——同为值邻近贪心，与 link_params 的差别在状态学：静默吞并列 → 四态如实）：
+
+    - 候选证据与声明制同源（_part_measurements）：length=bbox 测量轴/最长轴；
+      diameter=radius_derived（圆度证据，同值宽度不可顶替，案例 03 口径不变）；
+    - 同段同参同中 diameter 与 length（圆柱横维与 2r 数值重合）→ 取 radius_derived
+      （更具体的圆度证据；measurement 如实记录，测量值无差异无造值）；
+    - 唯一最优候选（首2偏差差 >并列阈）且该段未被更优参数占用 → verified
+      （basis=geometry_candidate）；首2候选并列 → ambiguous（不假装挑选）；
+      候选全被更优参数占用 → unmatched（有候选但身份让位，如实）；无候选 → 不进映射
+      （legacy CHK-GEO-NUM/SKIP 照旧裁决，不重复不遗漏）。
+
+    tol_pct ≤ 0 视为关闭；无长度类参数或无候选对象 → None（调用方省略字段）。
+    """
+    if tol_pct <= 0 or not params or not parts:
+        return None
+    from agents.a3_cad.geometry_link import length_params_mm
+
+    expected = {str(p["id"]): v for p, v in length_params_mm(params)}
+    pmeas = [_part_measurements(p) for p in parts]
+
+    # 每参数的容差内候选证据（按段去重：同段 diameter 优先于 length）
+    cands_by_param: dict[str, list[dict[str, Any]]] = {}
+    for pid, exp in expected.items():
+        cands: list[dict[str, Any]] = []
+        for pi, meas in enumerate(pmeas):
+            dia = [c for _b, c in (meas.get("diameter") or [])
+                   if exp > 0 and abs(c - exp) / exp * 100.0 <= tol_pct]
+            if dia:
+                mm = min(dia, key=lambda c: abs(c - exp))
+                cands.append({"pi": pi, "dev": abs(mm - exp) / exp * 100.0,
+                              "dim_type": "diameter", "basis": "radius_derived", "mm": mm})
+                continue
+            len_c = [(b, c) for b, c in (meas.get("length") or [])
+                     if exp > 0 and abs(c - exp) / exp * 100.0 <= tol_pct]
+            if len_c:
+                b, mm = min(len_c, key=lambda bc: abs(bc[1] - exp))
+                cands.append({"pi": pi, "dev": abs(mm - exp) / exp * 100.0,
+                              "dim_type": "length", "basis": b, "mm": mm})
+        cands.sort(key=lambda c: (c["dev"], parts[c["pi"]]["index"]))
+        if cands:
+            cands_by_param[pid] = cands
+    if not cands_by_param:
+        return None
+
+    # 绑定：仅唯一最优者参与贪心占段（并列者 ambiguous，不占段不假装）
+    binding: dict[str, dict[str, Any]] = {}
+    taken: set[int] = set()
+    clear: list[tuple[float, str, dict[str, Any]]] = []
+    for pid, cands in cands_by_param.items():
+        if len(cands) >= 2 and cands[1]["dev"] - cands[0]["dev"] <= _TIE_EPS_PCT:
+            continue
+        clear.append((cands[0]["dev"], pid, cands[0]))
+    clear.sort(key=lambda t: (t[0], parts[t[2]["pi"]]["index"]))
+    for _dev, pid, best in clear:
+        if best["pi"] in taken:
+            continue  # 段被更优参数占用 → unmatched
+        taken.add(best["pi"])
+        binding[pid] = best
+
+    objects: list[dict[str, Any]] = []
+    for p, _v in length_params_mm(params):
+        pid = str(p["id"])
+        cands = cands_by_param.get(pid)
+        if not cands:
+            continue
+        best = cands[0]
+        bound = binding.get(pid)
+        status = "verified" if bound else (
+            "ambiguous" if (len(cands) >= 2 and cands[1]["dev"] - cands[0]["dev"] <= _TIE_EPS_PCT)
+            else "unmatched")
+        params_out = [{
+            "param_id": pid, "dim_type": best["dim_type"],
+            "measured_mm": round(bound["mm"], 4) if bound else None,
+            "measurement": bound["basis"] if bound else "none",
+        }]
+        obj: dict[str, Any] = {
+            "object_id": pid, "role": "legacy_param",
+            "feature_id": f"F-{parts[bound['pi']]['index']:03d}" if bound else None,
+            "status": status, "params": params_out,
+        }
+        if bound:
+            obj["basis"] = "geometry_candidate"
+        objects.append(obj)
+
+    if not objects:
+        return None
+    return {"version": _MAPPING_VERSION, "identity_basis": "geometry_candidates", "objects": objects}

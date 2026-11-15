@@ -174,7 +174,7 @@
     },
     "param_mapping": {
       "type": "object",
-      "description": "参数→对象映射（T15.2 加法演进，ADR-014 §2，旧快照无此字段合法）：脚本 @obj 声明（结构锚）+ 实测几何互证；LLM 声明非真值、绑定不以数值相近为门槛（超差由 A4 语义检查器报 error）；ambiguous/unmatched 如实呈现（A-16）。无声明模型省略整个字段=legacy 位置身份。",
+      "description": "参数→对象映射（T15.2 加法演进，ADR-014 §2/§6，旧快照无此字段合法）：脚本 @obj 声明（结构锚）+ 实测几何互证；LLM 声明非真值、绑定不以数值相近为门槛（超差由 A4 语义检查器报 error）；ambiguous/unmatched 如实呈现（A-16）。T15.4（v1.1）：无声明模型（旧 STEP）由「省略字段」演进为 legacy 几何候选映射（identity_basis=geometry_candidates，开关 A3_LEGACY_MAPPING 可回退省略口径）。",
       "additionalProperties": false,
       "required": [
         "version",
@@ -189,9 +189,10 @@
         "identity_basis": {
           "type": "string",
           "enum": [
-            "declared_objects"
+            "declared_objects",
+            "geometry_candidates"
           ],
-          "description": "身份依据：脚本对象声明+几何互证"
+          "description": "身份依据：declared_objects=脚本对象声明+几何互证；geometry_candidates=无声明模型 legacy 几何候选匹配（允许不确定，T15.4）"
         },
         "objects": {
           "type": "array",
@@ -242,9 +243,10 @@
           "enum": [
             "declared_tag",
             "geometry_unique",
-            "symmetric_class"
+            "symmetric_class",
+            "geometry_candidate"
           ],
-          "description": "绑定依据（verified 必有，if/then 约束）：declared_tag=声明+尺寸证据唯一；geometry_unique=剩余段唯一消除；symmetric_class=对称类计数核验"
+          "description": "绑定依据（verified 必有，if/then 约束）：declared_tag=声明+尺寸证据唯一；geometry_unique=剩余段唯一消除；symmetric_class=对称类计数核验；geometry_candidate=无声明路径唯一最优几何候选绑定（仅 identity_basis=geometry_candidates，T15.4）"
         },
         "symmetric_size": {
           "type": "integer",

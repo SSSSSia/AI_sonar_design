@@ -14,7 +14,7 @@ Agent 管线签名一致而保留，未使用）。
   数值复核  → linked 参数 vs 实测 bbox 维度（T7.4，PHASE-007；容差可配默认 2%，无 LLM）
   显示变换  → IR3 display_transforms 逐条 info 呈现（T15.1，ADR-014 §3；物理/显示分离
              显性化，禁止静默缩小工程参数；声明引用未知参数 → warning）
-  映射状态  → IR3 param_mapping 中 ambiguous/unmatched 对象的声明参数 → CHK-SEM-MAPPING
+  映射状态  → IR3 param_mapping 中 ambiguous/unmatched 对象的参数 → CHK-SEM-MAPPING
              unverified（T15.2，ADR-014 §2；应检未检显性，verified 对象由语义检查器
              在 semantics.py 按尺寸语义核对——T15.3）
   尺寸语义  → verified 映射对象的声明参数过 semantics 注册表（T15.3，ADR-014 §4）：
@@ -479,10 +479,11 @@ class A4Agent:
                 cov["applicable"] += 1  # 已声明且已确证绑定的参数 = 必检项
                 param = params_by_id.get(pid)
                 if param is None:
+                    noun = self._identity_noun(ir3)
                     issues.append(_issue(
                         f"CHK-SEM-{dim.upper()}", "unverified",
-                        f"对象 {oid}（role={role}）声明的参数 {pid} 不在 IR2 中——声明与参数表"
-                        "不一致，请人工复核或回 A3 修正声明", [pid] if pid else [], feats))
+                        f"对象 {oid}（role={role}）{noun}的参数 {pid} 不在 IR2 中——{noun}与参数表"
+                        f"不一致，请人工复核或回 A3 修正{noun}", [pid] if pid else [], feats))
                     continue
                 checker = semantics.SEMANTIC_CHECKERS.get(dim)
                 if checker is None:
@@ -562,13 +563,22 @@ class A4Agent:
 
     # ------------------------------------------------------------------
     @staticmethod
+    def _identity_noun(ir3: dict[str, Any]) -> str:
+        """身份依据措辞（T15.4，A-16 不修饰）：声明制对象才「声明」过；legacy 几何候选
+        对象只有候选证据——文案按 identity_basis 区分，不把候选说成声明。"""
+        basis = str((ir3.get("param_mapping") or {}).get("identity_basis") or "declared_objects")
+        return "声明" if basis == "declared_objects" else "几何候选"
+
+    @staticmethod
     def _check_semantic_mapping(ir2: dict[str, Any], ir3: dict[str, Any]) -> list[dict[str, Any]]:
-        """映射状态显性化（T15.2，ADR-014 §2）。param_mapping 中 ambiguous/unmatched
-        对象的声明参数 → CHK-SEM-MAPPING unverified（应检未检，T14.4 状态学）：
-        映射未确立即无法按尺寸语义核对——不允许静默漏检；role-only 对象（无声明参数）
-        不产生检查语义（无噪声）。verified 对象的参数由语义检查器核对（semantics.py，T15.3）。
+        """映射状态显性化（T15.2，ADR-014 §2/§6）。param_mapping 中 ambiguous/unmatched
+        对象的参数 → CHK-SEM-MAPPING unverified（应检未检，T14.4 状态学）：
+        映射未确立即无法按尺寸语义核对——不允许静默漏检；无参数对象（role-only/legacy
+        无候选不进映射）不产生检查语义（无噪声）。verified 对象的参数由语义检查器核对
+        （semantics.py，T15.3）。文案按身份依据区分「声明/几何候选」（T15.4，A-16）。
         """
         mapping = ir3.get("param_mapping") or {}
+        noun = A4Agent._identity_noun(ir3)
         issues: list[dict[str, Any]] = []
         known = {str(p.get("id")) for p in ir2.get("parameters", [])}
         for obj in mapping.get("objects", []):
@@ -578,12 +588,12 @@ class A4Agent:
             if not pids:
                 continue
             dangling = [pid for pid in pids if pid not in known]
-            note = f"；声明引用了 IR2 不存在的参数 {dangling}（请核对声明）" if dangling else ""
+            note = f"；{noun}引用了 IR2 不存在的参数 {dangling}（请核对）" if dangling else ""
             issues.append(_issue(
                 "CHK-SEM-MAPPING", "unverified",
                 f"对象 {obj.get('object_id')}（role={obj.get('role')}）映射状态为 "
-                f"{obj.get('status')}——声明的 {len(pids)} 个参数未做尺寸语义核对，请人工复核"
-                f"或回 A3 修正声明{note}",
+                f"{obj.get('status')}——{noun}的 {len(pids)} 个参数未做尺寸语义核对，请人工复核"
+                f"或回 A3 修正{noun}{note}",
                 pids, [obj["feature_id"]] if obj.get("feature_id") else []))
         return issues
 

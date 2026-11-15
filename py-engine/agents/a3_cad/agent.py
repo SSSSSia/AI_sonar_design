@@ -28,14 +28,19 @@ from pathlib import Path
 from typing import Any
 
 from agents.a3_cad.geometry_link import link_params
-from agents.a3_cad.identity import build_param_mapping, parse_display_transforms, parse_object_declarations
+from agents.a3_cad.identity import (
+    build_candidate_mapping,
+    build_param_mapping,
+    parse_display_transforms,
+    parse_object_declarations,
+)
 from agents.a3_cad.prompts import (
     DOMAIN_REF_PATTERNS,
     PROMPT_VERSION,
     build_fix_prompt,
     build_system_prompt,
 )
-from app_config import CAD_GEO_LINK_TOL_PCT, CAD_INSPECT_TIMEOUT_S, REF_CODE_DIR
+from app_config import A3_LEGACY_MAPPING, CAD_GEO_LINK_TOL_PCT, CAD_INSPECT_TIMEOUT_S, REF_CODE_DIR
 from cad_engine import sandbox, validators
 from cad_engine.reference import CodeSearchService, strip_markdown
 from ir_contract import validate_ir
@@ -273,7 +278,10 @@ class A3Agent:
                 "detail": f"{meta.get('segmentation', '?')} · {meta.get('extractor', '?')}",
             }
             # T15.2（B-2，ADR-014 §2）：脚本 @obj 声明 → 声明制身份映射（声明+几何互证）。
-            # 仅实测成功时构建（无测量即无互证）；无声明→省略字段=legacy 位置身份（A-16）。
+            # 仅实测成功时构建（无测量即无互证）。
+            # T15.4（B-3，ADR-014 §6）：无声明（旧 STEP/legacy）→ 几何候选身份映射（开关
+            # A3_LEGACY_MAPPING，默认开；置 0 恢复 T15.2 口径=省略字段）。无结构锚时 verified
+            # 仅限唯一最优候选，并列/被占用如实 ambiguous/unmatched（歧义可见，A-16）。
             decls = parse_object_declarations(script)
             if decls:
                 param_mapping = build_param_mapping(decls, parts, params, CAD_GEO_LINK_TOL_PCT)
@@ -281,6 +289,16 @@ class A3Agent:
                     n_ok = sum(1 for o in param_mapping["objects"] if o["status"] == "verified")
                     logger.info(
                         "A3 对象映射: %d 声明 → verified=%d ambiguous=%d unmatched=%d",
+                        len(param_mapping["objects"]), n_ok,
+                        sum(1 for o in param_mapping["objects"] if o["status"] == "ambiguous"),
+                        sum(1 for o in param_mapping["objects"] if o["status"] == "unmatched"),
+                    )
+            elif A3_LEGACY_MAPPING:
+                param_mapping = build_candidate_mapping(params, parts, CAD_GEO_LINK_TOL_PCT)
+                if param_mapping:
+                    n_ok = sum(1 for o in param_mapping["objects"] if o["status"] == "verified")
+                    logger.info(
+                        "A3 legacy 候选映射（无声明）: %d 参数 → verified=%d ambiguous=%d unmatched=%d",
                         len(param_mapping["objects"]), n_ok,
                         sum(1 for o in param_mapping["objects"] if o["status"] == "ambiguous"),
                         sum(1 for o in param_mapping["objects"] if o["status"] == "unmatched"),

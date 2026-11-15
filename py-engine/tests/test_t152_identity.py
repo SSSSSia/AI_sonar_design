@@ -249,6 +249,8 @@ class TestBuildIr3Mapping:
         assert meas3 == {"length": (1200.0, "bbox_axis"), "diameter": (40.0, "radius_derived")}
 
     def test_no_declarations_field_omitted(self):
+        """无声明且无长度类参数 → 映射省略（T15.4 起：有参数时无声明走 legacy 几何候选
+        映射 identity_basis=geometry_candidates，见 test_t154_identity；此处空参数仍省略）。"""
         ir3 = validate_ir("IR3", _agent_152()._build_ir3(
             "import math\n", STEP_REF, SCRIPT_REF, {"parameters": []}, "/tmp/x.step", fix_round=0))
         assert "param_mapping" not in ir3

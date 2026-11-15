@@ -76,6 +76,9 @@ CAD_GEO_LINK_TOL_PCT = float(_env("CAD_GEO_LINK_TOL_PCT", "20"))
 CAD_GEO_NUM_TOL_PCT = float(_env("CAD_GEO_NUM_TOL_PCT", "2"))
 # A4 语义检查器默认容差（T15.3，按声明映射核对长度/孔径等尺寸语义；注册表可按 dim_type 覆盖）
 SEMANTIC_TOL_PCT = float(_env("SEMANTIC_TOL_PCT", "2"))
+# 无声明模型（旧 STEP/legacy）几何候选身份映射开关（T15.4，ADR-014 §6）：默认开启，
+# 置 "0" 恢复 T15.2 口径（无声明→省略 param_mapping=legacy 位置身份）。进程级 env，切换需重启 worker
+A3_LEGACY_MAPPING = _env("A3_LEGACY_MAPPING", "1").strip().lower() not in ("0", "false", "no")
 
 # ---- 参考范例库（T16.0 A0-1/A0-2，PHASE-016）----
 # 外置参考目录：空=受控包内 cad_engine/ref_code/ 回退。切换属配置变更需重启 worker
