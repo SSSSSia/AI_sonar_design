@@ -120,7 +120,8 @@ export interface Ir3MappedParam {
   param_id: string
   dim_type: 'length' | 'diameter' | 'width' | 'height' | 'thickness' | 'other'
   measured_mm?: number | null
-  measurement?: 'radius_derived' | 'bbox_axis' | 'bbox_axis_longest' | 'none'
+  /** T15.5：+wall_derived=壁厚环形推导+内孔面互证（ADR-014 §7） */
+  measurement?: 'radius_derived' | 'bbox_axis' | 'bbox_axis_longest' | 'wall_derived' | 'none'
 }
 export interface Ir3MappedObject {
   object_id: string

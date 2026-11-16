@@ -42,6 +42,11 @@ export const IR4_CHECK_CN: Record<string, string> = {
   'CHK-GEO-DUP-FEATURE': '重复几何特征',
   'CHK-GEO-SCRIPT': '建模脚本问题',
   'CHK-GEO-STEP': 'STEP 产物问题',
+  // 语义检查器族（T15.3/T15.5，ADR-014 §4/§7）
+  'CHK-SEM-LENGTH': '长度语义核对',
+  'CHK-SEM-DIAMETER': '孔径语义核对',
+  'CHK-SEM-THICKNESS': '壁厚语义核对',
+  'CHK-SEM-MAPPING': '映射未决（歧义/未匹配）',
 }
 
 export function checkLabel(code: string): string {

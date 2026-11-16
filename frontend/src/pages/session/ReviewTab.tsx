@@ -13,7 +13,7 @@ import { ApiError } from '../../api/client'
 import { confirmParamProposals, ignoreParamProposal, listParamProposals, listTunes } from '../../api/cadAgent'
 import { summarizeTunes } from './tuneSummary'
 import { formatReferenceUsed } from './referenceUsed'
-import { formatDisplayTransforms, formatParamMapping } from './paramMapping'
+import { formatDisplayTransforms, formatMappedObjectParams, formatParamMapping } from './paramMapping'
 import {
   aggregateUnresolved, buildVersionList, diffIr2Params, latestApprovedGate2,
   type ComboVersionRow, type ParamDiffRow,
@@ -593,6 +593,10 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
   const hasMeasured = (f: Ir3Feature) => Array.isArray(f.geometry.bbox_mm)
   const refLine = formatReferenceUsed(ir3.reference_used)
   const mapLine = formatParamMapping(ir3.param_mapping)
+  // T15.5：verified 对象逐条明细（「对象（role）：壁厚 3 mm、…」）——摘要行只有计数，明细才见实测值
+  const mapDetailLines = (ir3.param_mapping?.objects ?? [])
+    .map((o) => formatMappedObjectParams(o))
+    .filter((s): s is string => s !== null)
   const displayLine = formatDisplayTransforms(ir3.display_transforms)
 
   const columns: ColumnsType<Ir3Feature> = [
@@ -672,6 +676,11 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
       {mapLine && (
         <div style={{ padding: '8px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12.5, color: 'var(--text-2)' }}>
           {mapLine}
+          {mapDetailLines.map((line, i) => (
+            <div key={i} style={{ color: 'var(--text-3)', marginTop: 2, fontFamily: 'monospace', fontSize: 12 }}>
+              {line}
+            </div>
+          ))}
         </div>
       )}
       {displayLine && (
