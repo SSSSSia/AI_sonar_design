@@ -22,6 +22,9 @@
 
 T15.2（ADR-014 §2）：parts 可选 radius_mm/axis——圆度证据半径（B-rep 圆柱面中位半径，
 或网格路径圆度检验通过的中位横向距离；检验不过/无圆柱面如实缺省）与测量轴下标。
+T15.5（ADR-014 §7）：B-rep 路径 parts 另带可选 radii_mm——该段全部圆柱面半径升序
+（壁厚推导的证据源：最大半径=外表面，推导内径须与真实内孔面对上才产 wall_derived
+证据；A-12 加法字段，radius_mm 中位口径不变；网格路径无面清单，如实缺省）。
 
 - 单位一律 mm / mm³（STEP 默认单位制）；center_mm 为该段包围盒中心；
   parts 按最长轴坐标升序（index 1 = 轴向起点）。
@@ -167,7 +170,8 @@ def _cylinder_stats_brep(solid) -> dict | None:
         if not radii or best is None:
             return None
         radii.sort()
-        return {"radius_mm": round(radii[len(radii) // 2], 4), "axis": best[1]}
+        return {"radius_mm": round(radii[len(radii) // 2], 4), "axis": best[1],
+                "radii_mm": [round(r, 4) for r in radii]}
     except Exception:  # noqa: BLE001 —— 半径提取失败如实缺省，不影响其余性质
         return None
 
@@ -484,7 +488,8 @@ def _make_part(bbox_mm, center_mm, volume_mm3) -> dict:
 
 def _finalize(parts: list[dict], overall_bbox: list[float] | None = None) -> list[dict]:
     """按最长轴坐标升序定序并编号（index 1 = 轴向起点）。T15.2 起透传可选
-    radius_mm/axis（圆度证据半径与测量轴，仅测量路径产生时存在）。"""
+    radius_mm/axis（圆度证据半径与测量轴，仅测量路径产生时存在）；T15.5 起透传
+    radii_mm（圆柱面半径全表，壁厚推导证据源，ADR-014 §7）。"""
     import numpy as np
 
     if overall_bbox:
@@ -494,7 +499,7 @@ def _finalize(parts: list[dict], overall_bbox: list[float] | None = None) -> lis
     for i, p in enumerate(parts, 1):
         item = {"index": i, "center_mm": p["center_mm"], "bbox_mm": p["bbox_mm"],
                 "volume_mm3": p["volume_mm3"]}
-        for k in ("radius_mm", "axis"):
+        for k in ("radius_mm", "axis", "radii_mm"):
             if k in p:
                 item[k] = p[k]
         out.append(item)

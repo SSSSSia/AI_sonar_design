@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
@@ -145,7 +146,11 @@ def parse_object_declarations(script: str) -> list[dict[str, Any]]:
 def _part_measurements(part: dict[str, Any]) -> dict[str, list[tuple[str, float]]]:
     """单段的尺寸语义测量证据（mm）。diameter 只认 radius_derived（圆度证据半径×2，
     不做 bbox 启发式——同值宽度不可顶替孔径，案例 03 硬前提）；length 优先测量轴
-    （radius_profile/圆柱面轴向），兜底最长轴（弯曲段弧长≠bbox 投影的局限由 basis 如实）。"""
+    （radius_profile/圆柱面轴向），兜底最长轴（弯曲段弧长≠bbox 投影的局限由 basis 如实）；
+    thickness 由均匀环形圆柱推导（T15.5，ADR-014 §7）：R=最大圆柱面半径（radii_mm 外
+    表面）、r_in=sqrt(R²−V/(πL))，且 r_in 须与某个 <R 的真实圆柱面半径对上（≤1% 互证
+    自证）——实心杆（r_in≈0）、阶梯/法兰轴（推导内径对不上任何真实内孔面）、网格路径
+    （无 radii_mm）如实不产证据（A-16 不造值；假阴性方向偏置=宁可 unverified）。"""
     bbox = part.get("bbox_mm") or []
     out: dict[str, list[tuple[str, float]]] = {}
     if len(bbox) == 3 and all(isinstance(b, (int, float)) and b > 0 for b in bbox):
@@ -158,6 +163,21 @@ def _part_measurements(part: dict[str, Any]) -> dict[str, list[tuple[str, float]
         r = part.get("radius_mm")
         if isinstance(r, (int, float)) and r > 0:
             out["diameter"] = [("radius_derived", 2.0 * float(r))]
+        radii = part.get("radii_mm")
+        vol = part.get("volume_mm3")
+        if (isinstance(radii, list) and len(radii) >= 2
+                and isinstance(vol, (int, float)) and vol > 0 and axis in (0, 1, 2)):
+            r_out = max(float(v) for v in radii if isinstance(v, (int, float)) and v > 0)
+            if r_out > 0:
+                inner_sq = r_out * r_out - float(vol) / (math.pi * float(bbox[axis]))
+                if inner_sq > 0:
+                    r_in = math.sqrt(inner_sq)
+                    bores = [float(v) for v in radii
+                             if isinstance(v, (int, float)) and 0 < v < r_out]
+                    # 内孔互证自证：推导内径必须与真实内孔圆柱面半径对上（≤1%），
+                    # 否则截面非均匀环形，推导值不可信（如阶梯轴），不产证据
+                    if bores and any(abs(r_in - b) <= 0.01 * r_in for b in bores):
+                        out["thickness"] = [("wall_derived", round(r_out - r_in, 4))]
     return out
 
 
@@ -189,7 +209,8 @@ def build_param_mapping(
     pmeas = [_part_measurements(p) for p in parts]
 
     def spec_verifiable(spec: dict[str, str]) -> bool:
-        return spec["dim_type"] in ("length", "diameter") and spec["param_id"] in expected_mm
+        return (spec["dim_type"] in ("length", "diameter", "thickness")
+                and spec["param_id"] in expected_mm)
 
     def score(specs: list[dict[str, str]], pi: int) -> float | None:
         """段 pi 对声明 specs 的证据评分（各可验证维度最差偏差，pp）；任一可验证维度
