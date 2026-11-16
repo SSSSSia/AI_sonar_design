@@ -453,8 +453,9 @@ class A4Agent:
     # ------------------------------------------------------------------
     def _check_semantic(self, ir2: dict[str, Any], ir3: dict[str, Any],
                         stats: dict[str, int], cov: dict[str, int]) -> list[dict[str, Any]]:
-        """尺寸语义检查（T15.3，ADR-014 §4）：verified 映射对象的声明参数逐一过
-        semantics.SEMANTIC_CHECKERS 注册表（length/diameter 首批）。
+        """尺寸语义检查（T15.3/T15.5，ADR-014 §4、§7）：verified 映射对象的声明参数逐一过
+        semantics.SEMANTIC_CHECKERS 注册表（length/diameter/thickness）；容差按
+        参数登记 > dim_type 覆盖 > 全局默认解析，非全局来源在 issue 消息披露出处。
 
         - violation → error + suggestion=back_to_A3（案例 02/03 的落点：声明制映射
           不受联动容差断链影响，100 vs 150 必报超差；孔径不被同值宽度顶替）；
@@ -492,7 +493,11 @@ class A4Agent:
                         f"参数 {pid}「{param.get('name')}」的尺寸语义 {dim} 尚无注册检查器——"
                         "该维度未做语义核对（如需覆盖请在 semantics.py 注册）", [pid], feats))
                     continue
-                tol = semantics.resolve_tolerance(dim, SEMANTIC_TOL_PCT)
+                tol = semantics.resolve_tolerance(dim, SEMANTIC_TOL_PCT, pid)
+                # 容差出处披露（A-16）：全局默认保持原文案逐字节不变，仅非全局来源追加出处
+                src = semantics.tolerance_source(dim, pid)
+                tol_note = f"（容差 {tol:g}%）" if src == "global" else (
+                    f"（容差 {tol:g}%，{'按参数登记' if src == 'param' else 'dim_type 缺省'}）")
                 verdict = checker(param, entry, tol)
                 if verdict["verdict"] == "pass":
                     stats["pass"] += 1
@@ -502,7 +507,7 @@ class A4Agent:
                         f"语义一致：参数 {pid}「{param.get('name')}」= {_first_number(param.get('value'))}"
                         f"{param.get('unit')}，对象 {oid}（role={role}）实测 "
                         f"{verdict['measured_mm']:g} mm（{entry.get('measurement')}），"
-                        f"偏差 {verdict['deviation_pct']:.2f}%（容差 {tol:g}%）", [pid], feats))
+                        f"偏差 {verdict['deviation_pct']:.2f}%{tol_note}", [pid], feats))
                 elif verdict["verdict"] == "violation":
                     stats["violation"] += 1
                     cov["checked"] += 1
@@ -512,7 +517,7 @@ class A4Agent:
                         f"{param.get('unit')}（期望 {verdict['expected_mm']:g} mm），但对象 {oid}"
                         f"（role={role}）实测 {verdict['measured_mm']:g} mm"
                         f"（{entry.get('measurement')}），偏差 {verdict['deviation_pct']:.1f}%"
-                        f"（容差 {tol:g}%）——建议回 A3 修正建模",
+                        f"{tol_note}——建议回 A3 修正建模",
                         [pid], feats, suggestion="back_to_A3"))
                 else:
                     issues.append(_issue(

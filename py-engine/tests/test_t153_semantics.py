@@ -132,10 +132,12 @@ class TestCase03Aperture:
 # 诚实语义与注册接口
 class TestHonestyAndRegistry:
     def test_unregistered_dim_type_is_unverified(self):
-        objs = [_object("wall", "verified", [_entry("P-T", "thickness", 5.0, "none")])]
-        ir4 = A4Agent().run(_ir2(_param("P-T", 5)), _ir3(objs))
+        # T15.5 后 thickness 已注册（CHK-SEM-THICKNESS），诚实降级路径由枚举中
+        # 永未注册的 other 维钉住（语义不变：无检查器 → unverified 显性）
+        objs = [_object("misc", "verified", [_entry("P-O", "other", 5.0, "none")])]
+        ir4 = A4Agent().run(_ir2(_param("P-O", 5)), _ir3(objs))
         sem = _sem_issues(ir4)
-        assert sem[0]["constraint_id"] == "CHK-SEM-THICKNESS"
+        assert sem[0]["constraint_id"] == "CHK-SEM-OTHER"
         assert sem[0]["severity"] == "unverified"
         assert "尚无注册检查器" in sem[0]["message"]
 

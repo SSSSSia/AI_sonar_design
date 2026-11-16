@@ -40,7 +40,7 @@
       "additionalProperties": false,
       "required": ["constraint_id", "severity", "related_params", "related_features"],
       "properties": {
-        "constraint_id": { "type": "string", "description": "违反/触发的检查项 ID（CHK-FORMULA-* / CHK-CASE-* / CHK-STD-* / CHK-EST-* / CHK-GEO-*，可反查检查规则）" },
+        "constraint_id": { "type": "string", "description": "违反/触发的检查项 ID（CHK-FORMULA-* / CHK-CASE-* / CHK-STD-* / CHK-EST-* / CHK-GEO-* / CHK-SEM-*（语义检查器，T15.3/T15.5）/ CHK-DISPLAY-*，可反查检查规则）" },
         "severity": {
           "enum": ["error", "warning", "info", "unverified"],
           "description": "四级风险（T14.4）：error=高（必须回环整改）/ warning=中（来源冲突或存疑）/ info=低（提示性，如估算未经验证）/ unverified=应检未检（无法定位公式、缺代入值、几何未联动、军标待补——驱动 overall=incomplete，不允许被当作已验证通过）"
