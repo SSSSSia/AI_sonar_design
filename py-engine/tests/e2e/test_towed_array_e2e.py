@@ -226,18 +226,23 @@ def test_towed_array_full_chain(stack):
     assert meas["diameter"]["measurement"] == "radius_derived", f"孔径证据应为圆度半径: {meas}"
     assert abs(meas["diameter"]["measured_mm"] - 27.0) < 0.5, f"外径实测应≈27mm: {meas}"
     assert abs(meas["length"]["measured_mm"] - 24000.0) < 1.0, f"总长实测应≈24000mm: {meas}"
+    # T15.5 壁厚闭环：声阵段为真实薄壁管（外径 27/内径 21），wall_derived 推导+内孔面
+    # 互证自证 → 实测≈3mm（与 IR2 P-002「声阵段壁厚 3mm」精确一致）
+    assert meas["thickness"]["measurement"] == "wall_derived", f"壁厚证据应为环形推导: {meas}"
+    assert abs(meas["thickness"]["measured_mm"] - 3.0) < 0.5, f"壁厚实测应≈3mm: {meas}"
 
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/irs/IR4", headers=headers, timeout=10)
     assert r.status_code == 200, f"IR4 快照缺失: {r.text}"
     ir4 = r.json()["data"]["content"]
     ir4 = ir4 if isinstance(ir4, dict) else json.loads(ir4)
     codes = [i["constraint_id"] for i in ir4["issues"]]
-    # T15.3 后检查景观：被映射覆盖的参数（P-001/P-004）由语义检查器核对（legacy 数值复核
-    # 排除避免双重裁决）；mock 声明覆盖下长度/孔径均有语义判定
+    # T15.3 后检查景观：被映射覆盖的参数（P-001/P-002/P-004）由语义检查器核对（legacy 数值
+    # 复核排除避免双重裁决）；mock 声明覆盖下长度/孔径/壁厚均有语义判定
     assert ("CHK-GEO-NUM" in codes) or ("CHK-SEM-LENGTH" in codes), \
         f"IR4 缺少数值/语义复核条目: {codes}"
     assert "CHK-SEM-LENGTH" in codes and "CHK-SEM-DIAMETER" in codes, \
         f"IR4 应含首批语义检查器判定（长度/孔径）: {codes}"
+    assert "CHK-SEM-THICKNESS" in codes, f"T15.5 壁厚语义判定应入报告: {codes}"
     assert "CHK-SEM-MAPPING" not in codes, f"声明绑定应全链一致无歧义: {codes}"
     assert "CHK-DISPLAY-TRANSFORM" in codes, f"IR4 应显性呈现显示变换声明: {codes}"
     assert "CHK-GEO-NUM-SKIP" not in codes, "新会话不得命中数值复核跳过分支"

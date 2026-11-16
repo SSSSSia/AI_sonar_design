@@ -139,7 +139,7 @@ def build_lead(z_start):
     return (part.translate((0, 0, z_start)), z_start + SECTION_LEAD)
 
 def build_array(z_start):
-    # @obj array_section role=array_section params=P-001:diameter,P-004:length
+    # @obj array_section role=array_section params=P-001:diameter,P-002:thickness,P-004:length
     outer = cq.Workplane("XY").circle(ARRAY_OUTER_R).circle(ARRAY_INNER_R).extrude(SECTION_ARRAY)
     group = []
     # 内部水听器：段内居中、等间距
