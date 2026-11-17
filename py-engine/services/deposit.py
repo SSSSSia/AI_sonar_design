@@ -18,11 +18,19 @@ finalize 不等于批准——DEV-001 §8）；判定链与 ``api/cad.py`` C-1 �
 
 from __future__ import annotations
 
+import datetime
 import hashlib
+import json
+import logging
 import re
 from typing import Any
 
-from storage import ir_store, ref_store, review_store
+from storage import ir_store, object_store, ref_store, review_store
+
+logger = logging.getLogger("sonarcad.deposit")
+
+# 重放时限（独立于 A3 生成时限——沉淀重放只验证可执行性，短时限够用）
+REPLAY_TIME_LIMIT_S = 120
 
 # ------------------------------------------------------------------------------
 # 脱敏：基础 secret 模式（命中任一即拒绝沉淀——宁可误拒不落脏范例，A-16 如实报因）
@@ -165,3 +173,130 @@ def scan_candidates(limit: int = 50) -> dict[str, list[dict[str, Any]]]:
             "existing_row": existing,
         })
     return {"candidates": candidates, "blocked": blocked}
+
+
+# ------------------------------------------------------------------------------
+# 沉淀执行（T16.3 WP2）：候选 → 重放/脱敏复核 → pending 行 + 凭证
+
+class DepositError(Exception):
+    """不可沉淀（判定链/质量门/重放/脱敏任一不过）——message 即人读原因（A-16）。"""
+
+    def __init__(self, reason: str, detail: Any = None):
+        self.reason = reason
+        self.detail = detail
+        super().__init__(reason)
+
+
+def _deposit_inputs(sid: str, record_id: str) -> dict[str, Any]:
+    """判定链+校验+质量门+取脚本（扫描与执行共用的前置链），失败抛 DepositError。"""
+    record = review_store.get_review_record(sid, record_id)
+    if record is None:
+        raise DepositError("record_not_found")
+    if record.get("gate") != "gate2" or record.get("decision") != "approved":
+        raise DepositError("not_approved_gate2")
+    metadata = record.get("metadata") or {}
+    combo = metadata.get("snapshot_combo")
+    if not isinstance(combo, dict) or not combo:
+        raise DepositError("no_combo")
+    snaps, problems = validate_combo(sid, combo)
+    if problems:
+        raise DepositError("combo_invalid", problems)
+    ok, reason = quality_gate(metadata)
+    if not ok:
+        raise DepositError(reason or "ir4_fail")
+    ir3_entry = combo.get("IR3") or {}
+    ir3_version = int(ir3_entry.get("version") or 0)
+    script, err = _script_of(sid, ir3_version)
+    if script is None:
+        raise DepositError(err or "no_script")
+    hits = _secret_scan(script)
+    if hits:
+        raise DepositError("secret_hit", hits)
+    return {
+        "record_id": record_id,
+        "combo": combo,
+        "metadata": metadata,
+        "ir3_version": ir3_version,
+        "script": script,
+        "snaps": snaps,
+    }
+
+
+def _session_title(sid: str) -> str | None:
+    with review_store._connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT title FROM design_sessions WHERE id = %s", (sid,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _title_from_ir2(sid: str, snaps: dict[str, dict[str, Any]]) -> tuple[str, str | None]:
+    """title/description 从 IR2 结构化生成（不做 AST 泛化——ADR-015 §9 条 4；确认前可 PATCH）。"""
+    title = _session_title(sid) or "沉淀范例"
+    ir2 = snaps.get("IR2") or {}
+    content = ir2.get("content") if isinstance(ir2.get("content"), dict) else {}
+    params = content.get("parameters") or []
+    named = [f"{p.get('name')}={p.get('value')}{p.get('unit') or ''}"
+             for p in params[:6] if isinstance(p, dict) and p.get("name")]
+    desc = "；".join(named) if named else None
+    return title[:120], desc
+
+
+def deposit_from_record(sid: str, record_id: str, operator: str) -> dict[str, Any]:
+    """执行沉淀：候选复核 → 真沙箱重放 → 桶上传 → pending 行 + 凭证（ADR-015 v1.1 §9）。
+
+    幂等：同内容（同 ref_id 同 sha）已登记 → 返回 already=True + 既有行（不重复入库）。
+    重放/质量/脱敏失败抛 DepositError（不落行——「不合格不入确认」的强实现）。
+    insert 失败时已传对象残留可接受（幂等覆盖，重试安全——§9 条 10 清理边界）。
+    """
+    info = _deposit_inputs(sid, record_id)
+    script = info["script"]
+    sha = script_sha256(script)
+    ref_id = derive_ref_id(sha)
+    existing = ref_store.find_by_content(ref_id, sha)
+    if existing is not None:
+        logger.info("沉淀幂等命中：%s 已登记（v%s）", ref_id, existing["version"])
+        return {"already": True, "row": existing, "ref_id": ref_id, "script_sha256": sha}
+
+    # 真沙箱重放（子进程隔离——API 进程不加载 cadquery；失败不落行，A-16 如实）
+    from cad_engine import sandbox
+
+    replay = sandbox.run_in_subprocess(script, time_limit_s=REPLAY_TIME_LIMIT_S)
+    if not replay.get("ok"):
+        raise DepositError("replay_failed", str(replay.get("error") or "unknown"))
+
+    title, desc = _title_from_ir2(sid, info["snaps"])
+    combo_sha = str((info["combo"].get("IR3") or {}).get("content_sha256") or "")
+
+    version = ref_store.next_version(ref_id)
+    file_name = f"deposit_{sha[:8]}.py"
+    from app_config import BUCKET_REF_SCRIPTS
+
+    object_key = f"{ref_id}/v{version}/{file_name}"
+    object_store.upload_text(script, BUCKET_REF_SCRIPTS, object_key)
+    note = json.dumps({
+        "kind": "deposit", "session_id": sid, "record_id": record_id,
+        "ir3_snapshot_id": ((info["snaps"].get("IR3") or {}).get("id")),
+        "ir3_version": info["ir3_version"],
+        "combo_content_sha256": combo_sha,       # C-0 content::text 口径
+        "script_sha256": sha,                    # 范例库 utf-8 口径（=content_sha256 列）
+        "deposited_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "deposited_by": operator,
+        "quality": {"ir4_overall": str((info["metadata"].get("combo_policy") or {}).get("ir4_overall") or ""),
+                    "replay": "pass", "secret_scan": "pass"},
+    }, ensure_ascii=False)
+    try:
+        row = ref_store.insert_row(
+            ref_id=ref_id, version=version, file_name=file_name, title=title, description=desc,
+            domain=None, domain_rules=None, sonar_types=[], keywords=[],
+            bucket=BUCKET_REF_SCRIPTS, object_key=object_key, content_sha256=sha,
+            status="pending", source_type="deposit", source_note=note, created_by=operator,
+        )
+    except Exception as exc:
+        if exc.__class__.__name__ == "UniqueViolation":
+            # 并发沉淀同内容：唯一约束兜底 → 视为幂等命中
+            again = ref_store.find_by_content(ref_id, sha)
+            if again is not None:
+                return {"already": True, "row": again, "ref_id": ref_id, "script_sha256": sha}
+        raise
+    logger.info("沉淀落库 %s v%s（pending，来源会话 %s）by %s", ref_id, version, sid, operator)
+    return {"already": False, "row": row, "ref_id": ref_id, "script_sha256": sha}

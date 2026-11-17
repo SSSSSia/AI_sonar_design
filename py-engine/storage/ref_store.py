@@ -19,7 +19,7 @@ from app_config import DATABASE_URL
 logger = logging.getLogger("sonarcad.refstore")
 
 STATUSES = ("pending", "active", "disabled")
-SOURCE_TYPES = ("catalog_import", "manual_upload")  # B3 沉淀预留 deposit（ADR-015 §5）
+SOURCE_TYPES = ("catalog_import", "manual_upload", "deposit")  # deposit=T16.3 激活（ADR-015 v1.1 §9）
 REF_ID_RE = r"^[a-z0-9][a-z0-9_-]{0,126}$"
 
 # PATCH 可写字段白名单（id/版本/哈希/对象引用/来源不可改——内容变更走新版本）

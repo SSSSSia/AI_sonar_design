@@ -50,6 +50,9 @@ _RULES: list[tuple[str, re.Pattern[str], str, str | None, str | None]] = [
     ("POST", re.compile(r"^/api/v1/kb/references$"), "kb.ref_create", "ref_script", None),
     ("PATCH", re.compile(r"^/api/v1/kb/references/(?P<rid>[^/]+)$"), "kb.ref_update", "ref_script", "rid"),
     ("POST", re.compile(r"^/api/v1/kb/references/(?P<rid>[^/]+)/confirm$"), "kb.ref_confirm", "ref_script", "rid"),
+    # B3 候选沉淀（T16.3，ADR-015 v1.1 §9 条 8：扫描与沉淀尝试均留痕——含拒绝原因 detail）
+    ("GET", re.compile(r"^/api/v1/kb/references/deposit-candidates$"), "kb.ref_deposit_scan", None, None),
+    ("POST", re.compile(r"^/api/v1/kb/references/deposit$"), "kb.ref_deposit", None, None),
     # 图谱快照（T11.7 备份链路的人工/定时触发留痕）
     ("POST", re.compile(r"^/api/v1/kb/graph/snapshot$"), "kb.graph_snapshot", None, None),
     # 知识回写（§9.4 明列「知识回写」；T14.8 补——端点无 /api/v1 前缀，此前漏覆盖）

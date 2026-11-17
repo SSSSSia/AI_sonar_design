@@ -248,3 +248,44 @@ def import_catalog(req: ImportRequest | None = None, user: str = Depends(require
     logger.info("文件源导入完成 dir=%s created=%s unchanged=%s by %s", dir_path, created, unchanged, user)
     return {"source_dir": str(dir_path), "catalog_version": catalog_version,
             "items": items, "created": created, "unchanged": unchanged}
+
+
+# ----------------------------------------------------------------------
+# B3 候选沉淀（T16.3，ADR-015 v1.1 §9）：真实 gate2 批准 → pending 范例候选
+# ----------------------------------------------------------------------
+@router.get("/deposit-candidates")
+def list_deposit_candidates(limit: int = Query(50, ge=1, le=200),
+                            user: str = Depends(require_admin)) -> dict[str, Any]:
+    """扫描可沉淀的 gate2 批准会话（判定链+组合校验+质量门+幂等对照，廉价预检不做重放）。"""
+    from services import deposit as deposit_svc
+
+    out = deposit_svc.scan_candidates(limit=limit)
+    logger.info("沉淀候选扫描 by %s：candidates=%d blocked=%d",
+                user, len(out["candidates"]), len(out["blocked"]))
+    return out
+
+
+class DepositRequest(BaseModel):
+    session_id: str
+    record_id: str
+
+
+@router.post("/deposit")
+def deposit_reference(req: DepositRequest, user: str = Depends(require_admin)) -> dict[str, Any]:
+    """执行沉淀：复核 → 真沙箱重放（失败不落行）→ 脱敏 → 桶上传 → pending 行+凭证。
+
+    幂等：同内容已登记 → 200 already=true + 既有行（「重复事件不重复入库」）；
+    不可沉淀 → 409 reason 如实（判定链/质量门/重放/脱敏，ADR-015 §9 条 1-4）。
+    """
+    from services import deposit as deposit_svc
+
+    try:
+        out = deposit_svc.deposit_from_record(req.session_id, req.record_id, user)
+    except deposit_svc.DepositError as exc:
+        detail = {"reason": exc.reason}
+        if exc.detail is not None:
+            detail["detail"] = exc.detail
+        raise HTTPException(status_code=409, detail=detail) from exc
+    logger.info("沉淀完成 session=%s record=%s → %s（already=%s）by %s",
+                req.session_id, req.record_id, out["ref_id"], out["already"], user)
+    return out
