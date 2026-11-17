@@ -243,7 +243,8 @@ def test_deposit_happy_path_pending_with_provenance(monkeypatch):
         return {"bucket": bucket, "object_key": object_key, "sha256": _sha(text)}
 
     monkeypatch.setattr("storage.object_store.upload_text", fake_upload_text)
-    sid, rid = _record_of("ok")
+    _make_session(tag="happy")
+    sid, rid = _record_of("happy")
     out = deposit.deposit_from_record(sid, rid, "t163-tester")
     assert out["already"] is False
     row = out["row"]
@@ -278,7 +279,8 @@ def test_deposit_replay_failure_deposits_nothing(monkeypatch):
 def test_deposit_idempotent_repeat_event(monkeypatch):
     monkeypatch.setattr("storage.object_store.upload_text",
                         lambda t, b, k: {"bucket": b, "object_key": k})
-    sid, rid = _record_of("ok")
+    _make_session(tag="idem")
+    sid, rid = _record_of("idem")
     first = deposit.deposit_from_record(sid, rid, "t163-a")
     second = deposit.deposit_from_record(sid, rid, "t163-b")
     assert second["already"] is True
@@ -307,7 +309,8 @@ def test_api_deposit_rbac_and_flow(monkeypatch):
                         lambda t, b, k: {"bucket": b, "object_key": k, "sha256": _sha(t)})
     from api.main import app
 
-    sid, rid = _record_of("ok")
+    _make_session(tag="rbac")
+    sid, rid = _record_of("rbac")
     with TestClient(app) as c:
         viewer = {"X-User-Id": "t163-viewer", "X-User-Roles": "viewer"}
         admin = {"X-User-Id": "t163-admin", "X-User-Roles": "admin"}
