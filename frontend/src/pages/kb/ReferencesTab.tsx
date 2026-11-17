@@ -3,8 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { App, Button, Card, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Upload } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  confirmRefScript, getRefContent, importRefCatalog, listRefScripts, patchRefScript, uploadRefScript,
-  type RefScriptRow,
+  confirmRefScript, depositFromRecord, getRefContent, importRefCatalog, listDepositCandidates,
+  listRefScripts, patchRefScript, uploadRefScript,
+  type DepositCandidate, type DepositBlocked, type RefScriptRow,
 } from '../../api/references'
 import { QueryEmpty } from '../../components/QueryEmpty'
 import { errText } from '../../api/client'
@@ -17,6 +18,12 @@ export function ReferencesTab() {
   const queryClient = useQueryClient()
   const [uploadOpen, setUploadOpen] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [depositOpen, setDepositOpen] = useState(false)
+  const [depositScanning, setDepositScanning] = useState(false)
+  const [depositing, setDepositting] = useState<string | null>(null) // 正在沉淀的 record_id
+  const [depositData, setDepositData] = useState<{
+    candidates: DepositCandidate[]; blocked: DepositBlocked[]
+  } | null>(null)
   const [viewRow, setViewRow] = useState<RefScriptRow | null>(null)
   const [viewContent, setViewContent] = useState<{ content: string; sha256_match: boolean } | null>(null)
   const [form, setForm] = useState({
@@ -50,6 +57,35 @@ export function ReferencesTab() {
       message.success(importReportText(r.items, r.created, r.unchanged), 6)
       void queryClient.invalidateQueries({ queryKey: ['kb-ref-scripts'] })
     } catch (e) { message.error(errText(e, 180)) } finally { setImporting(false) }
+  }
+
+  /** B3 候选沉淀（T16.3，ADR-015 v1.1 §9）：扫描→逐条沉淀（真沙箱重放在服务端）→pending 待确认。 */
+  async function openDeposit() {
+    setDepositOpen(true)
+    setDepositScanning(true)
+    setDepositData(null)
+    try {
+      setDepositData(await listDepositCandidates())
+    } catch (e) { message.error(errText(e, 180)); setDepositOpen(false) } finally { setDepositScanning(false) }
+  }
+
+  async function doDeposit(cand: DepositCandidate) {
+    setDepositting(cand.record_id)
+    try {
+      const r = await depositFromRecord(cand.session_id, cand.record_id)
+      if (r.already) {
+        message.info(`该内容已沉淀在库（${r.ref_id} v${r.row.version}，${r.row.status}）——重复事件不重复入库`)
+      } else {
+        message.success(`已沉淀为候选 ${r.ref_id} v${r.row.version}（pending）——请确认后参与检索`)
+      }
+      void queryClient.invalidateQueries({ queryKey: ['kb-ref-scripts'] })
+      void openDepositRefresh()
+    } catch (e) { message.error(errText(e, 200)) } finally { setDepositting(null) }
+  }
+
+  async function openDepositRefresh() {
+    // 沉淀后刷新候选（幂等对照与 already 状态变化）
+    try { setDepositData(await listDepositCandidates()) } catch { /* 扫描失败保留现状 */ }
   }
 
   async function saveUpload() {
@@ -159,6 +195,7 @@ export function ReferencesTab() {
       title="参考代码范例库"
       extra={
         <Space>
+          <Button size="small" onClick={() => void openDeposit()}>批准沉淀</Button>
           <Popconfirm title="从当前文件源（catalog.yaml）幂等导入？" description="内容一致→跳过；变更→新版本（待确认）；不自动激活。"
             onConfirm={() => void importCatalog()}>
             <Button size="small" loading={importing}>导入文件源</Button>
@@ -215,6 +252,85 @@ export function ReferencesTab() {
           maxHeight: 480, overflow: 'auto', fontSize: 12, lineHeight: 1.5,
           background: 'var(--bg-2, #f6f7f9)', padding: 12, borderRadius: 6, margin: 0,
         }}>{viewContent?.content ?? '加载中…'}</pre>
+      </Modal>
+      <Modal
+        title="批准沉淀（gate2 真实批准 → pending 范例候选）" open={depositOpen} footer={null}
+        onCancel={() => setDepositOpen(false)} width={860} destroyOnClose
+      >
+        <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 10 }}>
+          沉淀源=真实 gate2 批准记录（组合凭证在手；finalize 不算）；沉淀前服务端复核组合有效性、
+          IR4 结论（fail 不沉淀）并真沙箱重放——不合格不产生候选；同内容幂等不重复入库；
+          落库一律 pending，须「确认」后才参与检索。
+        </div>
+        <Table
+          rowKey="record_id" size="small" loading={depositScanning}
+          dataSource={depositData?.candidates ?? []}
+          pagination={false}
+          locale={{ emptyText: depositScanning ? '扫描中…' : '暂无可沉淀候选（需存在 gate2 批准且组合有效）' }}
+          columns={[
+            {
+              title: '会话', key: 'sess', render: (_: unknown, c: DepositCandidate) => (
+                <div>
+                  <div style={{ fontSize: 12.5 }}>{c.session_title || c.session_id.slice(0, 8)}</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-3)' }}>
+                    {c.session_id.slice(0, 8)}… · 记录 {c.record_id.slice(0, 8)}…
+                  </div>
+                </div>
+              ),
+            },
+            { title: '批准时间', dataIndex: 'decided_at', width: 140, render: (v: string | null) => (v ? v.slice(0, 16).replace('T', ' ') : '—') },
+            { title: 'IR4', dataIndex: 'ir4_overall', width: 90, render: (v: string) => (v ? <Tag color={v === 'pass' ? 'green' : v === 'fail' ? 'red' : 'orange'}>{v}</Tag> : '—') },
+            {
+              title: '候选', key: 'cand', render: (_: unknown, c: DepositCandidate) => (
+                <Space size={6}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{c.ref_id}</span>
+                  {c.already_deposited && (
+                    <Tooltip title={`既有行 v${c.existing_row?.version ?? '?'}（${c.existing_row?.status ?? '?'}）`}>
+                      <Tag color="blue">已在库</Tag>
+                    </Tooltip>
+                  )}
+                </Space>
+              ),
+            },
+            {
+              title: '操作', width: 120, key: 'op',
+              render: (_: unknown, c: DepositCandidate) => (
+                <Popconfirm
+                  title="沉淀该批准会话？"
+                  description="服务端将真沙箱重放脚本（失败不落行）；落库为 pending 待确认。"
+                  onConfirm={() => void doDeposit(c)}
+                  disabled={!!depositing}
+                >
+                  <Button size="small" loading={depositing === c.record_id}>
+                    {c.already_deposited ? '再次沉淀' : '沉淀'}
+                  </Button>
+                </Popconfirm>
+              ),
+            },
+          ]}
+        />
+        {(depositData?.blocked?.length ?? 0) > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 6 }}>
+              不可沉淀（如实报因，A-16）：
+            </div>
+            <Table
+              rowKey="record_id" size="small"
+              dataSource={depositData?.blocked ?? []} pagination={false}
+              columns={[
+                { title: '会话', key: 'sess', render: (_: unknown, b: DepositBlocked) => (b.session_title || b.session_id.slice(0, 8)) },
+                { title: '原因', dataIndex: 'reason', width: 150, render: (v: string) => <Tag color="warning">{v}</Tag> },
+                {
+                  title: '明细', key: 'detail', render: (_: unknown, b: DepositBlocked) => (
+                    <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                      {Array.isArray(b.detail) ? b.detail.join('、') : (b.detail ? String(b.detail) : '—')}
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        )}
       </Modal>
     </Card>
   )

@@ -23,10 +23,11 @@ describe('refStatusMeta / refSourceLabel', () => {
     expect(refStatusMeta('unknown_x').label).toBe('unknown_x')
   })
 
-  it('来源类型映射；B3 deposit 预留类型原样透出', () => {
+  it('来源类型映射；deposit=批准沉淀（T16.3 激活），未知类型仍原样透出', () => {
     expect(refSourceLabel('catalog_import')).toBe('目录导入')
     expect(refSourceLabel('manual_upload')).toBe('上传登记')
-    expect(refSourceLabel('deposit')).toBe('deposit')
+    expect(refSourceLabel('deposit')).toBe('批准沉淀')
+    expect(refSourceLabel('future_type')).toBe('future_type')
   })
 })
 

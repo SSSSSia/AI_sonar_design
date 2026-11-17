@@ -20,7 +20,7 @@ export interface RefScriptRow {
   object_key: string
   content_sha256: string
   status: RefScriptStatus
-  source_type: 'catalog_import' | 'manual_upload'
+  source_type: 'catalog_import' | 'manual_upload' | 'deposit'
   source_note?: string | null
   created_by?: string | null
   created_at: string
@@ -107,4 +107,47 @@ export function importRefCatalog(dir?: string) {
     created: number
     unchanged: number
   }>('/kb/references/import-catalog', dir ? { dir } : {})
+}
+
+// ---- B3 候选沉淀（T16.3，ADR-015 v1.1 §9）：真实 gate2 批准 → pending 范例候选 ----
+
+/** 沉淀候选（扫描结果条目）：depositable=false 时 reason 如实（A-16）。 */
+export interface DepositCandidate {
+  session_id: string
+  record_id: string
+  session_title?: string | null
+  decided_at?: string | null
+  reviewer_id?: string | null
+  depositable: boolean
+  ir3_version?: number
+  ir4_overall?: string
+  script_sha256?: string
+  ref_id?: string
+  already_deposited?: boolean
+  existing_row?: RefScriptRow | null
+}
+
+export interface DepositBlocked {
+  session_id: string
+  record_id: string
+  session_title?: string | null
+  decided_at?: string | null
+  reason: string
+  detail?: unknown
+}
+
+/** 扫描可沉淀的 gate2 批准会话（判定链+组合校验+质量门+幂等对照；不含重放）。 */
+export function listDepositCandidates(limit = 50) {
+  return get<{ candidates: DepositCandidate[]; blocked: DepositBlocked[] }>(
+    '/kb/references/deposit-candidates',
+    { limit },
+  )
+}
+
+/** 执行沉淀：真沙箱重放（失败 409 不落行）→ pending 行 + 凭证；同内容幂等返回既有行。 */
+export function depositFromRecord(sessionId: string, recordId: string) {
+  return post<{ already: boolean; row: RefScriptRow; ref_id: string; script_sha256: string }>(
+    '/kb/references/deposit',
+    { session_id: sessionId, record_id: recordId },
+  )
 }

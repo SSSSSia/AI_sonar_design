@@ -11,11 +11,12 @@ export function refStatusMeta(status: string): { label: string; color: string } 
   return known[status as RefScriptStatus] ?? { label: status, color: 'default' }
 }
 
-/** 来源类型展示；B3 沉淀（deposit）等未上线类型原样透出。 */
+/** 来源类型展示；未上线类型原样透出（A-16）。 */
 export function refSourceLabel(sourceType: string): string {
   const known: Record<string, string> = {
     catalog_import: '目录导入',
     manual_upload: '上传登记',
+    deposit: '批准沉淀',
   }
   return known[sourceType] ?? sourceType
 }
