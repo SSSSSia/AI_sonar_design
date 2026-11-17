@@ -59,3 +59,39 @@ def get_review_record(session_id: str, record_id: str) -> Optional[dict[str, Any
         "metadata": _as_obj(row[5]),
         "decided_at": row[6].isoformat() if row[6] is not None else None,
     }
+
+
+def list_approved_gate2_records(limit: int = 50) -> list[dict[str, Any]]:
+    """跨会话列举「真实 gate2 批准」记录（T16.3/B3 候选沉淀的沉淀源，ADR-015 v1.1 §9）。
+
+    判定口径与 api/cad.py C-1 校验链同源：gate='gate2' AND decision='approved'
+    且 metadata->'snapshot_combo' 为 JSON 对象（jsonb null / 非对象不算——jsonb null
+    不是 SQL NULL，须用 jsonb_typeof 判别；finalize 不等于批准——工作稿/历史会话不在此列）。
+    只读、按裁决时间倒序；组合有效性（快照缺失/失效/哈希不符）由调用方逐条校验。
+    """
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT r.id::text, r.session_id::text, r.gate, r.decision, r.metadata,
+                      r.reviewer_id, r.decided_at, s.title
+               FROM review_records r
+               LEFT JOIN design_sessions s ON s.id = r.session_id
+               WHERE r.gate = 'gate2' AND r.decision = 'approved'
+                 AND jsonb_typeof(r.metadata->'snapshot_combo') = 'object'
+               ORDER BY r.decided_at DESC
+               LIMIT %s""",
+            (int(limit),),
+        )
+        rows = cur.fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        out.append({
+            "id": row[0],
+            "session_id": row[1],
+            "gate": row[2],
+            "decision": row[3],
+            "metadata": _as_obj(row[4]),
+            "reviewer_id": row[5],
+            "decided_at": row[6].isoformat() if row[6] is not None else None,
+            "session_title": row[7],
+        })
+    return out
