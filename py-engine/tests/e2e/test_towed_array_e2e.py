@@ -285,5 +285,41 @@ def test_towed_array_full_chain(stack):
                   headers=headers, timeout=30)
     assert r.status_code == 404, f"伪造批准记录应 404: {r.status_code}"
 
+    # 9. B3 候选沉淀（T16.3，ADR-015 v1.1 §9）：真实 gate2 批准 → 候选可见 → 沉淀 pending
+    #    → 重复事件幂等不重复入库。沉淀行不清理（同内容 ref_id=dep-{sha8} 幂等单行自洽，
+    #    反复运行天然验证「重复事件不重复入库」；pending 不参与检索，人工可确认或停用）
+    r = httpx.get(f"{GATEWAY}/api/v1/kb/references/deposit-candidates",
+                  params={"limit": 100}, headers=headers, timeout=30)
+    assert r.status_code == 200, f"沉淀候选扫描应 200: {r.text[:200]}"
+    scan = r.json()
+    # 会话 id 归一（Java API 出参无连字符，PG uuid::text 带连字符——内容相等比对）
+    norm = lambda v: str(v or "").replace("-", "")
+    cand = next((c for c in scan["candidates"] if norm(c["session_id"]) == norm(sid)), None)
+    assert cand is not None, f"本会话 gate2 批准应出现在可沉淀候选: sid={sid}"
+    assert norm(cand["record_id"]) == norm(record_id), f"候选应绑定本批准记录: {cand}"
+    assert not any(norm(b["session_id"]) == norm(sid) for b in scan["blocked"]), \
+        f"组合有效且质量门通过的会话不应进 blocked: {scan['blocked'][:3]}"
+
+    r = httpx.post(f"{GATEWAY}/api/v1/kb/references/deposit", headers=headers,
+                   json={"session_id": norm(sid), "record_id": norm(record_id)}, timeout=300)
+    assert r.status_code == 200, f"沉淀应通过判定链+重放: {r.status_code} {r.text[:300]}"
+    dep = r.json()
+    if not dep["already"]:
+        row = dep["row"]
+        assert row["status"] == "pending", f"沉淀行应 pending（A-16 只产候选）: {row}"
+        assert row["source_type"] == "deposit", f"来源应为 deposit: {row}"
+        note = json.loads(row["source_note"])
+        assert norm(note["session_id"]) == norm(sid), f"凭证应绑定来源: {note}"
+        assert norm(note["record_id"]) == norm(record_id), f"凭证应绑定批准记录: {note}"
+        assert note["ir3_version"] == combo["IR3"]["version"], f"凭证应绑定确切 IR3 版本: {note}"
+        assert note["quality"]["replay"] == "pass", f"凭证应记录重放通过: {note}"
+    row_id = dep["row"]["id"]
+
+    r = httpx.post(f"{GATEWAY}/api/v1/kb/references/deposit", headers=headers,
+                   json={"session_id": norm(sid), "record_id": norm(record_id)}, timeout=300)
+    assert r.status_code == 200 and r.json()["already"] is True, \
+        f"重复沉淀应幂等返回既有行: {r.text[:200]}"
+    assert r.json()["row"]["id"] == row_id, "重复事件应命中同一行（不重复入库）"
+
     print(f"\ne2e 通过：session={sid} run={run_tag} step={step_ref}")
     _cleanup(headers, sid, pid)
