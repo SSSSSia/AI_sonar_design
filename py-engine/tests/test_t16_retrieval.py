@@ -135,6 +135,7 @@ class TestGraphVectorMerge:
         monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: (
             "知识库向量检索结果（Milvus chunks）：\n\n[doc1#p3]\n拖曳线列阵由湿端与干端组成。",
             [{"doc_id": "doc1", "location": "p3"}],
+            [],  # U3.10（82ae35f）起 _try_milvus 为 3 元组：第三位 = 逐块命中 hits（A-16 不造分数）
         ))
         r = svc.query("阵列组成")
         assert r.level == "vector+graph"
@@ -184,4 +185,6 @@ class TestResultContract:
     def test_to_dict_shape(self):
         r = RetrievalResult("c", "text", ["local", "basic"], [{"doc_id": "d", "location": "段落1"}])
         d = r.to_dict()
-        assert set(d) == {"content", "level", "degraded_from", "refs"}
+        # U3.10（82ae35f）起 to_dict 为 5 键：hits=向量层逐块命中（缺省 []，A-16 不造分数）
+        assert set(d) == {"content", "level", "degraded_from", "refs", "hits"}
+        assert d["hits"] == []
