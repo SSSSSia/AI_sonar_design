@@ -3,9 +3,13 @@
 智能辅助声呐装备设计系统的 FreeCAD 端（PHASE-008，ADR-004）：登录平台 → 拉取 A3 生成
 的三维模型 → 在 FreeCAD 内对话微调 → 定稿回传平台（IR3 版本链 + 审阅关②）。
 
-自研 CadAgent 插件（`D:\Download\FreeCAD\Mod\CadAgent`，只读参考）迁移改造：
-复用 CQ 翻译层/质量门禁/几何分析/渲染器，废弃本地 LLM 直连与会话落盘——
-大脑在平台后端（py-engine `cad_agent`），插件是无状态执行器 + 聊天面板。
+自研 CadAgent 插件（上游仓库 [SSSSSia/CadAgent](https://github.com/SSSSSia/CadAgent)，
+本地 `D:\Download\FreeCAD\Mod\CadAgent`，只读参考）迁移改造：复用 CQ 翻译层/质量门禁/
+几何分析/渲染器，废弃本地 LLM 直连与会话落盘——大脑在平台后端（py-engine `cad_agent`），
+插件是无状态执行器 + 聊天面板。**上游同步 regime 见 ADR-004 §5**（事件驱动一次性回迁；
+T8.8 已对齐上游 v1.4.1：翻译层补齐 hole/cboreHole/revolve/shell/polarArray 等原语 +
+平面定向 + 材料移除自证 + S11 三个 P0 几何修复，桩级测试 213 例引进作回归网；
+真机验证仍以下方清单为准，上游真机回归门 `scripts/verify_freecad_behavior.py` 可作参考）。
 
 ## 安装（FreeCAD ≥ 1.0）
 
@@ -84,8 +88,14 @@ SonarCADLink/
 
 来源：`client/`、`snapshot_lite.py` 新写；`executor.py` 改编自 CadAgent `tools.py`；
 `panel.py` 改编自 CadAgent `ui/*`；`cad/` 其余与渲染件自 CadAgent `agent/core/ui`
-原样迁移（import 改为 `sonarlink.*` 绝对路径）。
+原样迁移（import 改为 `sonarlink.*` 绝对路径）；T8.8（2026-11-21）起 `cad/`
+六文件（cq/cad_helpers/code_fixes/quality/geometry_analyzer/doc_analyzer）对齐上游
+v1.4.1，另有仓内 `cad/logger.py` 最小 shim（上游 core.logger 等价物）。
 
-协议与 import 图单测在仓库 `clients/freecad-plugin/tests/`（无 FreeCAD 环境可跑：
-`test_platform_client.py` 覆盖平台协议链路；`test_import_graph.py` 以 FreeCAD/Qt
-桩模块逐个导入 sonarlink 全部模块，抓 import 路径错漏；FreeCAD 真机行为走上面的人工验收清单）。
+协议与 import 图单测在仓库 `clients/freecad-plugin/tests/`（**无 FreeCAD 环境可跑，
+裸跑 `python -m pytest tests` 即可**（T8.8 起 conftest 自动注入路径）：存量 18 例
+（`test_platform_client.py` 平台协议 / `test_import_graph.py` FreeCAD/Qt 桩全模块
+导入 / `test_initgui_exec.py` / `test_t141_executor.py`）+ 自上游引进 213 例
+（`test_cq_workplane.py` 翻译层 105 例 / `test_code_fixes.py` 60 例 /
+`test_cad_helpers.py` 48 例——桩化适配，含大脑 prompt 示例在插件沙箱可执行的
+「承诺面=执行面」锁）；FreeCAD 真机行为走上面的人工验收清单。
