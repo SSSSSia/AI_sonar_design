@@ -132,6 +132,22 @@ class Neo4jStore:
             record = result.single()
             return record["c"] if record else 0
 
+    def delete_by_source_session(self, session_id: str) -> int:
+        """按会话 id 删除其来源节点（e2e teardown 测试卫生，M-2 欠账清偿）。
+
+        与 deprecate_by_source_doc 的生产语义相反（图谱不删实体，A-10）：这里删的是
+        **测试会话**写入的节点（session_id 经网关原样透传进 source_session，精确限定），
+        目的=同图重跑幂等（A5 判重对同名含 deprecated 全判 duplicate → 回写 400）。
+        生产代码不得调用；可用性守卫由调用方/本方法 available() 承担。
+        """
+        with self._get_driver().session() as session:
+            result = session.run(
+                "MATCH (e) WHERE e.source_session = $sid DETACH DELETE e RETURN count(e) AS c",
+                sid=session_id,
+            )
+            record = result.single()
+            return record["c"] if record else 0
+
     def find_entities_matching(self, query: str, limit: int = 5,
                                doc_ids: list[str] | None = None,
                                kb_ids: list[str] | None = None) -> list[dict[str, Any]]:

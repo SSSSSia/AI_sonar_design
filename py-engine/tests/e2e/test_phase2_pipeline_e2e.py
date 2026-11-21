@@ -105,6 +105,27 @@ def _cleanup(headers, sid=None, pid=None):
         print(f"cleanup project -> {r.status_code}")
 
 
+def _graph_cleanup(sid: str) -> None:
+    """图谱卫生（M-2 欠账清偿）：删除本会话写入的节点（best-effort；无图环境静默跳过）。
+
+    知识关批准把实体写入真 Neo4j（source_session=网关 sid 原样透传）；teardown 不清
+    则同图重跑 A5 判重全 duplicate → 回写 400（登记欠账 HANDOFF :85，2026-11-16）。
+    图节点内容可再造，无论成败都清（失败现场由 PG 保留）；按 sid 精确限定，
+    不触碰其他会话/知识库资产（A-10 的图谱不删语义不适用于按 sid 限定的测试卫生）。
+    """
+    try:
+        from storage.neo4j_store import Neo4jStore
+
+        store = Neo4jStore()
+        if not store.available():
+            print("graph cleanup skipped: neo4j unavailable")
+            return
+        n = store.delete_by_source_session(sid)
+        print(f"graph cleanup: deleted {n} nodes for session {sid[:8]}…")
+    except Exception as exc:  # 卫生行为不倒灌测试结果
+        print(f"graph cleanup error (ignored): {exc}")
+
+
 def _session_state(headers, sid: str) -> dict:
     r = httpx.get(f"{GATEWAY}/api/v1/workflow/sessions/{sid}", headers=headers, timeout=10)
     assert r.status_code == 200, r.text
@@ -139,7 +160,7 @@ def _versions(headers, sid: str, ir_type: str) -> list[dict]:
     return r.json()["data"]
 
 
-def test_phase2_full_gate_loop(stack):
+def test_phase2_full_gate_loop(stack, request):
     token = _login()
     headers = {"Authorization": f"Bearer {token}"}
     run_tag = f"p2e2e-{uuid.uuid4().hex[:8]}"
@@ -155,6 +176,8 @@ def test_phase2_full_gate_loop(stack):
                    timeout=15)
     assert r.status_code == 200, r.text
     sid = r.json()["data"]["id"]
+    # M-2：图谱卫生无论成败都执行（注册即生效，测试结束/失败均触发）
+    request.addfinalizer(lambda: _graph_cleanup(sid))
     r = httpx.post(f"{GATEWAY}/api/v1/workflow/sessions/{sid}/events", headers=headers,
                    json={"event": "START"}, timeout=15)
     assert r.status_code == 200, r.text
