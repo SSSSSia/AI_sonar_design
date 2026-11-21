@@ -9,6 +9,8 @@
 - 质量门禁不再强制"每轮必须执行代码"——纯问答轮（无工具调用）合法结束，
   script=None，不触发版本上传；门禁只拦"质量 FAIL 还想收尾"；
 - 重复错误检测保留（同签名错误注入"必须换思路"警告，替代原 REPAIR_LOOP 注入）；
+  T8.8 对齐上游 S11-R4：签名**数字归一**（FreeCAD traceback 行号/OCC 噪声每次不同，
+  裸前缀比对几乎永不命中、去重形同虚设——归一后"同思路换参数"也能命中）；
 - 迭代上限（A-13）、质量门禁逃逸 hatch（连续 3 次阻断后放行失败）保留；
 - 首轮编辑清单随 system prompt 注入（每轮新建 Runner，跨轮状态经 API 层上下文传递）。
 """
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from cad_agent.prompts import TUNE_SYSTEM_PROMPT
@@ -194,15 +197,29 @@ class TuneRoundRunner:
             self._last_quality_status = "fail"
             self._last_quality_summary = result.get("error", "")
 
+    @staticmethod
+    def _error_signature(result_text: str) -> str:
+        """错误签名（上游 S11-R4 语义，T8.8 对齐）：剥 ERROR:/FAIL: 前缀、取首行、
+        数字归一为 #、截 120 字符——traceback 行号与 OCC 噪声每次都不同，
+        数字归一后"同思路换参数重试"才进得了去重窗口。"""
+        text = result_text or ""
+        for prefix in ("ERROR: ", "FAIL: ", "ERROR:", "FAIL:"):
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+                break
+        first_line = text.strip().splitlines()[0] if text.strip() else ""
+        return re.sub(r"\d+", "#", first_line)[:120]
+
     def _annotate_repeated_errors(self, result_text: str, result: dict) -> str:
         if not result.get("ok"):
-            sig = result_text[:80]
-            if any(sig == prev[:80] for prev in self._recent_errors):
+            sig = self._error_signature(result_text)
+            if sig and sig in self._recent_errors:
                 result_text += ("\n\nWARNING: REPEATED ERROR. You MUST change your approach. "
                                 "Do NOT resubmit similar code.")
-            self._recent_errors.append(sig)
-            if len(self._recent_errors) > 5:
-                self._recent_errors.pop(0)
+            if sig:
+                self._recent_errors.append(sig)
+                if len(self._recent_errors) > 5:
+                    self._recent_errors.pop(0)
         return result_text
 
     # ------------------------------------------------------------------

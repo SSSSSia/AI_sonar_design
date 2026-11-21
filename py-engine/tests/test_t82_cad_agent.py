@@ -168,6 +168,32 @@ def test_runner_repeated_error_annotation():
     assert second, "重复错误应注入换思路警告"
 
 
+def test_runner_error_signature_number_normalized():
+    """T8.8 对齐上游 S11-R4：签名数字归一——同思路换参数（traceback 行号不同）
+    也要命中去重注入换思路警告；旧裸前缀比对在此场景永不命中（去重形同虚设）。"""
+    seen, received = [], []
+    llm = _make_llm([TOOL_CALL, TOOL_CALL, "还是不行。", "放弃。"], seen)
+    exe = _make_executor([
+        {"ok": False, "error": "OCC boolean failed at line 42: fuse aborted"},
+        {"ok": False, "error": "OCC boolean failed at line 87: fuse aborted"},
+    ], received)
+    runner = _runner(llm, exe)
+    runner.run()
+    second = next(m for m in runner.messages
+                  if "[Tool Result" in (m.get("content") or "")
+                  and "line 87" in (m.get("content") or ""))
+    assert "REPEATED ERROR" in second["content"]
+
+
+def test_error_signature_normalizes_digits():
+    """_error_signature 直测：前缀剥离 + 首行 + 数字归一 #。"""
+    sig_a = TuneRoundRunner._error_signature("ERROR: boolean failed at line 42\nmore")
+    sig_b = TuneRoundRunner._error_signature("ERROR: boolean failed at line 999\nother")
+    assert sig_a == sig_b == "boolean failed at line #"
+    assert TuneRoundRunner._error_signature("FAIL: MULTI_SOLID: 2 solids") == "MULTI_SOLID: # solids"
+    assert TuneRoundRunner._error_signature("") == ""
+
+
 def test_runner_llm_failure_is_honest():
     seen, received = [], []
 

@@ -26,10 +26,38 @@ helpers safe_fuse/safe_cut/extract_solid. Do NOT import cadquery or FreeCAD.
 (shape-level, NOT feature-tree editing).
 - The script MUST end with `result = <a single solid Shape>` and \
 `cq_show(result, "Edit")` to update the viewport.
-- All dimensions in mm. No fillet/chamfer (topology errors). Keep edits minimal \
+- All dimensions in mm. No fillet/chamfer (topology errors) — `cq` implements them, \
+but they stay off-limits in tuning edits. Keep edits minimal \
 and focused on the user request.
 - `model` itself never changes; always derive: result = model.cut(...) / \
 safe_fuse(model, ...) etc.
+
+cq API QUICK REFERENCE (the plugin's `cq` implements exactly this surface — \
+anything not listed below is likely unsupported, prefer these primitives):
+- cq.Workplane("XY"|"XZ"|"YZ") — sketch plane. Extrude follows the normal: \
+XY +Z, XZ -Y, YZ +X.
+- .workplane(offset=N) / .workplane(origin=(x,y,z)) — offset moves along the \
+plane normal; a 3-tuple origin is global coordinates.
+- .box(L, W, H) / .cylinder(H, R) / .cone(r1, r2, H) / .sphere(R) / \
+.torus(major_r, minor_r) — primitives (cylinder is HEIGHT first, RADIUS second).
+- .circle(R).extrude(H) — cylinder rising from the sketch; \
+.circle(R1).circle(R2).extrude(H) — tube open at both ends; \
+.extrude(H, both=True) — extrudes symmetrically.
+- .polarArray(radius, startAngle, angle, count) / .rarray(xSpacing, ySpacing, \
+xCount, yCount) — location patterns for the next sketch or hole.
+- .hole(diameter, depth=None) — drill at each location; depth=None goes \
+through the solid, a finite depth drills that deep from the solid's top face.
+- .cboreHole(diameter, cboreDiameter, cboreDepth, depth=None) — counterbored \
+hole seated at the solid's top face.
+- .shell(thickness, open=None) — hollow a plain box or cylinder \
+(open: "top"/"bottom"/None).
+- .circle(R).revolve(angleDegrees=360, axis="Y") or \
+.moveTo(..).lineTo(..).close().revolve(..) — revolve a closed profile; \
+the profile must sit off the axis.
+- .cut(other) / .union(other) / .intersect(other) — booleans (new Workplane).
+- .translate((x, y, z)) / .rotate((cx,cy,cz), (ax,ay,az), angle_degrees) / \
+.mirror("XY"|"XZ"|"YZ") — transforms (return NEW Workplane, original unchanged).
+- result.solid() — raw FreeCAD solid for advanced operations.
 
 WORKFLOW:
 1. Read the CONTEXT (geometry summary, user selection) before writing code. \
