@@ -1,0 +1,507 @@
+"""Tests for agent/code_fixes.py — pre-validation and error hints."""
+from __future__ import annotations
+
+from tests.helpers import load_module
+
+_mod = load_module("code_fixes", "sonarlink", "cad", "code_fixes.py")
+pre_validate_code = _mod.pre_validate_code
+error_hint = _mod.error_hint
+unsupported_cq_call = _mod.unsupported_cq_call
+vessel_floor_warning = _mod.vessel_floor_warning
+
+
+# ---- pre_validate_code ----
+
+def test_valid_code():
+    ok, msg = pre_validate_code("x = 1\ny = 2")
+    assert ok
+    assert msg == ""
+
+
+def test_syntax_error_missing_colon():
+    ok, msg = pre_validate_code("if True\n  pass")
+    assert not ok
+    assert "SyntaxError" in msg
+
+
+def test_syntax_error_unmatched_bracket():
+    ok, msg = pre_validate_code("x = [1, 2")
+    assert not ok
+    assert "SyntaxError" in msg
+
+
+def test_syntax_error_bad_indent():
+    ok, msg = pre_validate_code("if True:\n  x = 1\n y = 2")
+    assert not ok
+    assert "SyntaxError" in msg
+
+
+# ---- error_hint ----
+
+def test_name_error_hint():
+    err = NameError("name 'doc' is not defined")
+    hint, fixed = error_hint(err, "doc.recompute()")
+    assert "FreeCADGui" in hint
+    assert "doc" in hint
+    assert fixed is None
+
+
+def test_name_error_bare_gui_auto_fix():
+    err = NameError("name 'Gui' is not defined")
+    hint, fixed = error_hint(err, "Gui.updateGui()")
+    assert "FreeCADGui" in hint
+    assert fixed is not None
+    assert "FreeCADGui.updateGui()" in fixed
+    assert "Gui." not in fixed.replace("FreeCADGui.", "")
+
+
+def test_name_error_bare_makebox_auto_fix():
+    err = NameError("name 'makeBox' is not defined")
+    hint, fixed = error_hint(err, "box = makeBox(100, 50, 30)")
+    assert "Part.makeBox" in hint
+    assert fixed is not None
+    assert "Part.makeBox" in fixed
+    assert "makeBox" not in fixed.replace("Part.makeBox", "")
+
+
+def test_attribute_error_none_translate():
+    err = AttributeError("'NoneType' object has no attribute 'Shape'")
+    hint, fixed = error_hint(err, "shape = shape.translate(FreeCAD.Vector(1,2,3))")
+    assert "translate" in hint
+    assert fixed is not None
+    assert "shape = shape.translate" not in fixed
+    assert "shape.translate" in fixed
+
+
+def test_attribute_error_none_boolean():
+    err = AttributeError("'NoneType' object has no attribute 'Shape'")
+    hint, fixed = error_hint(err, "body.cut(hole)\nprint(body)")
+    assert fixed is not None
+    assert "body = body.cut(hole)" in fixed
+
+
+def test_attribute_error_vector_case():
+    err = AttributeError("'module' object has no attribute 'vector'")
+    hint, fixed = error_hint(err, "v = FreeCAD.vector(1, 2, 3)")
+    assert "Vector" in hint
+    assert fixed is not None
+    assert "FreeCAD.Vector" in fixed
+
+
+def test_type_error_translate():
+    err = TypeError("translate() takes 1 positional argument but 3 were given")
+    hint, fixed = error_hint(err, "shape.translate(1, 2, 3)")
+    assert "Vector" in hint
+    assert fixed is not None
+    assert "FreeCAD.Vector(1, 2, 3)" in fixed
+
+
+def test_type_error_translate_no_auto_fix():
+    err = TypeError("translate() takes 1 positional argument but 3 were given")
+    hint, fixed = error_hint(err, "shape.translate(FreeCAD.Vector(1, 2, 3))")
+    assert "Vector" in hint
+    assert fixed is None
+
+
+def test_occ_error_hint():
+    class OCCError(Exception):
+        pass
+    err = OCCError("BRep_API: command terminated")
+    hint, fixed = error_hint(err, "body = body.cut(hole)")
+    assert "Boolean" in hint or "overlap" in hint
+    assert fixed is None
+
+
+def test_no_hint_for_unknown():
+    err = ValueError("something unexpected")
+    hint, fixed = error_hint(err, "x = 1")
+    assert hint == ""
+    assert fixed is None
+
+
+def test_makepipe_error_hint_with_autofix():
+    err = AttributeError("'Part.Edge' object has no attribute 'makePipe'")
+    hint, fixed = error_hint(err, "handle = arc_edge.makePipe(profile)")
+    assert "Wire" in hint
+    assert "NOT" in hint
+    assert fixed is not None
+    assert "Part.Wire([arc_edge]).makePipe(profile)" in fixed
+
+
+def test_makepipe_error_hint_no_match_in_code():
+    err = AttributeError("'Part.Edge' object has no attribute 'makePipe'")
+    hint, fixed = error_hint(err, "x = 1\ny = 2")
+    assert "Wire" in hint
+    assert fixed is None
+
+
+def test_improved_generic_attribute_error():
+    err = AttributeError("'Part.Edge' object has no attribute 'makeLoft'")
+    hint, fixed = error_hint(err, "x = edge.makeLoft(wires)")
+    assert "makeLoft" in hint
+    assert "Edge" in hint
+    assert "Wire" in hint
+
+
+def test_makeellipse_error_hint():
+    err = AttributeError("module 'Part' has no attribute 'makeEllipse'")
+    hint, fixed = error_hint(err, "e = Part.makeEllipse(50, 30)")
+    assert "Part.Ellipse()" in hint
+    assert "MajorRadius" in hint
+    assert fixed is None
+
+
+def test_occ_error_collinear_hint():
+    """OCCError with collinear points should give specific Arc hint."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("Three points are collinear")
+    hint, fixed = error_hint(err, "arc = Part.Arc(p1, p2, p3)")
+    assert "collinear" in hint.lower() or "three points" in hint.lower()
+    assert "Part.Arc" in hint
+    assert "mid-point" in hint
+    assert fixed is None
+
+
+def test_occ_error_null_shape_hint():
+    """OCCError with Null shape should give specific hint."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("Null shape")
+    hint, fixed = error_hint(err, "handle = path.makePipe(profile)")
+    assert "null" in hint.lower()
+    assert "overlap" in hint.lower() or "boolean" in hint.lower() or "makePipe" in hint
+    assert fixed is None
+
+
+def test_valueerror_null_shape_hint():
+    """ValueError: Null shape (the most common real-world case) must produce a hint."""
+    err = ValueError("Null shape")
+    hint, fixed = error_hint(err, "body = body.cut(hole)")
+    assert "null" in hint.lower()
+    assert "boolean" in hint.lower() or "overlap" in hint.lower()
+    assert fixed is None
+
+
+def test_valueerror_expected_1_solid_hint():
+    """ValueError: Expected 1 solid from safe_fuse must suggest helpers."""
+    err = ValueError(
+        "Expected 1 solid, got 2. Shapes must physically overlap "
+        "for fuse to merge into one solid."
+    )
+    hint, fixed = error_hint(err, "cup_body = safe_fuse(cup_body, handle)")
+    assert "overlap" in hint.lower()
+    assert "make_arc_handle" in hint or "make_box_handle" in hint
+    assert fixed is None
+
+
+def test_occ_command_not_done_revolve_hint():
+    """BRep_API: command not done with revolve() should give revolve-specific hint."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("BRep_API: command not done")
+    code = "mouse_body = wire.revolve(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 180)"
+    hint, fixed = error_hint(err, code)
+    assert "revolve" in hint.lower()
+    assert "CLOSED" in hint or "closed" in hint
+    assert fixed is None
+
+
+def test_occ_argument_signature_hint():
+    """OCCError: Argument list signature incorrect should hint Wire vs Edge."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("Argument list signature is incorrect.\n\nSupported signatures:\n(face)\n(wire)")
+    hint, fixed = error_hint(err, "face = Part.Face(wire)")
+    assert "Wire" in hint
+    assert "Edge" in hint
+    assert fixed is None
+
+
+def test_sweep_not_exist_hint():
+    """AttributeError: 'sweep' should suggest makePipe."""
+    err = AttributeError("'Part.Edge' object has no attribute 'sweep'")
+    hint, fixed = error_hint(err, "mouse_body = wire_arc.sweep(path_wire, True)")
+    assert "sweep" in hint
+    assert "makePipe" in hint or "makeLoft" in hint
+    assert fixed is None
+
+
+# ---- S5-A2: NotImplementedError (XY-only workplane) hints ----
+
+def test_not_implemented_plane_hint():
+    err = NotImplementedError(
+        "Workplane plane 'front' is not supported. Use 'XY', 'XZ', or 'YZ'."
+    )
+    hint, fixed = error_hint(err, "body = cq.Workplane('front').circle(10).extrude(5)")
+    assert "XZ" in hint and "YZ" in hint
+    assert "workplane(offset" in hint
+    assert fixed is None
+
+
+def test_not_implemented_generic_hint():
+    err = NotImplementedError("lineTo sketch paths are not supported.")
+    hint, fixed = error_hint(err, "wp.lineTo(0, 10)")
+    assert "not supported" in hint
+    assert fixed is None
+
+
+# ===========================================================================
+# Phase 5: Auto-retry eligibility boundary tests
+# ===========================================================================
+
+# --- Eligible: error_hint returns fixed_code → auto-retry should trigger ---
+
+def test_auto_retry_eligible_bare_gui():
+    err = NameError("name 'Gui' is not defined")
+    _, fixed = error_hint(err, "Gui.SendMsgToActiveView('Enter')")
+    assert fixed is not None
+
+
+def test_auto_retry_eligible_misspelled_freecadgui():
+    err = NameError("name 'FreecadGUI' is not defined")
+    _, fixed = error_hint(err, "FreecadGUI.SendMsgToActiveView('Enter')")
+    assert fixed is not None
+    assert "FreeCADGui" in fixed
+
+
+def test_auto_retry_eligible_bare_makebox():
+    err = NameError("name 'makeBox' is not defined")
+    _, fixed = error_hint(err, "box = makeBox(10, 20, 30)")
+    assert fixed is not None
+    assert "Part.makeBox" in fixed
+
+
+def test_auto_retry_eligible_translate_assignment():
+    err = AttributeError("'NoneType' object has no attribute 'Shape'")
+    _, fixed = error_hint(err, "shape = shape.translate(FreeCAD.Vector(1,2,3))")
+    assert fixed is not None
+    assert "shape = shape.translate" not in fixed
+
+
+def test_auto_retry_eligible_boolean_no_assign():
+    err = AttributeError("'NoneType' object has no attribute 'Shape'")
+    _, fixed = error_hint(err, "body.cut(hole)")
+    assert fixed is not None
+    assert "body = body.cut(hole)" in fixed
+
+
+def test_auto_retry_eligible_vector_case():
+    err = AttributeError("'module' object has no attribute 'vector'")
+    _, fixed = error_hint(err, "v = FreeCAD.vector(1, 2, 3)")
+    assert fixed is not None
+    assert "FreeCAD.Vector" in fixed
+
+
+def test_auto_retry_eligible_makepipe_edge():
+    err = AttributeError("'Part.Edge' object has no attribute 'makePipe'")
+    _, fixed = error_hint(err, "pipe = arc_edge.makePipe(profile)")
+    assert fixed is not None
+
+
+def test_auto_retry_eligible_translate_args():
+    err = TypeError("translate() takes 1 positional argument but 3 were given")
+    _, fixed = error_hint(err, "shape.translate(1, 2, 3)")
+    assert fixed is not None
+    assert "FreeCAD.Vector(1, 2, 3)" in fixed
+
+
+# --- NOT eligible: error_hint returns None → no auto-retry ---
+
+def test_auto_retry_not_eligible_null_shape():
+    err = ValueError("Null shape")
+    _, fixed = error_hint(err, "body = body.cut(hole)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_occ_error():
+    class OCCError(Exception):
+        pass
+    err = OCCError("BRep_API: command terminated")
+    _, fixed = error_hint(err, "body = body.cut(hole)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_makeellipse():
+    err = AttributeError("module 'Part' has no attribute 'makeEllipse'")
+    _, fixed = error_hint(err, "e = Part.makeEllipse(50, 30)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_sweep():
+    err = AttributeError("'Part.Edge' object has no attribute 'sweep'")
+    _, fixed = error_hint(err, "body = wire.sweep(path)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_doc_is_none():
+    err = AttributeError("'NoneType' object has no attribute 'addObject'")
+    _, fixed = error_hint(err, "obj = doc.addObject('Part::Feature', 'Box')")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_unknown_error():
+    err = ValueError("something unexpected")
+    _, fixed = error_hint(err, "x = 1")
+    assert fixed is None
+
+
+# ---- S2-A9: ImportError branch (import cadquery) ----
+
+class TestImportErrorHints:
+
+    def _import_error(self, msg="No module named 'cadquery'"):
+        try:
+            raise ImportError(msg)
+        except ImportError as e:
+            return e
+
+    def test_import_cadquery_removes_line(self):
+        code = "import cadquery\nbody = cq.Workplane('XY').box(10, 10, 10)"
+        hint, fixed = error_hint(self._import_error(), code)
+        assert "Do NOT 'import cadquery'" in hint
+        assert fixed is not None
+        assert "import cadquery" not in fixed
+        assert "cq.Workplane" in fixed
+
+    def test_import_cadquery_as_alias_rebinds(self):
+        code = "import cadquery as cqd\nbody = cqd.Workplane('XY').box(1, 1, 1)"
+        hint, fixed = error_hint(self._import_error(), code)
+        assert fixed is not None
+        assert "import cadquery" not in fixed
+        assert "cqd = cq" in fixed
+        assert "cqd.Workplane" in fixed
+
+    def test_module_not_found_same_branch(self):
+        try:
+            raise ModuleNotFoundError("No module named 'cadquery'")
+        except ModuleNotFoundError as e:
+            err = e
+        code = "import cadquery\nx = 1"
+        hint, fixed = error_hint(err, code)
+        assert "cq" in hint
+        assert fixed == "\nx = 1" or fixed == "x = 1"
+
+    def test_other_import_returns_hint_only(self):
+        code = "import nonexistent_module\nx = 1"
+        hint, fixed = error_hint(self._import_error("No module named 'nonexistent_module'"), code)
+        assert "Unknown import" in hint
+        assert fixed is None
+
+
+# ---- S5-A6/A7: shared cadquery fixer + universal syntax gate ----
+
+class TestCadqueryNameErrorFix:
+    """NameError raised while an 'import cadquery' line is still in the code."""
+
+    def test_name_error_with_bare_import(self):
+        # The failing line runs before the import line, so a NameError fires
+        # while an 'import cadquery' line is still in the code.
+        err = NameError("name 'body' is not defined")
+        code = "body = cq.Workplane('XY').box(10, 10, 10)\nimport cadquery"
+        hint, fixed = error_hint(err, code)
+        assert "import cadquery" in hint
+        assert fixed is not None
+        assert "import cadquery" not in fixed
+        assert pre_validate_code(fixed)[0]
+
+    def test_name_error_with_alias_import(self):
+        err = NameError("name 'body' is not defined")
+        code = "import cadquery as cqd\nbody2 = cqd.Workplane('XY').box(1, 1, 1)"
+        hint, fixed = error_hint(err, code)
+        assert fixed is not None
+        assert "cqd = cq" in fixed
+        assert "import cadquery" not in fixed
+        assert pre_validate_code(fixed)[0]
+
+    def test_name_error_cadquery_no_import_line_no_fix(self):
+        # Error mentions cadquery but there is no import line to remove —
+        # no pointless re-run of identical code (old code returned it verbatim).
+        err = NameError("name 'cadquery' is not defined")
+        code = "body = cadquery.Workplane('XY').box(1, 1, 1)"
+        hint, fixed = error_hint(err, code)
+        assert fixed is None
+        assert hint
+
+
+class TestSyntaxGate:
+    """All fixed_code passes the _gated() compile gate before leaving error_hint."""
+
+    def test_gate_helper_drops_uncompilable(self):
+        assert _mod._gated("x = (1, 2", "x = f(1, 2)") is None
+
+    def test_gate_helper_drops_unchanged(self):
+        assert _mod._gated("x = f(1, 2)", "x = f(1, 2)") is None
+
+    def test_gate_helper_passes_none_through(self):
+        assert _mod._gated(None, "x = f(1, 2)") is None
+
+    def test_gate_helper_keeps_valid_fix(self):
+        assert _mod._gated("y = f(1, 2)", "x = f(1, 2)") == "y = f(1, 2)"
+
+    def test_error_hint_blocks_unchanged_fix(self):
+        # A fixer that returns the code unchanged must not trigger a retry
+        # (the old NameError cadquery branch did exactly this).
+        err = NameError("name 'makeBox' is not defined")
+        code = "box = Part.makeBox(10, 20, 30)\nprint(box)"  # nothing bare to fix
+        hint, fixed = error_hint(err, code)
+        assert fixed is None
+        assert hint
+
+
+def test_unsupported_loft_names_cone_and_not_makeloft():
+    msg = unsupported_cq_call("body.loft()")
+    assert msg.startswith("ERROR:")
+    assert "cone" in msg
+    assert "makeLoft" not in msg
+
+
+def test_unsupported_edges_top():
+    msg = unsupported_cq_call('solid.fillet(2, edges="top")')
+    assert "edges='top'" in msg
+    assert "vertical" in msg
+
+
+def test_workplane_offset_is_allowed():
+    code = 'cq.Workplane("XY").workplane(offset=5).circle(1).extrude(2)'
+    assert unsupported_cq_call(code) is None
+
+
+def test_open_mug_tube_is_rejected():
+    code = (
+        'body = cq.Workplane("XY").circle(40).circle(37).extrude(100)\n'
+        'cq_show(body, "Simple Mug")\n'
+    )
+    note = vessel_floor_warning(code, "创建简化版的马克杯")
+    assert note is not None
+    assert "both ends" in note
+
+
+def test_mug_with_floor_and_arc_handle_is_accepted():
+    code = (
+        "floor = cq.Workplane('XY').circle(outer_r).extrude(FLOOR)\n"
+        "wall = cq.Workplane('XY').circle(outer_r).circle(inner_r).extrude(95)\n"
+        "handle = make_arc_handle(cup_radius=outer_r, handle_r=6, arc_r=18, z_center=50)\n"
+        'cq_show(mug, "Mug")\n'
+    )
+    assert vessel_floor_warning(code, "mug") is None
+
+
+def test_box_handle_on_a_mug_is_rejected():
+    code = (
+        "floor = cq.Workplane('XY').circle(40).extrude(5)\n"
+        "wall = cq.Workplane('XY').circle(40).circle(37).extrude(95)\n"
+        "handle = make_box_handle(cup_radius=40, width=12, depth=20, height=70, z=15)\n"
+        'cq_show(mug, "Mug")\n'
+    )
+    note = vessel_floor_warning(code, "mug")
+    assert note is not None
+    assert "make_arc_handle" in note
+
+
+def test_workplane_loft_hint_does_not_suggest_makeloft():
+    err = AttributeError("'Workplane' object has no attribute 'loft'")
+    hint, fixed = error_hint(err, "body.loft()")
+    assert "cone" in hint
+    assert "makeLoft" not in hint
+    assert fixed is None

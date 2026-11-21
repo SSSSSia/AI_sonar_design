@@ -1,0 +1,1344 @@
+"""Tests for sonarlink/cad/cq.py — CadQuery-style Workplane wrapper.
+
+Adopted from upstream CadAgent v1.4.1 tests/test_cq_workplane.py (T8.8,
+ADR-004 §5); module paths re-pointed to the sonarlink package.  The prompt
+example test validates the py-engine brain's embedded example instead of the
+upstream autonomous prompts (promise-execution alignment: the example the
+LLM is shown must run under the very cq sandbox the plugin provides).
+Uses mock objects to simulate FreeCAD's Part module, following the project
+pattern of importlib.util.spec_from_file_location to avoid real FreeCAD deps.
+"""
+from __future__ import annotations
+
+import json
+import math
+import re
+import types
+from dataclasses import dataclass
+
+import pytest
+
+from tests.helpers import install_sys_modules, load_module, restore_sys_modules
+
+# ---------------------------------------------------------------------------
+# Minimal FreeCAD / Part mock so we can load cq.py without a real FreeCAD
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _MockShape:
+    """Lightweight FreeCAD shape stand-in."""
+    shape_type: str = "Solid"
+    is_null: bool = False
+    volume: float = 0.0
+    solids: list = None
+    bounds: tuple = (0, 0, 0, 0, 0, 0)
+    area: float = 0.0
+
+    def __post_init__(self):
+        if self.solids is None:
+            self.solids = [self]
+
+    # ShapeType is a property in FreeCAD, not an attribute
+    @property
+    def ShapeType(self):
+        return self.shape_type
+
+    def isNull(self):
+        return self.is_null
+
+    @property
+    def Solids(self):
+        return self.solids
+
+    @property
+    def Volume(self):
+        return self.volume
+
+    def copy(self):
+        return _MockShape(
+            shape_type=self.shape_type,
+            is_null=self.is_null,
+            volume=self.volume,
+            solids=[self],
+            bounds=self.bounds,
+        )
+
+    def translate(self, vec):
+        """Simulate translate — just update bounds."""
+        self.bounds = tuple(b + v for b, v in zip(self.bounds, [vec.x, vec.y, vec.z,
+                                                                 vec.x, vec.y, vec.z]))
+
+    def fuse(self, other):
+        a, b = self.bounds, other.bounds
+        return _MockShape(shape_type="Solid",
+                          volume=self.volume + other.volume,
+                          solids=[self],
+                          bounds=(min(a[0], b[0]), min(a[1], b[1]), min(a[2], b[2]),
+                                  max(a[3], b[3]), max(a[4], b[4]), max(a[5], b[5])))
+
+    def cut(self, other):
+        # Cut removes material — remaining bbox is a subset of self's
+        return _MockShape(shape_type="Solid", solids=[self],
+                          volume=max(0, self.volume - other.volume),
+                          bounds=self.bounds)
+
+    def common(self, other):
+        return _MockShape(shape_type="Solid", solids=[self], volume=0)
+
+    def rotate(self, center, axis, angle):
+        """Right-handed rotation of the bbox corners. Matches FreeCAD."""
+        ang = math.radians(angle)
+        ax, ay, az = axis.x, axis.y, axis.z
+        norm = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+        ax, ay, az = ax / norm, ay / norm, az / norm
+        c, s = math.cos(ang), math.sin(ang)
+        cx, cy, cz = center.x, center.y, center.z
+        x0, y0, z0, x1, y1, z1 = self.bounds
+        corners = []
+        for x in (x0, x1):
+            for y in (y0, y1):
+                for z in (z0, z1):
+                    vx, vy, vz = x - cx, y - cy, z - cz
+                    dot = ax * vx + ay * vy + az * vz
+                    rx = vx * c + (ay * vz - az * vy) * s + ax * dot * (1 - c)
+                    ry = vy * c + (az * vx - ax * vz) * s + ay * dot * (1 - c)
+                    rz = vz * c + (ax * vy - ay * vx) * s + az * dot * (1 - c)
+                    corners.append((rx + cx, ry + cy, rz + cz))
+        xs = [p[0] for p in corners]
+        ys = [p[1] for p in corners]
+        zs = [p[2] for p in corners]
+        self.bounds = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+        self.rotated = getattr(self, "rotated", 0) + angle
+
+    def mirror(self, base, normal):
+        """FreeCAD mirror() returns a NEW shape reflected through the plane
+        (base point + normal) and never mutates the original (S11-R1 probe)."""
+        n = (normal.x, normal.y, normal.z)
+        axis = max(range(3), key=lambda i: abs(n[i]))
+        if abs(n[axis]) < 1e-12:
+            raise ValueError("gp_Dir() - input vector has zero norm")
+        c = (base.x, base.y, base.z)[axis]
+        spans = [(self.bounds[0], self.bounds[3]),
+                 (self.bounds[1], self.bounds[4]),
+                 (self.bounds[2], self.bounds[5])]
+        lo, hi = spans[axis]
+        spans[axis] = (2 * c - hi, 2 * c - lo)
+        return _MockShape(
+            shape_type=self.shape_type,
+            volume=self.volume,
+            solids=[self],
+            bounds=(spans[0][0], spans[1][0], spans[2][0],
+                    spans[0][1], spans[1][1], spans[2][1]),
+        )
+
+    @property
+    def BoundBox(self):
+        return _MockBBox(self.bounds)
+
+    @property
+    def Edges(self):
+        return _box_edges(self.bounds)
+
+    def makeFillet(self, radius, edges):
+        return self._dress(radius)
+
+    def makeChamfer(self, length, edges):
+        return self._dress(length)
+
+    def _dress(self, size):
+        spans = (
+            self.bounds[3] - self.bounds[0],
+            self.bounds[4] - self.bounds[1],
+            self.bounds[5] - self.bounds[2],
+        )
+        positive = [span for span in spans if span > 1e-9]
+        if size <= 0 or not positive or size * 2 >= min(positive):
+            raise RuntimeError("edge dress size too large")
+        dressed = self.copy()
+        dressed.volume = max(0.0, self.volume - size)
+        return dressed
+
+
+@dataclass
+class _MockBBox:
+    bounds: tuple
+
+    def __post_init__(self):
+        x0, y0, z0, x1, y1, z1 = self.bounds
+        self.XMin, self.YMin, self.ZMin = x0, y0, z0
+        self.XMax, self.YMax, self.ZMax = x1, y1, z1
+        self.XLength = x1 - x0
+        self.YLength = y1 - y0
+        self.ZLength = z1 - z0
+
+
+@dataclass
+class _MockEdge:
+    bounds: tuple
+
+    @property
+    def BoundBox(self):
+        return _MockBBox(self.bounds)
+
+
+def _box_edges(bounds):
+    """4 vertical edges plus 8 horizontal edges of an axis-aligned box."""
+    x0, y0, z0, x1, y1, z1 = bounds
+    edges = []
+    for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        edges.append(_MockEdge((x, y, z0, x, y, z1)))
+    for z in (z0, z1):
+        edges.append(_MockEdge((x0, y0, z, x1, y0, z)))
+        edges.append(_MockEdge((x0, y1, z, x1, y1, z)))
+        edges.append(_MockEdge((x0, y0, z, x0, y1, z)))
+        edges.append(_MockEdge((x1, y0, z, x1, y1, z)))
+    return edges
+
+
+@dataclass
+class _MockVector:
+    x: float = 0
+    y: float = 0
+    z: float = 0
+
+
+def _make_fc_mock():
+    """Build a minimal FreeCAD mock module."""
+    fc = types.ModuleType("FreeCAD")
+
+    class _MockObj:
+        def __init__(self, name):
+            self.Name = name
+
+    class _Doc:
+        Name = "MockDoc"
+        _active = None
+
+        def __init__(self):
+            _Doc._active = self
+            self._objects = []
+
+        def addObject(self, t, name):
+            obj = _MockObj(name)
+            self._objects.append(obj)
+            return obj
+
+        def recompute(self):
+            pass
+
+        @classmethod
+        def ActiveDocument(cls):
+            return cls._active
+
+        @classmethod
+        def newDocument(cls, name):
+            d = cls()
+            d.Name = name
+            return d
+
+        @classmethod
+        def getDocument(cls, name):
+            if cls._active and cls._active.Name == name:
+                return cls._active
+            raise RuntimeError("no such document")
+
+        @classmethod
+        def listDocuments(cls):
+            return {cls._active.Name: cls._active} if cls._active else {}
+
+        @classmethod
+        def getUserAppDataDir(cls):
+            return "/tmp/mock_fc"
+
+        @classmethod
+        def openDocument(cls, path):
+            return cls.newDocument("restored")
+
+        @classmethod
+        def closeDocument(cls, name):
+            pass
+
+    fc.ActiveDocument = _Doc.ActiveDocument
+    fc.newDocument = _Doc.newDocument
+    fc.getDocument = _Doc.getDocument
+    fc.listDocuments = _Doc.listDocuments
+    fc.getUserAppDataDir = _Doc.getUserAppDataDir
+    fc.openDocument = _Doc.openDocument
+    fc.closeDocument = _Doc.closeDocument
+    fc.Document = _Doc
+    fc.Vector = _MockVector
+
+    # Part mock
+    part = types.ModuleType("Part")
+
+    def _make_box(L, W, H, p=None):
+        return _MockShape(shape_type="Solid", volume=L * W * H,
+                          bounds=(0, 0, 0, L, W, H))
+
+    def _make_cylinder(r, h, p=None, a=None):
+        return _MockShape(shape_type="Solid", volume=math.pi * r * r * h,
+                          bounds=(0, 0, 0, 2 * r, 2 * r, h))
+
+    def _make_cone(r1, r2, h, p=None, a=None):
+        return _MockShape(shape_type="Solid",
+                          volume=math.pi * h * (r1 * r1 + r2 * r2 + r1 * r2) / 3,
+                          bounds=(0, 0, 0, 2 * max(r1, r2), 2 * max(r1, r2), h))
+
+    def _make_sphere(r, p=None):
+        return _MockShape(shape_type="Solid", volume=4 / 3 * math.pi * r ** 3,
+                          bounds=(-r, -r, -r, r, r, r))
+
+    def _make_torus(major_r, minor_r, p=None):
+        return _MockShape(shape_type="Solid",
+                          volume=2 * math.pi ** 2 * major_r * minor_r ** 2,
+                          bounds=(-major_r - minor_r, -major_r - minor_r,
+                                  -minor_r, major_r + minor_r, major_r + minor_r,
+                                  minor_r))
+
+    def _make_line(p1, p2):
+        edge = _MockShape(shape_type="Edge")
+        edge.line_points = (p1, p2)  # for _Wire.isClosed geometry checks
+        return edge
+
+    part.makeBox = _make_box
+    part.makeCylinder = _make_cylinder
+    part.makeCone = _make_cone
+    part.makeSphere = _make_sphere
+    part.makeTorus = _make_torus
+    def _make_circle(radius, center, normal):
+        return _MockShape(
+            shape_type="Edge", volume=0,
+            bounds=(center.x - radius, center.y - radius, center.z,
+                    center.x + radius, center.y + radius, center.z),
+        )
+
+    part.makeLine = _make_line
+    part.makeCircle = _make_circle
+
+    class _Wire:
+        def __init__(self, edges):
+            self.edges = list(edges)
+
+        def isClosed(self):
+            pts = [e.line_points for e in self.edges if hasattr(e, "line_points")]
+            if not pts:
+                return True  # arcs/circles stand-ins count as closed
+            start = pts[0][0]
+            end = pts[-1][1]
+            return (abs(start.x - end.x) < 1e-9
+                    and abs(start.y - end.y) < 1e-9
+                    and abs(start.z - end.z) < 1e-9)
+
+        def makePipe(self, profile):
+            return _MockShape(shape_type="Solid", volume=100)
+
+        def rotate(self, center, axis, angle):
+            return None
+
+        def translate(self, vec):
+            return None
+
+        def revolve(self, base, direction, angle):
+            return _MockShape(
+                shape_type="Solid",
+                volume=abs(float(angle)) * 10,
+                bounds=(-10, -10, -10, 10, 10, 10),
+            )
+
+    part.Wire = _Wire
+
+    class _Arc:
+        def __init__(self, p1, p2, p3):
+            self.points = (p1, p2, p3)
+
+        def toShape(self):
+            edge = _MockShape(shape_type="Edge", bounds=(0, 0, 0, 1, 0, 0))
+            edge.line_points = (self.points[0], self.points[2])
+            return edge
+
+    part.Arc = _Arc
+
+    class _Face:
+        def __init__(self, wire):
+            pass
+
+        def extrude(self, vec):
+            return _MockShape(shape_type="Solid", volume=500,
+                              bounds=(0, 0, 0, 0, 0, vec.z))
+
+        def revolve(self, base, direction, angle):
+            # cq.py revolves a Part.Face (S11-R1) — same stand-in as _Wire
+            return _MockShape(
+                shape_type="Solid",
+                volume=abs(float(angle)) * 10,
+                bounds=(-10, -10, -10, 10, 10, 10),
+            )
+
+    part.Face = _Face
+
+    return fc, part
+
+
+# Install mocks (save originals so we can restore for other test modules)
+_fc_mock, _part_mock = _make_fc_mock()
+_ORIG_MODULES = install_sys_modules({
+    "FreeCAD": _fc_mock,
+    "Part": _part_mock,
+})
+
+# Also mock cad_helpers functions used by cq.py
+def _extract_solid(shape):
+    if shape is None:
+        raise ValueError("Null shape")
+    if shape.isNull():
+        raise ValueError("Null shape")
+    if shape.ShapeType == "Solid":
+        return shape
+    solids = shape.Solids
+    if len(solids) == 0:
+        raise ValueError("No solid components")
+    if len(solids) > 1:
+        raise ValueError(f"Expected 1 solid, got {len(solids)}")
+    return solids[0]
+
+
+def _safe_fuse(a, b):
+    result = a.fuse(b)
+    return _extract_solid(result)
+
+
+def _safe_cut(a, b):
+    result = a.cut(b)
+    return _extract_solid(result)
+
+
+def _make_hollow_cylinder(outer_r, inner_r, height, bottom=0):
+    if outer_r <= inner_r:
+        raise ValueError("outer_r must be > inner_r")
+    outer = _part_mock.makeCylinder(outer_r, height)
+    inner_h = max(height - bottom, 0.1)
+    inner = _part_mock.makeCylinder(inner_r, inner_h)
+    if bottom > 0:
+        inner.translate(_MockVector(0, 0, bottom))
+    return _safe_cut(outer, inner)
+
+
+_mock_cad_helpers = types.ModuleType("sonarlink.cad.cad_helpers")
+_mock_cad_helpers.extract_solid = _extract_solid
+_mock_cad_helpers.safe_fuse = _safe_fuse
+_mock_cad_helpers.safe_cut = _safe_cut
+_mock_cad_helpers.make_hollow_cylinder = _make_hollow_cylinder
+_mock_cad_helpers.make_ring = lambda *a, **kw: _MockShape(shape_type="Solid", volume=100)
+_mock_cad_helpers.make_box_handle = lambda *a, **kw: _MockShape(shape_type="Solid", volume=100)
+_mock_cad_helpers.make_arc_handle = lambda *a, **kw: _MockShape(shape_type="Solid", volume=100)
+_mock_cad_helpers.ensure_doc = lambda name=None: _fc_mock.ActiveDocument or _fc_mock.newDocument("Mock")
+_mock_cad_helpers.cq_show = lambda *a, **kw: None
+# Track cad_helpers alongside FreeCAD/Part so teardown restores all three
+_ORIG_MODULES.update(install_sys_modules({"sonarlink.cad.cad_helpers": _mock_cad_helpers}))
+
+# Now load cq.py
+_cq_mod = load_module("cq", "sonarlink", "cad", "cq.py")
+
+Workplane = _cq_mod.Workplane
+_resolve_extrude = _cq_mod._resolve_extrude
+_fc_vec = _cq_mod._fc_vec
+Vector = _cq_mod.Vector
+
+
+# ==========================================================================
+# Tests
+# ==========================================================================
+
+
+# ---- Constructor ----
+
+def test_workplane_constructor_defaults():
+    wp = Workplane()
+    assert wp._plane == "XY"
+    assert wp._origin == (0, 0, 0)
+    assert wp._shapes == []
+    assert wp._pending == []
+
+
+def test_workplane_constructor_accepts_named_planes():
+    """S10 / Phase 11.1: XY, XZ, and YZ are real CadQuery planes."""
+    assert Workplane("xz")._plane == "XZ"
+    assert Workplane("YZ")._plane == "YZ"
+
+
+def test_workplane_constructor_rejects_unknown_planes():
+    for plane in ("front", "ZX", ""):
+        try:
+            Workplane(plane=plane)
+            assert False, f"Should have raised NotImplementedError for {plane!r}"
+        except NotImplementedError as e:
+            assert "XY" in str(e)
+
+
+def test_workplane_constructor_rejects_non_string_plane():
+    try:
+        Workplane(plane=123)
+        assert False, "Should have raised NotImplementedError"
+    except NotImplementedError:
+        pass
+
+
+def test_workplane_constructor_accepts_xy_with_origin():
+    wp = Workplane("xy", origin=(1, 2, 3))
+    assert wp._plane == "XY"
+    assert wp._origin == (1, 2, 3)
+
+
+def test_xz_box_maps_height_onto_negative_y():
+    b = Workplane("XZ").box(10, 20, 30).solid().bounds
+    assert b == pytest.approx((-5, -15, -10, 5, 15, 10))
+
+
+def test_yz_box_maps_height_onto_positive_x():
+    b = Workplane("YZ").box(10, 20, 30).solid().bounds
+    assert b == pytest.approx((-15, -5, -10, 15, 5, 10))
+
+
+def test_xz_offset_extrude_follows_normal():
+    wp = Workplane("XZ").workplane(offset=10)
+    assert wp._origin == pytest.approx((0.0, -10.0, 0.0))
+    b = wp.rect(4, 6).extrude(8).solid().bounds
+    assert b == pytest.approx((-2, -18, -3, 2, -10, 3))
+
+
+def test_yz_origin_is_global():
+    b = Workplane("YZ", origin=(1, 2, 3)).box(10, 20, 30).solid().bounds
+    assert b == pytest.approx((-14, -3, -7, 16, 7, 13))
+
+
+def test_xz_closed_shell_uses_normal_extent():
+    """Global Z is the in-plane width here; thickness is checked on the normal."""
+    try:
+        Workplane("XZ").box(20, 30, 10).shell(6)
+        assert False, "normal extent 10 cannot take a closed shell of 6"
+    except ValueError as exc:
+        assert "does not fit" in str(exc)
+
+
+def test_xz_revolve_uses_local_axis():
+    shaft = (Workplane("XZ")
+             .moveTo(5, 0).lineTo(10, 0).lineTo(10, 20).lineTo(5, 20).close()
+             .revolve(360))
+    assert shaft.solid().volume == 3600
+    assert shaft._profile == []
+
+
+# ---- Primitives ----
+
+def test_box_creates_shape():
+    wp = Workplane("XY").box(10, 20, 30)
+    assert len(wp._shapes) == 1
+    shape = wp._shapes[0]
+    assert shape.ShapeType == "Solid"
+
+
+def test_box_rejects_negative():
+    try:
+        Workplane("XY").box(-1, 20, 30)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+def test_cylinder_creates_shape():
+    wp = Workplane("XY").cylinder(80, 40)
+    assert len(wp._shapes) == 1
+    assert wp._shapes[0].ShapeType == "Solid"
+
+
+def test_cylinder_rejects_negative():
+    try:
+        Workplane("XY").cylinder(-80, 40)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+def test_cone_creates_shape():
+    wp = Workplane("XY").cone(50, 30, 80)
+    assert len(wp._shapes) == 1
+
+
+def test_sphere_creates_shape():
+    wp = Workplane("XY").sphere(25)
+    assert len(wp._shapes) == 1
+
+
+def test_torus_creates_shape():
+    wp = Workplane("XY").torus(20, 5)
+    assert len(wp._shapes) == 1
+
+
+# ---- 2D sketch accumulation ----
+
+def test_circle_pending():
+    wp = Workplane("XY").circle(40)
+    assert len(wp._pending) == 1
+    assert wp._pending[0] == ("circle", 40)
+    # Not for construction
+    wp2 = Workplane("XY").circle(40, forConstruction=True)
+    assert len(wp2._pending) == 0
+
+
+def test_two_circles_pending():
+    wp = Workplane("XY").circle(40).circle(35)
+    assert len(wp._pending) == 2
+    assert wp._pending[0] == ("circle", 40)
+    assert wp._pending[1] == ("circle", 35)
+
+
+def test_rect_pending():
+    wp = Workplane("XY").rect(10, 20)
+    assert len(wp._pending) == 1
+    assert wp._pending[0] == ("rect", 10, 20, True)
+
+
+def test_polygon_pending():
+    wp = Workplane("XY").polygon(6, 30)
+    assert len(wp._pending) == 1
+    assert wp._pending[0] == ("polygon", 6, 30, True)
+
+
+def test_sketch_branches_do_not_share_pending():
+    """S8-R7: circle/rect return copies, so two chains do not share wires."""
+    base = Workplane("XY")
+    circled = base.circle(5)
+    rected = base.rect(2, 3)
+    assert base._pending == []
+    assert circled is not base
+    assert rected is not base
+    assert circled._pending == [("circle", 5)]
+    assert rected._pending == [("rect", 2, 3, True)]
+    assert Workplane("XY").circle(4).circle(2)._pending == [
+        ("circle", 4), ("circle", 2),
+    ]
+
+
+# ---- Extrude ----
+
+def test_extrude_single_circle():
+    wp = Workplane("XY").circle(40).extrude(80)
+    assert len(wp._pending) == 0  # consumed
+    assert len(wp._shapes) == 1
+
+
+def test_extrude_hollow_cylinder():
+    wp = Workplane("XY").circle(40).circle(35).extrude(80)
+    assert len(wp._shapes) == 1
+    assert wp._shapes[0].ShapeType == "Solid"
+
+
+def test_extrude_rect():
+    wp = Workplane("XY").rect(10, 20).extrude(5)
+    assert len(wp._shapes) == 1
+
+
+def test_extrude_polygon():
+    wp = Workplane("XY").polygon(6, 30).extrude(10)
+    assert len(wp._shapes) == 1
+
+
+def test_extrude_empty_pending_raises():
+    try:
+        Workplane("XY").extrude(10)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "No pending" in str(e)
+
+
+def test_extrude_negative_height_raises():
+    try:
+        Workplane("XY").circle(10).extrude(-5)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+def test_extrude_hollow_reverses_radii():
+    """Two circles with R1 < R2 should work (max becomes outer)."""
+    wp = Workplane("XY").circle(35).circle(40).extrude(80)
+    assert len(wp._shapes) == 1
+
+
+# ---- Extrude semantics (S5-A4): CadQuery alignment ----
+# Mock bounds order is (xmin, ymin, zmin, xmax, ymax, zmax); z range is [2]..[5].
+
+def _zrange(wp):
+    b = wp.solid().bounds
+    return b[2], b[5]
+
+
+def test_extrude_circle_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").circle(10).extrude(20))
+    assert zmin == 0
+    assert zmax == 20
+
+
+def test_extrude_circle_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").circle(10).extrude(20, both=True))
+    assert zmin == -20
+    assert zmax == 20
+
+
+def test_extrude_rect_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 20).extrude(5))
+    assert zmin == 0
+    assert zmax == 5
+
+
+def test_extrude_rect_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 20).extrude(5, both=True))
+    assert zmin == -5
+    assert zmax == 5
+
+
+def test_extrude_rect_uncentered_corner_at_origin():
+    b = Workplane("XY").rect(10, 20, centered=False).extrude(5).solid().bounds
+    assert (b[0], b[1]) == (0, 0)
+    assert (b[3], b[4]) == (10, 20)
+
+
+def test_extrude_polygon_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").polygon(6, 30).extrude(10))
+    assert zmin == 0
+    assert zmax == 10
+
+
+def test_extrude_polygon_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").polygon(6, 30).extrude(10, both=True))
+    assert zmin == -10
+    assert zmax == 10
+
+
+def test_extrude_hollow_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").circle(40).circle(35).extrude(80))
+    assert zmin == 0
+    assert zmax == 80
+
+
+def test_extrude_hollow_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").circle(40).circle(35).extrude(80, both=True))
+    assert zmin == -80
+    assert zmax == 80
+
+
+def test_extrude_multi_op_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 10).rect(20, 20).extrude(5))
+    assert zmin == 0
+    assert zmax == 5
+
+
+def test_extrude_multi_op_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 10).rect(20, 20).extrude(5, both=True))
+    assert zmin == -5
+    assert zmax == 5
+
+
+# ---- Workplane origin (S5-A3): base geometry is created at the origin ----
+
+def test_origin_applied_to_box():
+    b = Workplane("XY", origin=(5, 0, 10)).box(10, 10, 10).solid().bounds
+    assert (b[0], b[1], b[2]) == (0, -5, 5)
+    assert (b[3], b[4], b[5]) == (10, 5, 15)
+
+
+def test_origin_applied_to_extrude():
+    zmin, zmax = _zrange(Workplane("XY", origin=(0, 0, 10)).circle(5).extrude(8))
+    assert (zmin, zmax) == (10, 18)
+
+
+def test_origin_not_reapplied_to_boolean():
+    a = Workplane("XY", origin=(0, 0, 10)).box(10, 10, 10)
+    b = Workplane("XY", origin=(0, 0, 50)).box(5, 5, 5)
+    zmin, zmax = _zrange(a.union(b))
+    # box is z-centered by default: 10±5 and 50±2.5; union of absolute
+    # coords — no double shift
+    assert (zmin, zmax) == (5, 52.5)
+
+
+def test_workplane_offset_applies_to_extrude():
+    zmin, zmax = _zrange(Workplane("XY").workplane(offset=10).circle(5).extrude(8))
+    assert (zmin, zmax) == (10, 18)
+
+
+def test_workplane_offset_after_sketch():
+    zmin, zmax = _zrange(Workplane("XY").circle(5).workplane(offset=10).extrude(8))
+    assert (zmin, zmax) == (10, 18)
+
+
+def test_workplane_offset_negative_applies_to_extrude():
+    zmin, zmax = _zrange(Workplane("XY").workplane(offset=-5).circle(5).extrude(8))
+    assert (zmin, zmax) == (-5, 3)
+
+
+# ---- centered= axis matrix (S5 exit criteria) ----
+
+def test_box_centered_matrix():
+    b = Workplane("XY").box(10, 20, 30, centered=(True, True, True)).solid().bounds
+    assert (b[0], b[1], b[2]) == (-5, -10, -15)
+    assert (b[3], b[4], b[5]) == (5, 10, 15)
+    b = Workplane("XY").box(10, 20, 30, centered=(False, True, False)).solid().bounds
+    assert (b[0], b[1], b[2]) == (0, -10, 0)
+    assert (b[3], b[4], b[5]) == (10, 10, 30)
+    b = Workplane("XY").box(10, 20, 30, centered=(False, False, False)).solid().bounds
+    assert (b[0], b[1], b[2]) == (0, 0, 0)
+    assert (b[3], b[4], b[5]) == (10, 20, 30)
+
+
+def test_cylinder_centered_matrix():
+    b = Workplane("XY").cylinder(20, 5).solid().bounds
+    assert (b[2], b[5]) == (0, 20)  # default (True, True, False): base at z=0
+    b = Workplane("XY").cylinder(20, 5, centered=(True, True, True)).solid().bounds
+    assert (b[2], b[5]) == (-10, 10)
+
+
+def test_cone_centered_matrix():
+    b = Workplane("XY").cone(10, 5, 20).solid().bounds
+    assert (b[2], b[5]) == (0, 20)
+    b = Workplane("XY").cone(10, 5, 20, centered=(True, True, True)).solid().bounds
+    assert (b[2], b[5]) == (-10, 10)
+
+
+# ---- Brain prompt example must execute under the plugin cq sandbox (S5 exit criteria,
+#      T8.8-adapted: upstream validated its own autonomous prompts; here the py-engine
+#      tuning brain's embedded example is the promise the executor must keep) ----
+
+class TestPromptExamplesExecutable:
+    """The py-engine cad_agent TUNE_SYSTEM_PROMPT example must run as-is
+    against the mocked cq sandbox — locks the brain's promise to the
+    plugin's implementation semantics (ADR-004 §5.5 断层闭合)."""
+
+    def test_tune_prompt_example_executes(self):
+        prompts_mod = load_module(
+            "tune_prompts_s5", "..", "..", "..", "py-engine", "cad_agent", "prompts.py",
+        )
+        prompt = prompts_mod.TUNE_SYSTEM_PROMPT
+        start = prompt.index("Example —")
+        m = re.search(r'\{"code": "(.*?)", "description"', prompt[start:], re.DOTALL)
+        assert m, "prompt example <tool> payload not found"
+        code = json.loads(f'"{m.group(1)}"')  # decode the JSON string escapes (\n)
+        assert "cq.Workplane" in code
+        ns = {
+            "cq": _cq_mod,
+            "math": math,
+            "model": _cq_mod.Workplane("XY").box(10, 10, 10),
+            "safe_fuse": lambda a, b: a,
+            "safe_cut": lambda a, b: a,
+            "extract_solid": lambda s: s,
+            "cq_show": lambda *a, **kw: None,
+        }
+        exec(code, ns)
+
+
+# ---- Boolean operations ----
+
+def test_cut_returns_new_wp():
+    body = Workplane("XY").box(100, 100, 100)
+    hole = Workplane("XY").cylinder(50, 20)
+    result = body.cut(hole)
+    assert result is not body
+    assert len(result._shapes) == 1
+    # Original unchanged
+    assert len(body._shapes) == 1
+
+
+def test_union_returns_new_wp():
+    a = Workplane("XY").box(10, 10, 10)
+    b = Workplane("XY").box(5, 5, 5)
+    result = a.union(b)
+    assert result is not a
+    assert result is not b
+    assert len(result._shapes) == 1
+
+
+def test_intersect_returns_new_wp():
+    a = Workplane("XY").box(10, 10, 10)
+    b = Workplane("XY").box(5, 5, 5)
+    result = a.intersect(b)
+    assert result is not a
+    assert len(result._shapes) == 1
+
+
+# ---- Transforms ----
+
+def test_translate_returns_new_wp():
+    wp = Workplane("XY").box(10, 10, 10)
+    moved = wp.translate((5, 0, 0))
+    assert moved is not wp
+    assert len(moved._shapes) == 1
+    # Original still has its shape
+    assert len(wp._shapes) == 1
+
+
+def test_rotate_returns_new_wp():
+    wp = Workplane("XY").cylinder(10, 5)
+    rotated = wp.rotate((0, 0, 0), (0, 0, 1), 45)
+    assert rotated is not wp
+    assert len(rotated._shapes) == 1
+
+
+def test_mirror_xy_flips_and_keeps_original():
+    wp = Workplane("XY").workplane(origin=(0, 0, 10)).box(10, 10, 10)
+    mirrored = wp.mirror("XY")
+    assert mirrored is not wp
+    # box centered at z=10 spans z 5..15; mirrored through z=0 → z −15..−5
+    assert math.isclose(mirrored.solid().bounds[2], -15.0, abs_tol=1e-9)
+    assert math.isclose(mirrored.solid().bounds[5], -5.0, abs_tol=1e-9)
+    # the original must stay put — the pre-S11-R1 bug dropped the result
+    assert math.isclose(wp.solid().bounds[2], 5.0, abs_tol=1e-9)
+    assert math.isclose(wp.solid().bounds[5], 15.0, abs_tol=1e-9)
+    assert math.isclose(
+        mirrored.solid().volume, wp.solid().volume, rel_tol=1e-9,
+    )
+
+
+def test_mirror_invalid_plane_raises():
+    wp = Workplane("XY").box(10, 10, 10)
+    try:
+        wp.mirror("AB")
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "Unknown mirror plane" in str(e)
+
+
+# ---- solid() / val() ----
+
+def test_solid_returns_shape():
+    wp = Workplane("XY").box(10, 10, 10)
+    s = wp.solid()
+    assert s is not None
+    assert s.ShapeType == "Solid"
+
+
+def test_solid_empty_raises():
+    try:
+        Workplane("XY").solid()
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "no shapes" in str(e)
+
+
+def test_val_returns_shape():
+    wp = Workplane("XY").box(10, 10, 10)
+    assert wp.val() is not None
+
+
+def test_val_empty_raises():
+    try:
+        Workplane("XY").val()
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+# ---- workplane offset ----
+
+def test_workplane_offset():
+    wp = Workplane("XY")
+    wp2 = wp.workplane(offset=10)
+    assert wp2._origin == (0, 0, 10)
+
+
+def test_workplane_offset_negative():
+    wp = Workplane("XY")
+    wp2 = wp.workplane(offset=-5)
+    assert wp2._origin == (0, 0, -5)
+
+
+def test_workplane_offset_zero():
+    wp = Workplane("XY")
+    wp2 = wp.workplane(offset=0)
+    assert wp2._origin == (0, 0, 0)
+    assert wp2._plane == "XY"
+
+
+# ---- Chaining ----
+
+def test_chain_multiple_operations():
+    """Full chain: box → cut → translate → union."""
+    body = Workplane("XY").box(100, 100, 10)
+    hole = Workplane("XY").cylinder(5, 20)
+    body = body.cut(hole)
+    body = body.translate((0, 0, 5))
+    cap = Workplane("XY").box(100, 100, 2)
+    body = body.union(cap)
+    assert len(body._shapes) == 1
+
+
+# ---- Vector helper ----
+
+def test_vector():
+    v = Vector(1, 2, 3)
+    assert v.x == 1
+    assert v.y == 2
+    assert v.z == 3
+
+
+# ---- repr ----
+
+def test_repr():
+    wp = Workplane("XY").box(10, 10, 10)
+    r = repr(wp)
+    assert "Workplane" in r
+    assert "XY" in r
+    assert "shapes=1" in r
+
+
+def test_repr_empty():
+    wp = Workplane("XY")
+    r = repr(wp)
+    assert "shapes=0" in r
+
+
+# ---- _resolve_extrude directly ----
+
+def test_resolve_extrude_hollow_both():
+    shape = _resolve_extrude(
+        [("circle", 40), ("circle", 35)], height=80, both=True
+    )
+    assert shape.ShapeType == "Solid"
+
+
+def test_resolve_extrude_hollow_invalid_equal_radii():
+    try:
+        _resolve_extrude([("circle", 40), ("circle", 40)], height=80, both=False)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+def test_resolve_extrude_negative_height():
+    try:
+        _resolve_extrude([("circle", 10)], height=-5, both=False)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Teardown: restore original sys.modules so other test files get clean state
+# ---------------------------------------------------------------------------
+
+def teardown_module():
+    restore_sys_modules(_ORIG_MODULES)
+
+
+# ---------------------------------------------------------------------------
+# S8 primitives: arrays, holes, revolve, shell, fillet
+# ---------------------------------------------------------------------------
+
+def _pending_xy(op):
+    return op[2], op[3]
+
+
+def test_polar_full_turn_does_not_repeat_the_start():
+    wp = Workplane("XY").polarArray(10, 0, 360, 4).circle(1)
+    pts = [_pending_xy(op) for op in wp._pending]
+    expect = [(10, 0), (0, 10), (-10, 0), (0, -10)]
+    assert len(pts) == 4
+    for got, exp in zip(pts, expect):
+        assert math.isclose(got[0], exp[0], abs_tol=1e-9)
+        assert math.isclose(got[1], exp[1], abs_tol=1e-9)
+    assert wp._locations == []
+
+
+def test_polar_partial_span_includes_both_ends():
+    wp = Workplane("XY").polarArray(10, 0, 180, 3).circle(1)
+    pts = [_pending_xy(op) for op in wp._pending]
+    assert math.isclose(pts[0][0], 10, abs_tol=1e-9)
+    assert math.isclose(pts[-1][0], -10, abs_tol=1e-9)
+    assert math.isclose(pts[1][1], 10, abs_tol=1e-9)
+
+
+def test_polar_fill_false_steps_by_angle():
+    wp = Workplane("XY").polarArray(10, 0, 90, 3, fill=False).circle(1)
+    pts = [_pending_xy(op) for op in wp._pending]
+    assert math.isclose(pts[1][0], 0, abs_tol=1e-9)
+    assert math.isclose(pts[1][1], 10, abs_tol=1e-9)
+    assert math.isclose(pts[2][0], -10, abs_tol=1e-9)
+
+
+def test_rarray_is_centered():
+    wp = Workplane("XY").rarray(10, 20, 2, 2).circle(1)
+    pts = sorted((round(op[2], 6), round(op[3], 6)) for op in wp._pending)
+    assert pts == [(-5.0, -10.0), (-5.0, 10.0), (5.0, -10.0), (5.0, 10.0)]
+
+
+def test_array_branches_do_not_share_locations():
+    base = Workplane("XY").polarArray(10, 0, 360, 4)
+    smaller = base.circle(1)
+    larger = base.circle(2)
+    assert len(base._locations) == 4
+    assert len(smaller._pending) == 4
+    assert len(larger._pending) == 4
+    assert smaller._pending[0][1] == 1
+    assert larger._pending[0][1] == 2
+
+
+def test_offset_circles_fuse_instead_of_becoming_a_tube():
+    wp = (Workplane("XY").circle(10)
+          .polarArray(30, 0, 0, 1).circle(2)
+          .extrude(5))
+    expected = math.pi * 100 * 5 + math.pi * 4 * 5
+    assert math.isclose(wp.solid().volume, expected, rel_tol=1e-9)
+    assert wp._primitive is None
+
+
+def test_same_center_circles_stay_hollow():
+    plain = Workplane("XY").circle(10).circle(4).extrude(5)
+    expected = math.pi * (100 - 16) * 5
+    assert math.isclose(plain.solid().volume, expected, rel_tol=1e-6)
+    shifted = (Workplane("XY")
+               .polarArray(15, 0, 0, 1).circle(10)
+               .polarArray(15, 0, 0, 1).circle(4)
+               .extrude(5))
+    assert math.isclose(shifted.solid().volume, expected, rel_tol=1e-6)
+    assert math.isclose(shifted.solid().bounds[0], 15, abs_tol=1e-6)
+
+
+def test_hole_through_and_finite_depth():
+    solid = Workplane("XY").box(10, 10, 10)
+    through = solid.hole(2)
+    assert math.isclose(through.solid().volume, 1000 - math.pi * 10.1, rel_tol=1e-9)
+    assert through._primitive is None
+    finite = solid.hole(2, depth=4)
+    assert math.isclose(finite.solid().volume, 1000 - math.pi * 4, rel_tol=1e-9)
+
+
+def test_cbore_hole_cuts_both_diameters():
+    solid = Workplane("XY").box(10, 10, 10)
+    try:
+        solid.cboreHole(4, 4, 2)
+        assert False, "counterbore must be larger than the hole"
+    except ValueError:
+        pass
+    drilled = solid.cboreHole(2, 4, 2)
+    removed = math.pi * 10.1 + math.pi * 4 * 2
+    assert math.isclose(drilled.solid().volume, 1000 - removed, rel_tol=1e-9)
+
+
+def test_blind_hole_cutter_is_anchored_at_the_top_face(monkeypatch):
+    seen = {}
+
+    def record_cut(a, b):
+        seen["cutter"] = b
+        return _MockShape(shape_type="Solid", volume=a.volume - b.volume,
+                          bounds=a.bounds)
+
+    plate = Workplane("XY").circle(20).extrude(10)  # local z 0..10
+    monkeypatch.setattr(_cq_mod, "safe_cut", record_cut)
+    drilled = plate.hole(2, depth=4)
+    cutter = seen["cutter"]
+    # the blind cutter must reach from the top face (z=10) down 4, not sit
+    # below the workplane where an upward-extruded plate has no material
+    assert math.isclose(cutter.bounds[2], 6.0, abs_tol=1e-9)
+    assert math.isclose(cutter.bounds[5], 10.0, abs_tol=1e-9)
+    assert math.isclose(
+        drilled.solid().volume, plate.solid().volume - math.pi * 4,
+        rel_tol=1e-9,
+    )
+
+
+def test_drill_raises_when_location_misses_the_solid(monkeypatch):
+    solid = Workplane("XY").box(10, 10, 10)
+    monkeypatch.setattr(_cq_mod, "safe_cut", lambda a, b: a)
+    try:
+        solid.hole(2)
+        assert False, "a cutter that removes nothing must raise"
+    except ValueError as exc:
+        assert "removed no material" in str(exc)
+
+
+def test_polar_array_rejects_bad_count_and_radius():
+    try:
+        Workplane("XY").polarArray(10, 0, 360, 0)
+        assert False, "count must be positive"
+    except ValueError as exc:
+        assert "count must be positive" in str(exc)
+    try:
+        Workplane("XY").polarArray(-2, 0, 360, 4)
+        assert False, "radius must be >= 0"
+    except ValueError as exc:
+        assert "radius must be >= 0" in str(exc)
+
+
+def test_hole_rejects_non_positive_depth():
+    try:
+        Workplane("XY").box(10, 10, 10).hole(2, depth=0)
+        assert False, "depth must be positive"
+    except ValueError as exc:
+        assert "depth must be positive" in str(exc)
+
+
+def test_shell_bottom_open_box():
+    """S11-R5: the open='bottom' branch mirrors the open='top' cutter. The
+    mock cutter carries the face-overlap allowance, hence the loose
+    tolerance against the exact 8x8x9 cavity."""
+    bottom = Workplane("XY").box(10, 10, 10).shell(1, open="bottom")
+    expected = 10 * 10 * 10 - 8 * 8 * 9
+    assert math.isclose(bottom.solid().volume, expected, rel_tol=0.05)
+
+
+def test_workplane_origin_two_tuple_yz():
+    """A 2-tuple shifts inside the plane: on YZ, local +x maps to global +Y."""
+    wp = Workplane("YZ").workplane(origin=(5, 0))
+    assert wp._origin == pytest.approx((0.0, 5.0, 0.0))
+
+
+def test_mirror_tuple_form_flips():
+    wp = Workplane("XY").workplane(origin=(0, 0, 10)).box(10, 10, 10)
+    mirrored = wp.mirror(((0, 0, 0), (0, 0, 1)))
+    assert mirrored is not wp
+    assert math.isclose(mirrored.solid().bounds[2], -15.0, abs_tol=1e-9)
+    assert math.isclose(mirrored.solid().bounds[5], -5.0, abs_tol=1e-9)
+
+
+def test_polar_array_drills_every_location():
+    solid = Workplane("XY").box(40, 40, 10)
+    drilled = solid.polarArray(12, 0, 360, 4).hole(2)
+    removed = 4 * math.pi * 10.1
+    assert math.isclose(drilled.solid().volume, 16000 - removed, rel_tol=1e-9)
+
+
+def test_shell_closed_and_open_box():
+    closed = Workplane("XY").box(10, 10, 10).shell(1)
+    opened = Workplane("XY").box(10, 10, 10).shell(1, open="top")
+    assert math.isclose(closed.solid().volume, 1000 - 512, rel_tol=1e-9)
+    assert opened.solid().volume < closed.solid().volume
+    assert Workplane("XY").cylinder(10, 4)._primitive == "cylinder"
+
+
+def test_shell_rejects_other_solids():
+    try:
+        Workplane("XY").sphere(5).shell(1)
+        assert False, "sphere is not a shell target"
+    except ValueError as exc:
+        assert "box or cylinder" in str(exc)
+    cut = Workplane("XY").box(10, 10, 10).cut(Workplane("XY").box(2, 2, 2))
+    try:
+        cut.shell(1)
+        assert False, "a boolean result is not a plain box"
+    except ValueError:
+        pass
+
+
+def test_fillet_and_chamfer_count_edges():
+    box = Workplane("XY").box(10, 20, 30)
+    filleted = box.fillet(1, edges="vertical")
+    assert filleted.solid().volume == box.solid().volume - 4
+    assert "applied=4" in filleted._edge_note
+    chamfered = box.chamfer(1, edges="horizontal")
+    assert "applied=8" in chamfered._edge_note
+    one = box.fillet(1, edges=[0])
+    assert "applied=1" in one._edge_note
+
+
+def test_fillet_rejects_a_size_that_fits_no_edge():
+    try:
+        Workplane("XY").box(10, 20, 30).fillet(6, edges="vertical")
+        assert False, "every edge should skip"
+    except ValueError as exc:
+        assert "0 edges" in str(exc)
+
+
+def test_revolve_closed_profile_and_arc():
+    shaft = (Workplane("XY")
+             .moveTo(5, 0).lineTo(10, 0).lineTo(10, 20).lineTo(5, 20).close()
+             .revolve(360))
+    assert shaft.solid().volume == 3600
+    assert shaft._profile == []
+    partial = (Workplane("XY")
+               .moveTo(6, 0)
+               .threePointArc((8, 5), (6, 10))
+               .lineTo(4, 10).lineTo(4, 0).close()
+               .revolve(90, axisStart=(0, 0, 0), axisEnd=(0, 1, 0)))
+    assert partial.solid().volume == 900
+
+
+def test_revolve_unclosed_profile_raises():
+    try:
+        Workplane("XY").moveTo(5, 0).lineTo(10, 0).revolve()
+        assert False, "an open profile cannot revolve"
+    except ValueError as exc:
+        assert "close" in str(exc).lower()
+
+
+def test_revolve_accepts_geometrically_closed_profile():
+    """S11-R4: a final lineTo back to the start closes the wire — the
+    explicit close() should not be mandatory."""
+    spun = (Workplane("XY")
+            .moveTo(10, 0).lineTo(20, 0).lineTo(20, 10).lineTo(10, 0)
+            .revolve(360))
+    assert spun.solid().volume > 0
+
+
+def test_revolve_rejects_mixed_circle_and_profile():
+    try:
+        (Workplane("XY").circle(4).moveTo(2, 0).lineTo(6, 0).revolve())
+        assert False, "mixing circle() and a line profile must raise"
+    except ValueError as exc:
+        assert "mix" in str(exc)
+
+
+def test_rarray_rejects_non_positive_spacing():
+    for xs, ys in ((0, 5), (5, 0), (-1, 5)):
+        try:
+            Workplane("XY").rarray(xs, ys, 3, 3)
+            assert False, f"rarray({xs}, {ys}) must raise"
+        except ValueError as exc:
+            assert "spacings must be positive" in str(exc)
+
+
+def test_circle_revolve_does_not_need_close():
+    spun = Workplane("XY").circle(6).revolve(
+        180, axisStart=(0, 0, 0), axisEnd=(0, 1, 0),
+    )
+    assert spun.solid().volume == 1800
+    assert spun._pending == []
+
+
+def test_move_to_then_circle_revolve_uses_the_circle():
+    spun = (Workplane("XZ")
+            .workplane(origin=(0, 0, 40))
+            .moveTo(20, 0)
+            .circle(3)
+            .revolve(180, axisStart=(0, 0, 40), axisEnd=(0, 1, 40)))
+    assert spun.solid().volume == 1800
+    assert spun._origin == pytest.approx((0.0, 0.0, 40.0))
+
+
+def test_rect_revolve_is_rejected():
+    try:
+        Workplane("XY").rect(4, 4).revolve()
+        assert False, "a rectangle is not a revolve profile"
+    except ValueError as exc:
+        assert "rect()" in str(exc)
+
+
+def test_workplane_origin_keyword_is_global_on_xz():
+    bounds = Workplane("XZ").workplane(origin=(0, 0, 10)).box(10, 20, 30).solid().bounds
+    assert bounds == pytest.approx((-5, -15, 0, 5, 15, 20))
+
+
+def test_workplane_origin_two_tuple_shifts_inside_the_plane():
+    assert Workplane("XY").workplane(origin=(4, 5))._origin == pytest.approx((4, 5, 0))
+    assert Workplane("XZ").workplane(origin=(4, 5))._origin == pytest.approx((4, 0, 5))
+
+
+def test_profile_branches_do_not_share_points():
+    base = Workplane("XY")
+    first = base.moveTo(1, 2)
+    second = base.moveTo(3, 4)
+    assert base._profile == []
+    assert first._profile != second._profile
+
+
+def test_plain_extrude_keeps_a_shell_tag():
+    assert Workplane("XY").rect(4, 4).extrude(3)._primitive == "box"
+    assert Workplane("XY").circle(4).extrude(3)._primitive == "cylinder"
+    assert Workplane("XY").box(1, 1, 1)._primitive == "box"
