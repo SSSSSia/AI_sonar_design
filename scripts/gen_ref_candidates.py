@@ -69,7 +69,81 @@ Requirements:
 - The script MUST end with a variable named `result` holding a single solid Workplane/Shape.
 - Keep it simple and robust (box/cylinder/extrude/cut/union primitives preferred).
 - Output ONLY the Python code, no markdown fences, no explanations.
+
+Common CadQuery pitfalls to AVOID (each of these has produced wrong geometry in practice):
+- `pushPoints` REPLACES the pending point stack. Build the complete list of points first and
+  call `pushPoints(...)` ONCE with all of them; never call it inside a loop to add points
+  one at a time (only the last call survives).
+- `workplane(offset=N)` moves along the CURRENT plane normal, and `transformed(rotate=...)`
+  changes that normal. For features that run along the body axis, keep the sketch plane
+  normal aligned with that axis; verify every offset direction before extruding/lofting.
+- Every auxiliary feature (fins, rings, handles) must be boolean-combined (`union`) with the
+  main body so the final `result` is ONE connected solid — never leave features floating
+  detached from the body.
+- The named constants must map one-to-one to the required dimensions; do not invent extra
+  orientation axes that change the stated bounding dimensions.
 """
+
+
+_RENDER_CODE = r'''
+import sys
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import cadquery as cq
+
+step_path, out_png = sys.argv[1], sys.argv[2]
+shape = cq.importers.importStep(step_path).val()
+verts, tris = shape.tessellate(2.0)
+V = np.array([(v.x, v.y, v.z) for v in verts])
+F = np.array(tris)
+tri = V[F]
+n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+norm = np.linalg.norm(n, axis=1, keepdims=True)
+norm[norm == 0] = 1.0
+n = n / norm
+light = np.array([0.4, 0.35, 0.85])
+light = light / np.linalg.norm(light)
+intensity = 0.35 + 0.65 * np.clip(n @ light, 0.0, 1.0)
+base = np.array([0.39, 0.58, 0.93])
+colors = np.clip(intensity[:, None] * base[None, :], 0.0, 1.0)
+
+views = [(22, -60, "iso"), (0, -90, "side"), (90, -90, "top")]
+fig = plt.figure(figsize=(15, 5))
+center = (V.max(axis=0) + V.min(axis=0)) / 2.0
+span = float(np.max(V.max(axis=0) - V.min(axis=0))) or 1.0
+for k, (elev, azim, label) in enumerate(views, 1):
+    ax = fig.add_subplot(1, 3, k, projection="3d")
+    ax.add_collection3d(Poly3DCollection(tri, facecolors=colors, edgecolors="none"))
+    ax.set_xlim(center[0] - span / 2, center[0] + span / 2)
+    ax.set_ylim(center[1] - span / 2, center[1] + span / 2)
+    ax.set_zlim(center[2] - span / 2, center[2] + span / 2)
+    ax.set_box_aspect((1, 1, 1))
+    ax.view_init(elev=elev, azim=azim)
+    ax.set_title(label)
+    ax.axis("off")
+plt.tight_layout()
+plt.savefig(out_png, dpi=110)
+print("rendered", out_png)
+'''
+
+
+def _render_views(step_file, out_png) -> dict:
+    """三视图渲染（子进程：重镶嵌纪律，convert_worker/geometry_inspect 同款）。失败如实返回不抛。"""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _RENDER_CODE, str(step_file), str(out_png)],
+            capture_output=True, text=True, timeout=120,
+        )
+        if proc.returncode != 0 or "rendered" not in (proc.stdout or ""):
+            return {"ok": False, "error": (proc.stderr or proc.stdout or "")[-300:]}
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:300]}
 
 
 def _llm_generate(spec: dict, timeout_s: int) -> str:
@@ -103,10 +177,12 @@ def _measure(step_files: list) -> dict:
     }
 
 
-def run_one(spec: dict, out_dir: Path, timeout_s: int) -> dict:
+def run_one(spec: dict, out_dir: Path, timeout_s: int, suffix: str = "", render: bool = False) -> dict:
     t0 = time.perf_counter()
+    sfx = f"_{suffix}" if suffix else ""
     rec: dict = {
         "id": spec["id"],
+        "suffix": suffix,
         "cn": spec["cn"],
         "sonar_types": spec["sonar_types"],
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -138,7 +214,11 @@ def run_one(spec: dict, out_dir: Path, timeout_s: int) -> dict:
     )
     if replay["ok"] and replay.get("step_files"):
         rec["geometry"] = _measure(replay["step_files"])
-    (out_dir / f"{spec['id']}.py").write_text(code, encoding="utf-8")
+        if render:
+            pv = _render_views(replay["step_files"][0], out_dir / f"{spec['id']}{sfx}_views.png")
+            rec["preview"] = {"ok": pv["ok"], "file": f"{spec['id']}{sfx}_views.png"} if pv["ok"] \
+                else {"ok": False, "error": pv["error"]}
+    (out_dir / f"{spec['id']}{sfx}.py").write_text(code, encoding="utf-8")
     rec["status"] = "candidate_ready" if replay["ok"] else "replay_failed"
     rec["elapsed_s"] = round(time.perf_counter() - t0, 1)
     return rec
@@ -153,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", help="只跑指定类型 id", default=None)
     ap.add_argument("--out-dir", default=str(_ROOT / "docs" / "reviews" / "t164-candidates"))
     ap.add_argument("--timeout-s", type=int, default=300)
+    ap.add_argument("--suffix", help="输出文件名后缀（如 v2；留空覆盖 v1 命名）", default="")
+    ap.add_argument("--render", action="store_true", help="重放成功后出三视图 PNG（matplotlib 子进程）")
     args = ap.parse_args(argv)
 
     out_dir = Path(args.out_dir)
@@ -163,12 +245,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     records = []
+    sfx = f"_{args.suffix}" if args.suffix else ""
     for spec in specs:
         print(f"[gen] {spec['id']} ({spec['cn']}) …", flush=True)
-        rec = run_one(spec, out_dir, args.timeout_s)
+        rec = run_one(spec, out_dir, args.timeout_s, suffix=args.suffix, render=args.render)
         records.append(rec)
         print(f"    -> {rec.get('status')} ({rec.get('elapsed_s', '?')}s)", flush=True)
-        (out_dir / f"{spec['id']}.report.json").write_text(
+        (out_dir / f"{spec['id']}{sfx}.report.json").write_text(
             json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
 
     lines = ["# T16.4 首批候选报告（路径③；候选≠范例，入库须用户逐条人工确认）", "",
@@ -187,14 +270,20 @@ def main(argv: list[str] | None = None) -> int:
                 lines.append(f"  - {p.get('name')} volume={p.get('volume_mm3')}mm³ bbox={p.get('bbox_mm')}")
         elif r.get("replay", {}).get("ok"):
             lines.append(f"- 实测: 失败（{g.get('reason')}）——如实")
+        pv = r.get("preview") or {}
+        if pv.get("ok"):
+            lines.append(f"- 三视图: {pv.get('file')}")
+        elif pv.get("error"):
+            lines.append(f"- 三视图: 渲染失败（{str(pv.get('error'))[:100]}）——如实")
         if r.get("error"):
             lines.append(f"- 异常: {r['error']}")
         lines.append(f"- 脚本: docs/reviews/t164-candidates/{r['id']}.py · 明细: {r['id']}.report.json")
         lines.append("")
     lines.append("> 裁决点：每条候选是否「参数语义正确 + 几何合理 + 值得入库」由用户判定；")
     lines.append("> 入库动作 = manual_upload 上传 + 六件套核对 + confirm（PHASE-016 §3.9 checklist）。")
-    (out_dir / "REPORT.md").write_text("\n".join(lines), encoding="utf-8")
-    print("report:", out_dir / "REPORT.md")
+    report_name = f"REPORT_{args.suffix}.md" if args.suffix else "REPORT.md"
+    (out_dir / report_name).write_text("\n".join(lines), encoding="utf-8")
+    print("report:", out_dir / report_name)
     return 0
 
 

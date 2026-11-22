@@ -47,6 +47,11 @@ pymilvus>=2.4
 #      API /metrics + worker :9101 独立端点；缺失时埋点静默降级，主链路不受影响）
 prometheus-client>=0.21
 
+# T16.4 前置（2026-11-22）：候选可视化裁决包——scripts/gen_ref_candidates.py --render 把候选
+#      STEP 镶嵌网格经 matplotlib Poly3DCollection 出三视图 PNG（用户裁决是视觉评审；
+#      pyrender/pyglet 未装故 trimesh 离屏截图不可用；Agg 后端无 GUI 依赖）
+matplotlib>=3.8
+
 
 # T12.7（PHASE-012）：GraphRAG SDK——可选深度分析路径（3.2.0+graphrag-storage，实测 local 级
 #      159s/查 vs 自建 graph/vector 0.2s；默认生产形态维持自建层，容器镜像默认不含）
