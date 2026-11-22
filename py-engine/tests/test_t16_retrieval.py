@@ -133,6 +133,7 @@ class TestGraphVectorMerge:
         monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: (
             "实体：阵元间距 —决定→ 阵长",
             [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
+            [],  # T17.3 起 _try_neo4j 为 3 元组：第三位 = entity_hits（本用例空=既有语义锚）
         ))
         monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: (
             "知识库向量检索结果（Milvus chunks）：\n\n[doc1#p3]\n拖曳线列阵由湿端与干端组成。",
@@ -154,6 +155,7 @@ class TestGraphVectorMerge:
         monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: (
             "实体：阵元间距",
             [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
+            [],  # T17.3 3 元组
         ))
         monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: None)
         r = svc.query("阵元间距")

@@ -30,6 +30,11 @@ ALLOWED_LABELS = {
 # 关系候选默认兜底标签
 ENTITY_LABEL = "Entity"
 
+# T17.3（ADR-016 §3）：公共次级标签——10 个白名单 label 各建向量索引太散，统一挂公共
+# 标签建单索引（A-10 加法演进：标签=元数据不删，既有按白名单 label 的查询语义零改动）
+KNOWLEDGE_ENTITY_LABEL = "KnowledgeEntity"
+VECTOR_INDEX_NAME = "kg_entity_desc"
+
 
 class Neo4jStoreError(RuntimeError):
     """Neo4j 连接或回写失败（调用方如实上报，绝不伪造成功）。"""
@@ -66,6 +71,18 @@ def _match_terms(query: str, max_terms: int = 12) -> list[str]:
         if len(seen) >= max_terms:
             break
     return seen
+
+
+def _embedding_text(props: dict[str, Any]) -> str:
+    """实体 embedding 材料（T17.3）：name + 描述性正文 + context——实体/约束/案例统一口径。
+
+    描述性正文按 description > expression > params_json 兜底（文档实体有 description，
+    约束/案例节点无）；三段全空返回空串（调用方跳过不嵌，A-16 不造空向量）。"""
+    name = str(props.get("name") or "").strip()
+    body = (props.get("description") or props.get("expression")
+            or props.get("params_json") or "")
+    parts = [name, str(body or "").strip(), str(props.get("context") or "").strip()]
+    return "：".join(p for p in parts if p).strip()
 
 
 class Neo4jStore:
@@ -184,6 +201,175 @@ class Neo4jStore:
             ).data()
 
     # ------------------------------------------------------------------
+    # T17.3 图路向量升级（ADR-016 §3）：实体语义检索 + 邻域上下文块 + 写路径 embedding。
+    # 老查询 find_entities_matching 保留（语义路不可用时的关键词兜底，独立命名零改动）。
+    # ------------------------------------------------------------------
+    def ensure_vector_index(self, dim: int = 1024) -> bool:
+        """实体向量索引（KnowledgeEntity.description_embedding，cosine）。幂等；失败 False。
+
+        indexConfig 需字面量（Cypher 不接受参数），dim 经 int() 内联。"""
+        dim = int(dim)
+        try:
+            with self._get_driver().session() as session:
+                session.run(
+                    f"CREATE VECTOR INDEX {VECTOR_INDEX_NAME} IF NOT EXISTS "
+                    f"FOR (n:{KNOWLEDGE_ENTITY_LABEL}) ON (n.description_embedding) "
+                    "OPTIONS {indexConfig: {`vector.dimensions`: " + str(dim) + ", "
+                    "`vector.similarity_function`: 'cosine'}}"
+                )
+            return True
+        except Exception as exc:
+            logger.warning("实体向量索引创建失败（语义路将回退关键词）: %s", exc)
+            return False
+
+    def embed_entity_keys(self, keys: list[str]) -> int:
+        """为指定实体补 description_embedding 并挂公共标签（T17.3，加法元数据）。
+
+        **按 (key, label) 逐节点嵌入**——同名跨标签节点（key=sha1(名) 设计使然）各自用
+        本节点材料，不共享向量。best-effort：embedding 供应商不可用/失败 → 返回 0 不抛
+        （写入路径不阻塞，存量回填脚本可补）；材料为空/节点缺失跳过（A-16 不造空向量）。"""
+        if not keys:
+            return 0
+        try:
+            with self._get_driver().session() as session:
+                rows = session.run(
+                    "MATCH (n) WHERE n.key IN $keys "
+                    "RETURN n.key AS key, labels(n)[0] AS label, properties(n) AS props",
+                    keys=list(keys),
+                ).data()
+            items: list[dict[str, Any]] = []
+            for r in rows:
+                t = _embedding_text(r.get("props") or {})
+                if t:
+                    items.append({"key": r["key"], "label": r.get("label") or "", "text": t})
+            if not items:
+                return 0
+            from kb.embeddings import embed_texts
+
+            vectors = embed_texts([it["text"] for it in items])
+            if not vectors:
+                logger.warning("实体 embedding 供应商不可用（%d 条未嵌入，回填脚本可补）", len(items))
+                return 0
+            with self._get_driver().session() as session:
+                session.run(
+                    f"UNWIND $rows AS row MATCH (n {{key: row.key}}) "
+                    "WHERE labels(n)[0] = row.label "
+                    f"SET n:{KNOWLEDGE_ENTITY_LABEL} SET n.description_embedding = row.vec",
+                    rows=[{"key": it["key"], "label": it["label"], "vec": v}
+                          for it, v in zip(items, vectors)],
+                )
+            return len(items)
+        except Exception as exc:
+            logger.warning("实体 embedding 写入失败（不阻塞主流程，回填脚本可补）: %s", exc)
+            return 0
+
+    def backfill_entity_embeddings(self, force: bool = False, batch_size: int = 32) -> dict[str, int]:
+        """存量实体 embedding 回填（T17.3）：全量 key 节点挂公共标签 + 非 deprecated 缺失者
+        **按 (key, label) 逐节点**批量嵌入（bge-m3 与 kb_chunks 同链）——同名跨标签孪生
+        各用本节点材料，不共享向量。幂等（已嵌跳过，force 重算）。
+
+        诚实报告：embedded/skipped_empty/failed——失败层如实计数不伪造成功（A-16）。"""
+        from kb.embeddings import embed_texts
+
+        with self._get_driver().session() as session:
+            session.run(f"MATCH (n) WHERE n.key IS NOT NULL SET n:{KNOWLEDGE_ENTITY_LABEL}")
+            where = "" if force else " AND n.description_embedding IS NULL"
+            rows = session.run(
+                "MATCH (n) WHERE n.key IS NOT NULL AND coalesce(n.deprecated, false) = false" + where +
+                " RETURN n.key AS key, labels(n)[0] AS label, properties(n) AS props ORDER BY key"
+            ).data()
+        items: list[dict[str, Any]] = []
+        skipped_empty = 0
+        for r in rows:
+            t = _embedding_text(r.get("props") or {})
+            if t:
+                items.append({"key": r["key"], "label": r.get("label") or "", "text": t})
+            else:
+                skipped_empty += 1
+        embedded = 0
+        failed = 0
+        for i in range(0, len(items), batch_size):
+            chunk = items[i:i + batch_size]
+            try:
+                vectors = embed_texts([it["text"] for it in chunk])
+            except Exception:
+                vectors = None
+            if not vectors:
+                failed += len(chunk)
+                continue
+            with self._get_driver().session() as session:
+                session.run(
+                    f"UNWIND $rows AS row MATCH (n {{key: row.key}}) "
+                    "WHERE labels(n)[0] = row.label "
+                    f"SET n:{KNOWLEDGE_ENTITY_LABEL} SET n.description_embedding = row.vec",
+                    rows=[{"key": it["key"], "label": it["label"], "vec": v}
+                          for it, v in zip(chunk, vectors)],
+                )
+            embedded += len(chunk)
+        return {"embedded": embedded, "skipped_empty": skipped_empty, "failed": failed}
+
+    def find_entities_semantic(self, query_vector: list[float], limit: int = 5,
+                               doc_ids: list[str] | None = None,
+                               kb_ids: list[str] | None = None) -> list[dict[str, Any]]:
+        """实体语义检索（T17.3，ADR-016 §3）：向量索引 top_k → 逐命中邻域扩展拼 context_block。
+
+        向量索引不可用抛 Neo4jStoreError（调用方回退 CONTAINS 老查询）；
+        scope 语义与 find_entities_matching 一致（doc_ids/kb_ids 任一提供即过滤）。"""
+        if not self.ensure_vector_index():
+            raise Neo4jStoreError("实体向量索引不可用（语义路不可用）")
+        params: dict[str, Any] = {
+            "vec": [float(x) for x in query_vector],
+            "k": max(int(limit) * 4, int(limit)),  # 向量查询先出后滤的余量（deprecated/scope 过滤）
+            "limit": int(limit),
+        }
+        scope = ""
+        if doc_ids is not None or kb_ids is not None:
+            ors: list[str] = []
+            if doc_ids:
+                params["scope_docs"] = doc_ids
+                ors.append("node.source_doc IN $scope_docs")
+            if kb_ids:
+                params["scope_kbs"] = kb_ids
+                ors.append("node.kb_id IN $scope_kbs")
+            scope = " AND (" + (" OR ".join(ors) if ors else "false") + ")"
+        with self._get_driver().session() as session:
+            rows = session.run(
+                f"CALL db.index.vector.queryNodes('{VECTOR_INDEX_NAME}', $k, $vec) "
+                "YIELD node, score "
+                "WHERE node.key IS NOT NULL AND coalesce(node.deprecated, false) = false" + scope +
+                " RETURN node.key AS key, labels(node)[0] AS label, node.name AS name, "
+                "node.description AS description, node.source_doc AS source_doc, "
+                "node.kb_id AS kb_id, score ORDER BY score LIMIT $limit",
+                **params,
+            ).data()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            block = self._entity_context_block(r["key"], r.get("label"), r.get("name"), r.get("description"))
+            out.append({**r, "context_block": block})
+        return out
+
+    def _entity_context_block(self, key: str, label: Any, name: Any, description: Any) -> str:
+        """图上下文块（ADR-016 §3）：命中实体 + 1 跳邻域（复用 neighborhood 变长路径先例，
+        deprecated 邻居不呈现）。"""
+        base = f"[{label}] {name}" + (f"：{description}" if description else "")
+        try:
+            nb = self.neighborhood(key, depth=1, limit=12)
+        except Exception as exc:
+            logger.warning("邻域扩展失败（仅呈现命中实体）: %s", exc)
+            return base
+        nodes = {n.get("key"): n for n in (nb.get("nodes") or [])}
+        parts: list[str] = []
+        for e in (nb.get("edges") or []):
+            src, dst = nodes.get(e.get("source")), nodes.get(e.get("target"))
+            if not src or not dst or src.get("deprecated") or dst.get("deprecated"):
+                continue
+            parts.append(f"[{src.get('label')}] {src.get('name')} —{e.get('rel_type')}→ "
+                         f"[{dst.get('label')}] {dst.get('name')}")
+        if not parts:
+            return base
+        return base + "（关联：" + "；".join(parts[:8]) + "）"
+
+    # ------------------------------------------------------------------
     # 图谱可视化数据接口（T3.4，§5.14）：力导向全图采样 + 邻域子图
     # ------------------------------------------------------------------
     def graph_sample(self, limit: int = 300) -> dict[str, Any]:
@@ -268,7 +454,11 @@ class Neo4jStore:
             raise Neo4jStoreError(
                 f"Neo4j 回写中断：已成功 {written} 条后失败——{exc}"
             ) from exc
-        return {"written": written, "deprecated": deprecated, "details": details}
+        # T17.3：本批实体 embedding（加法元数据，best-effort 失败不阻塞回写——A-10 语义不动）
+        embed_keys = [k for d in details for k in d.get("embed_keys", [])]
+        embeddings = self.embed_entity_keys(list(dict.fromkeys(embed_keys)))
+        return {"written": written, "deprecated": deprecated, "embeddings": embeddings,
+                "details": details}
 
     # ------------------------------------------------------------------
     def _deprecate_same_name(self, session: Any, label: str, name: str, new_key: str) -> int:
@@ -293,12 +483,14 @@ class Neo4jStore:
             "MERGE (c:DesignConstraint {key: $key}) "
             "ON CREATE SET c.name = $name, c.expression = $expression, "
             "c.context = $context, c.source_session = $session, c.kb_id = $kb_id, "
-            "c.created_at = datetime(), c.deprecated = false",
+            "c.created_at = datetime(), c.deprecated = false, c:KnowledgeEntity "
+            "ON MATCH SET c:KnowledgeEntity",
             key=key, name=name, expression=expression,
             context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
         deprecated = self._deprecate_same_name(session, "DesignConstraint", name, key)
-        return {"key": key, "label": "DesignConstraint", "deprecated": deprecated}
+        return {"key": key, "label": "DesignConstraint", "deprecated": deprecated,
+                "embed_keys": [key]}
 
     def _write_case(self, session: Any, payload: dict[str, Any], session_id: str,
              kb_id: str | None = None) -> dict[str, Any]:
@@ -312,12 +504,14 @@ class Neo4jStore:
             "MERGE (c:DesignCase {key: $key}) "
             "ON CREATE SET c.name = $name, c.params_json = $params, "
             "c.context = $context, c.source_session = $session, c.kb_id = $kb_id, "
-            "c.created_at = datetime(), c.deprecated = false",
+            "c.created_at = datetime(), c.deprecated = false, c:KnowledgeEntity "
+            "ON MATCH SET c:KnowledgeEntity",
             key=key, name=name, params=params_json,
             context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
         deprecated = self._deprecate_same_name(session, "DesignCase", name, key)
-        return {"key": key, "label": "DesignCase", "deprecated": deprecated}
+        return {"key": key, "label": "DesignCase", "deprecated": deprecated,
+                "embed_keys": [key]}
 
     def _write_relation(self, session: Any, payload: dict[str, Any], session_id: str,
                         kb_id: str | None = None) -> dict[str, Any]:
@@ -332,15 +526,16 @@ class Neo4jStore:
         dst_key = _content_key(dst_name)
         session.run(
             f"MERGE (a:`{src_label}` {{key: $src_key}}) "
-            "ON CREATE SET a.name = $src_name, a.source_session = $session, a.kb_id = $kb_id, a.created_at = datetime() "
+            "ON CREATE SET a.name = $src_name, a.source_session = $session, a.kb_id = $kb_id, a.created_at = datetime(), a:KnowledgeEntity "
             f"MERGE (b:`{dst_label}` {{key: $dst_key}}) "
-            "ON CREATE SET b.name = $dst_name, b.source_session = $session, b.kb_id = $kb_id, b.created_at = datetime() "
+            "ON CREATE SET b.name = $dst_name, b.source_session = $session, b.kb_id = $kb_id, b.created_at = datetime(), b:KnowledgeEntity "
             f"MERGE (a)-[r:`{rel_type}`]->(b) "
             "ON CREATE SET r.context = $context, r.source_session = $session, r.kb_id = $kb_id",
             src_key=src_key, src_name=src_name, dst_key=dst_key, dst_name=dst_name,
             context=str(payload.get("context") or ""), session=session_id, kb_id=kb_id,
         )
-        return {"key": f"{src_key}->{dst_key}", "label": src_label, "relation": rel_type, "deprecated": 0}
+        return {"key": f"{src_key}->{dst_key}", "label": src_label, "relation": rel_type,
+                "deprecated": 0, "embed_keys": [src_key, dst_key]}
 
     # ------------------------------------------------------------------
     # GraphML 快照（T11.7，P2-3 承接）：在线全图导出，落 MinIO knowledge-dumps 桶

@@ -46,6 +46,7 @@ def make_svc(tmp_path: Path) -> GraphRAGService:
 GRAPH_HIT = (
     "实体：阵元间距 —决定→ 阵长",
     [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
+    [],  # T17.3 起 _try_neo4j 为 3 元组：第三位 = entity_hits（空=既有语义锚；实体项融合分区归 test_t173）
 )
 V_HITS = [
     {"doc_id": "d1", "location": "p1", "text": "向量命中一", "score": 0.9},

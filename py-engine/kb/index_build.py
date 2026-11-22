@@ -39,8 +39,9 @@ def write_extractions_to_graph(store: Any, extractions: list[dict[str, Any]], do
             session.run(
                 f"MERGE (n:`{label}` {{key: $key}}) "
                 "ON CREATE SET n.name = $name, n.source_doc = $doc, "
-                "n.description = $desc, n.created_at = datetime(), n.deprecated = false "
-                "ON MATCH SET n.source_doc = coalesce(n.source_doc, $doc)",
+                "n.description = $desc, n.created_at = datetime(), n.deprecated = false, "
+                "n:KnowledgeEntity "
+                "ON MATCH SET n.source_doc = coalesce(n.source_doc, $doc), n:KnowledgeEntity",
                 key=key, name=e["name"], doc=doc_id,
                 desc=str((e.get("payload") or {}).get("description") or ""),
             )
@@ -58,7 +59,13 @@ def write_extractions_to_graph(store: Any, extractions: list[dict[str, Any]], do
                 src=src_key, dst=dst_key, doc=doc_id,
                 desc=str(payload.get("description") or ""),
             )
-    return {"entities": len(entities), "relations": len(relations)}
+    # T17.3（ADR-016 §3）：本批实体 embedding（加法元数据，best-effort 失败不阻塞构建）
+    embeddings = 0
+    try:
+        embeddings = store.embed_entity_keys(list(dict.fromkeys(name_to_key.values())))
+    except Exception as exc:
+        logger.warning("实体 embedding 钩子失败（回填脚本可补）: %s", exc)
+    return {"entities": len(entities), "relations": len(relations), "embeddings": embeddings}
 
 
 def _refresh_text_corpus() -> int:

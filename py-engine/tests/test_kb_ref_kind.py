@@ -43,7 +43,7 @@ def test_try_neo4j_refs_shape():
     svc._kb_probe_cache = {}
     out = svc._try_neo4j("声呐")
     assert out is not None
-    _, refs = out
+    _, refs, hits = out  # T17.3 起 3 元组：第三位 = entity_hits（语义/回退两态 refs 形状一致）
     assert refs and refs[0]["kind"] == "graph"
-    if rows[0].get("kb_id"):
-        assert refs[0]["kb_id"] == str(rows[0]["kb_id"])
+    if hits and hits[0].get("kb_id"):
+        assert refs[0]["kb_id"] == str(hits[0]["kb_id"])

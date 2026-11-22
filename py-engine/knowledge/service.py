@@ -259,30 +259,49 @@ class GraphRAGService:
             if vector_hit is None:
                 degraded.append("vector")
 
+            def _append_graph_context(content: str) -> str:
+                """图上下文块追加（ADR-016 §2 次序契约：文档正文在前图上下文在后；
+                T17.3 实体项按语义/融合名次取 top5，空列表=内容零改动）。"""
+                entities = graph_hit[2] if graph_hit is not None else []
+                top = [h for h in entities if h.get("text")][:5]
+                if not top:
+                    return content
+                return content + ("\n\n知识图谱上下文（实体+邻域）：\n\n"
+                                  + "\n\n".join(h["text"] for h in top))
+
             base: Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]] = None
             level_base = ""
             if bm25_hit is not None and vector_hit is not None:
-                fused = _rrf_fuse(bm25_hit[2], vector_hit[2])
+                fused = _rrf_fuse(bm25_hit[2], vector_hit[2],
+                                  graph_hit[2] if graph_hit is not None else [])
                 from kb.rerank import get_reranker
 
                 reranker = get_reranker()
                 if reranker.available():
                     fused = reranker.apply(query, fused)
+                # T17.3 分区呈现（ADR-016 §2）：chunk 项 top5 文档正文在前，实体项（kind=
+                # "graph"）top5 图上下文在后；chunk 侧选择不受实体影响（T16 防饥饿锚）；
+                # hits 保留全局 RRF 混排（诚实可见三路名次）。
+                chunk_items = [h for h in fused if not h.get("kind")]
+                entity_items = [h for h in fused if h.get("kind") == "graph"][:5]
                 content = "知识库混合检索结果（BM25+Milvus RRF 融合）：\n\n" + "\n\n---\n\n".join(
                     f"[{h.get('doc_id', '?')}#{h.get('location', '?')}]\n{h.get('text', '')}"
-                    for h in fused
+                    for h in chunk_items[:5]
                 )
+                if entity_items:
+                    content += ("\n\n知识图谱上下文（实体+邻域，按融合名次）：\n\n"
+                                + "\n\n".join(h.get("text", "") for h in entity_items))
                 refs = [
                     {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
-                    for h in fused
+                    for h in chunk_items[:5]
                 ]
                 base = (content, _refs_with_kb(refs), fused[:10])
                 level_base = "hybrid"
             elif vector_hit is not None:
-                base = (vector_hit[0], vector_hit[1], vector_hit[2][:10])
+                base = (_append_graph_context(vector_hit[0]), vector_hit[1], vector_hit[2][:10])
                 level_base = "vector"
             elif bm25_hit is not None:
-                base = (bm25_hit[0], bm25_hit[1], bm25_hit[2][:10])
+                base = (_append_graph_context(bm25_hit[0]), bm25_hit[1], bm25_hit[2][:10])
                 level_base = "bm25"
 
             if base is not None:
@@ -292,7 +311,8 @@ class GraphRAGService:
                     refs = _merge_refs(refs, graph_hit[1])
                 return RetrievalResult(content, level, degraded, refs, hits_out)
             if graph_hit is not None:
-                content, refs = graph_hit
+                # T17.3：graph_hit 为 3 元组（content/refs/entity_hits）——graph-only 只用前两位
+                content, refs = graph_hit[0], graph_hit[1]
                 return RetrievalResult(content, "graph", degraded, refs)
 
         # 兜底 text：关键词（语料按 doc 集合过滤；全空 = 范围内零语料，如实返回不可用）
@@ -335,35 +355,76 @@ class GraphRAGService:
         return ok
 
     def _try_neo4j(self, query: str, doc_scope: Optional[list[str]] = None,
-                   kb_ids: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]]]]:
+                   kb_ids: Optional[list[str]] = None,
+                   ) -> Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]]:
+        """graph 路（T3.2 建立；T17.3 升级为语义优先，ADR-016 §3）。
+
+        语义路：查询向量 → 实体向量索引 → 1 跳邻域扩展拼 context_block；embedding 供应商
+        不可用/向量索引缺失/语义零命中 → 回退 CONTAINS 老查询（find_entities_matching 契约
+        不变，A-14 如实日志）。3 元组契约（T17.3）：第三位 = entity_hits 排序列表
+        （kind:"graph" 标记，score=语义相似度或回退 None）——第三路带名次进 RRF。
+        无实体命中返回 None。"""
         from storage.neo4j_store import Neo4jStore
 
         if not self._probe_ok("neo4j", lambda: Neo4jStore().available()):
             return None
         store = Neo4jStore()
-        # scoped 时传 doc/kb 集合过滤；未 scoped 传 None（全量，行为不变）
-        rows = store.find_entities_matching(
-            query, limit=5,
-            doc_ids=doc_scope if doc_scope is not None else None,
-            kb_ids=kb_ids,
-        )
+        rows: list[dict[str, Any]] = []
+        semantic = False
+        try:
+            from kb.embeddings import embed_texts
+
+            vectors = embed_texts([query])
+            if vectors:
+                # scoped 时传 doc/kb 集合过滤；未 scoped 传 None（全量）
+                rows = store.find_entities_semantic(
+                    vectors[0], limit=5,
+                    doc_ids=doc_scope if doc_scope is not None else None,
+                    kb_ids=kb_ids if kb_ids is not None else None,
+                )
+                semantic = bool(rows)
+        except Exception as exc:
+            logger.warning("图谱语义检索不可用，回退关键词路（A-14）: %s", exc)
+        if not rows:
+            rows = store.find_entities_matching(
+                query, limit=5,
+                doc_ids=doc_scope if doc_scope is not None else None,
+                kb_ids=kb_ids,
+            )
         if not rows:
             return None
-        content = "知识图谱检索结果（Neo4j 实体层）：\n\n" + "\n\n".join(
-            f"[{r.get('label', '?')}] {r.get('name', '?')}"
-            + (f"：{r['description']}" if r.get("description") else "")
-            for r in rows
-        )
-        refs = [
-            {"doc_id": r.get("source_doc") or "kb-graph",
-             "location": f"{r.get('label', '?')}:{r.get('name', '?')}",
-             "kind": "graph",
-             # 实体自身带归属库（A5 沉淀节点 kb_id 属性）——2026-09-24 修正：
-             # 此前丢弃该字段，_refs_with_kb 按 doc 归属查不到 → 前端全落「未标注来源库」
-             **({"kb_id": str(r["kb_id"])} if r.get("kb_id") else {})}
-            for r in rows
-        ]
-        return content, _refs_with_kb(refs)
+        entity_hits: list[dict[str, Any]] = []
+        contents: list[str] = []
+        refs: list[dict[str, str]] = []
+        for r in rows:
+            label, name = r.get("label", "?"), r.get("name", "?")
+            if semantic and r.get("context_block"):
+                line = r["context_block"]
+            else:
+                line = f"[{label}] {name}" + (f"：{r['description']}" if r.get("description") else "")
+            contents.append(line)
+            ref = {"doc_id": r.get("source_doc") or "kb-graph",
+                   "location": f"{label}:{name}",
+                   "kind": "graph",
+                   # 实体自身带归属库（A5 沉淀节点 kb_id 属性）——2026-09-24 修正：
+                   # 此前丢弃该字段，_refs_with_kb 按 doc 归属查不到 → 前端全落「未标注来源库」
+                   **({"kb_id": str(r["kb_id"])} if r.get("kb_id") else {})}
+            refs.append(ref)
+            entity_hits.append({
+                "doc_id": ref["doc_id"],
+                "location": ref["location"],
+                "text": line,
+                "score": r.get("score"),
+                "kind": "graph",
+                "key": r.get("key"),
+                "label": label,
+                "name": name,
+                **({"kb_id": str(r["kb_id"])} if r.get("kb_id") else {}),
+            })
+        header = ("知识图谱检索结果（Neo4j 实体层·语义+邻域）：\n\n" if semantic
+                  else "知识图谱检索结果（Neo4j 实体层）：\n\n")
+        content = header + "\n\n".join(contents)
+        return content, _refs_with_kb(refs), entity_hits
 
     def _try_milvus(self, query: str, doc_scope: Optional[list[str]] = None) -> Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]]:
         from kb.embeddings import embed_texts
@@ -636,14 +697,17 @@ RRF_K = 60  # ADR-016 §2：标准 RRF 常数
 
 
 def _rrf_fuse(bm25_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]],
+              graph_hits: Optional[list[dict[str, Any]]] = None,
               k: int = RRF_K) -> list[dict[str, Any]]:
-    """chunk 级双路 RRF 融合（T17.2，ADR-016 §2）：score(d)=Σ 1/(k+rank)（rank 从 1）。
+    """三路 RRF 融合（T17.2 bm25/vector 双路；T17.3 图路实体项入融合，ADR-016 §2/§3）：
+    score(d)=Σ 1/(k+rank)（rank 从 1）。
 
     identity=(doc_id, location)；RRF 分**仅用于排序**（A-16 不造绝对相关度语义）；
     每条携带 paths（命中路名，尝试序）与 ranks（各路原始名次）——诚实透传。
+    graph_hits 项带 kind:"graph"（分区呈现用，原样透传）。
     同路重复 identity 取首个名次（chunk 在单路内应唯一，防御性）。"""
     fused: dict[tuple[str, str], dict[str, Any]] = {}
-    for path, hits in (("bm25", bm25_hits), ("vector", vector_hits)):
+    for path, hits in (("bm25", bm25_hits), ("vector", vector_hits), ("graph", graph_hits or [])):
         for rank, h in enumerate(hits, start=1):
             key = (str(h.get("doc_id") or ""), str(h.get("location") or ""))
             entry = fused.get(key)
@@ -656,6 +720,8 @@ def _rrf_fuse(bm25_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]]
                     "paths": [],
                     "ranks": {},
                 }
+                if h.get("kind"):
+                    entry["kind"] = h["kind"]
                 fused[key] = entry
             if path in entry["ranks"]:
                 continue
