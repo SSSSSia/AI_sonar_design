@@ -128,6 +128,8 @@ class TestGraphVectorMerge:
     def test_graph_hit_does_not_starve_vector(self, tmp_path, monkeypatch):
         svc = make_service(tmp_path, sdk=None)
         svc.enable_kb_levels = True
+        # T17.2 契约演进：bm25 路接线后本用例钉住的是「bm25 未命中时」的既有语义（真语料漏桩会非确定）
+        monkeypatch.setattr(svc, "_try_bm25", lambda q, **kw: None)
         monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: (
             "实体：阵元间距 —决定→ 阵长",
             [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
@@ -148,6 +150,7 @@ class TestGraphVectorMerge:
         """vector 未命中时回落到图谱结果（不倒退）。"""
         svc = make_service(tmp_path, sdk=None)
         svc.enable_kb_levels = True
+        monkeypatch.setattr(svc, "_try_bm25", lambda q, **kw: None)  # T17.2 桩演进
         monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: (
             "实体：阵元间距",
             [{"doc_id": "kb-graph", "location": "Parameter:阵元间距", "kind": "graph"}],
@@ -161,10 +164,12 @@ class TestGraphVectorMerge:
         """graph 与 vector 都未命中 → 落文本兜底（原级联语义保留）。"""
         svc = make_service(tmp_path, sdk=None)
         svc.enable_kb_levels = True
+        monkeypatch.setattr(svc, "_try_bm25", lambda q, **kw: None)  # T17.2 桩演进
         monkeypatch.setattr(svc, "_try_neo4j", lambda q, **kw: None)
         monkeypatch.setattr(svc, "_try_milvus", lambda q, **kw: None)
         r = svc.query("拖曳线列阵声呐 阵列传感器")
         assert r.level == "text"
+        # 子集检查：bm25 启用时 degraded 另含 "bm25"（T17.2），关闭态不含——两者皆通过
         assert set(r.degraded_from) >= {"graph", "vector"}
 
 

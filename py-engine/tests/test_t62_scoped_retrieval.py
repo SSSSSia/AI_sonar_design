@@ -41,6 +41,9 @@ def svc(monkeypatch):
     s.sdk = None  # T12.7 后包真实在装——显式置空保持「SDK 不可用」语义确定性
     s._dynamic_sources = list(CHUNKS)
     monkeypatch.setattr(GraphRAGService, "_ensure_corpus", lambda self: None)
+    # T17.2 契约演进：bm25 路接线后打桩防真语料漏入（bm25 独立加载 kb_store，与
+    # _dynamic_sources 桩无关）——本文件钉的是 scoped 过滤语义，单路行为归 test_t172
+    monkeypatch.setattr(GraphRAGService, "_try_bm25", lambda self, q, **kw: None)
     return s
 
 

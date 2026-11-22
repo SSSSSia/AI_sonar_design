@@ -134,8 +134,9 @@ def test_kb_first_sample_pipeline(stack):
         r = c.post("/knowledge/search", json={"query": "声呐方程 指向性指数 DI"})
         search = r.json()
         print(f"⑤ 检索命中层级: {search['level']} degraded={search['degraded_from']}")
-        assert search["level"] in ("local", "basic", "graph", "vector", "vector+graph"), \
-            f"首样后检索应命中图谱/向量级，实际 {search['level']}"  # vector+graph: 3e41439 起图谱命中不短路向量检索
+        assert search["level"] in ("local", "basic", "graph", "vector", "vector+graph",
+                                   "hybrid", "bm25", "hybrid+graph", "bm25+graph"), \
+            f"首样后检索应命中图谱/向量级，实际 {search['level']}"  # vector+graph: 3e41439 起图谱命中不短路向量检索；T17.2 起新增 hybrid/bm25 系（bm25+vector RRF 融合，ADR-016 §2，合法新值非放宽）
         assert search["refs"], "命中应有来源引用"
 
         # ⑥ 图谱接口（T3.4）：全图 + 邻域，节点带来源文档

@@ -85,6 +85,10 @@ class GraphRAGService:
         self.kb_dir = Path(kb_dir or KNOWLEDGE_KB_DIR).resolve()
         self.sdk = _load_sdk(self.kb_dir)
         self.enable_kb_levels = enable_kb_levels
+        # T17.2（ADR-016 §2）：BM25 稀疏路开关——关闭=检索链行为与融合前逐字节一致（回滚保证）
+        import app_config as _cfg
+
+        self.bm25_enabled = _cfg.KB_BM25_ENABLED.lower() in ("1", "true", "yes")
 
         # 文本级降级的语料：input 目录全部 txt（保留 (文件名, 段落) 结构供溯源）
         self.kb_text: Optional[str] = None
@@ -169,7 +173,17 @@ class GraphRAGService:
 
         from storage import cache
 
-        key = cache.kb_cache_key(query, kb_ids)
+        # T17.2（ADR-016 §2）：缓存键融合指纹——BM25 开关+语料版本入键，融合结果与旧单路
+        # 结果不混缓存；关闭态 fusion=None → 键与融合前逐字节一致（cache.py 条件分支）。
+        fusion_fp = None
+        if self.bm25_enabled:
+            try:
+                from kb.bm25 import get_bm25_retriever
+
+                fusion_fp = f"bm25:1|fp:{get_bm25_retriever().fingerprint or 'na'}"
+            except Exception:  # noqa: BLE001 - 指纹获取失败不影响检索主链
+                fusion_fp = "bm25:1|fp:err"
+        key = cache.kb_cache_key(query, kb_ids, fusion=fusion_fp)
         t0 = _t.perf_counter()
         cached = cache.get_json("kb", key)
         if cached is not None:
@@ -227,20 +241,56 @@ class GraphRAGService:
             elif self.sdk is None and "graphrag_sdk_unavailable" not in degraded:
                 degraded.append("graphrag_sdk_unavailable")
 
-            # 第四级 vector：Milvus chunk 向量检索（T3.2）。
-            # ★ graph 命中不再短路（2026-09-26）：知识沉淀写入实体后，图谱命中即返回会让
-            #   A2 只拿到实体名、拿不到文档原文段落，design_document 缩水近半、A3 模型随之
-            #   退化。graph 命中后继续查 vector：文档正文为主，图谱实体引用补充在后。
+            # 第四级 bm25+vector：chunk 级双路召回 RRF 融合（T17.2，ADR-016 §2）。
+            # ★ graph 命中不短路语义延续（2026-09-26 回归：图谱命中即返回会让 A2 拿不到
+            #   文档原文段落）。level 统一规则 = base + ("+graph" if 图谱命中)——base=vector
+            #   时恰得既有字符串 "vector+graph"（零特例）；新增枚举只增不改：
+            #   hybrid / bm25 / hybrid+graph / bm25+graph。
+            # ★ bm25 关闭或未命中 → 落单路 vector 语义（与融合前逐字节一致，回滚保证）；
+            #   退化语料下 BM25 可能整体零命中（BM25Okapi 负 IDF 下限，T17.1 实发）——
+            #   如实降级不造路（A-16）。
+            bm25_hit: Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]] = None
+            if self.bm25_enabled:
+                bm25_hit = self._try_bm25(query, doc_scope=doc_scope)
+                if bm25_hit is None:
+                    degraded.append("bm25")
+
             vector_hit = self._try_milvus(query, doc_scope=doc_scope)
             if vector_hit is None:
                 degraded.append("vector")
 
-            if vector_hit is not None:
-                content, refs, vhits = vector_hit
+            base: Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]] = None
+            level_base = ""
+            if bm25_hit is not None and vector_hit is not None:
+                fused = _rrf_fuse(bm25_hit[2], vector_hit[2])
+                from kb.rerank import get_reranker
+
+                reranker = get_reranker()
+                if reranker.available():
+                    fused = reranker.apply(query, fused)
+                content = "知识库混合检索结果（BM25+Milvus RRF 融合）：\n\n" + "\n\n---\n\n".join(
+                    f"[{h.get('doc_id', '?')}#{h.get('location', '?')}]\n{h.get('text', '')}"
+                    for h in fused
+                )
+                refs = [
+                    {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
+                    for h in fused
+                ]
+                base = (content, _refs_with_kb(refs), fused[:10])
+                level_base = "hybrid"
+            elif vector_hit is not None:
+                base = (vector_hit[0], vector_hit[1], vector_hit[2][:10])
+                level_base = "vector"
+            elif bm25_hit is not None:
+                base = (bm25_hit[0], bm25_hit[1], bm25_hit[2][:10])
+                level_base = "bm25"
+
+            if base is not None:
+                content, refs, hits_out = base
+                level = level_base + ("+graph" if graph_hit is not None else "")
                 if graph_hit is not None:
-                    return RetrievalResult(content, "vector+graph", degraded,
-                                           _merge_refs(refs, graph_hit[1]), vhits)
-                return RetrievalResult(content, "vector", degraded, refs, vhits)
+                    refs = _merge_refs(refs, graph_hit[1])
+                return RetrievalResult(content, level, degraded, refs, hits_out)
             if graph_hit is not None:
                 content, refs = graph_hit
                 return RetrievalResult(content, "graph", degraded, refs)
@@ -344,8 +394,33 @@ class GraphRAGService:
             {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
             for h in hits
         ]
-        # U3.10：截断逐块命中（含真实距离/重排序分），随结果流经缓存
-        return content, _refs_with_kb(refs), hits[:10]
+        # U3.10：逐块命中（含真实距离/重排序分）。T17.2 起返回**全量候选**（融合需宽召回），
+        # 调用方（kb_levels 块）截断 [:10]——单路 vector 语义最终输出不变。
+        return content, _refs_with_kb(refs), hits
+
+    def _try_bm25(self, query: str, doc_scope: Optional[list[str]] = None,
+                  ) -> Optional[tuple[str, list[dict[str, str]], list[dict[str, Any]]]]:
+        """BM25 稀疏路（T17.2，kb/bm25.py；镜像 _try_milvus 3 元组契约）。
+
+        rerank 配置可用时按 fetch_k 宽召回（与 vector 路对称，融合后统一重排）；
+        语料空/加载失败/零命中 → None（调用方降级，A-14 如实；退化语料见 T17.1 实发）。"""
+        from kb.bm25 import bm25_search
+        from kb.rerank import get_reranker
+
+        reranker = get_reranker()
+        hits = bm25_search(query, top_k=reranker.fetch_k if reranker.available() else 5,
+                           doc_ids=doc_scope if doc_scope is not None else None)
+        if not hits:
+            return None
+        content = "知识库稀疏检索结果（BM25）：\n\n" + "\n\n---\n\n".join(
+            f"[{h.get('doc_id', '?')}#{h.get('location', '?')}]\n{h.get('text', '')}"
+            for h in hits
+        )
+        refs = [
+            {"doc_id": h.get("doc_id") or "?", "location": h.get("location") or "?"}
+            for h in hits
+        ]
+        return content, _refs_with_kb(refs), hits
 
     # ------------------------------------------------------------------
     # 批量查询（并发 + 逐条降级，A1 的 4~8 条子查询用）
@@ -555,6 +630,39 @@ def get_knowledge_service() -> GraphRAGService:
             enable_kb_levels=app_config.KB_RETRIEVAL_LEVELS.lower() in ("1", "true", "yes"),
         )
     return _service
+
+
+RRF_K = 60  # ADR-016 §2：标准 RRF 常数
+
+
+def _rrf_fuse(bm25_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]],
+              k: int = RRF_K) -> list[dict[str, Any]]:
+    """chunk 级双路 RRF 融合（T17.2，ADR-016 §2）：score(d)=Σ 1/(k+rank)（rank 从 1）。
+
+    identity=(doc_id, location)；RRF 分**仅用于排序**（A-16 不造绝对相关度语义）；
+    每条携带 paths（命中路名，尝试序）与 ranks（各路原始名次）——诚实透传。
+    同路重复 identity 取首个名次（chunk 在单路内应唯一，防御性）。"""
+    fused: dict[tuple[str, str], dict[str, Any]] = {}
+    for path, hits in (("bm25", bm25_hits), ("vector", vector_hits)):
+        for rank, h in enumerate(hits, start=1):
+            key = (str(h.get("doc_id") or ""), str(h.get("location") or ""))
+            entry = fused.get(key)
+            if entry is None:
+                entry = {
+                    "doc_id": h.get("doc_id") or "?",
+                    "location": h.get("location") or "?",
+                    "text": h.get("text") or "",
+                    "score": 0.0,
+                    "paths": [],
+                    "ranks": {},
+                }
+                fused[key] = entry
+            if path in entry["ranks"]:
+                continue
+            entry["paths"].append(path)
+            entry["ranks"][path] = rank
+            entry["score"] += 1.0 / (k + rank)
+    return sorted(fused.values(), key=lambda e: e["score"], reverse=True)
 
 
 def _merge_refs(doc_refs: list[dict[str, str]], graph_refs: list[dict[str, str]]) -> list[dict[str, str]]:

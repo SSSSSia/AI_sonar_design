@@ -124,6 +124,9 @@ KB_MILVUS_URI = _env("KB_MILVUS_URI", f"http://localhost:{_env('MILVUS_PORT', '1
 KB_MILVUS_COLLECTION = _env("KB_MILVUS_COLLECTION", "kb_chunks")
 # 检索 KB 扩展级开关（graph=自建 Neo4j 实体层 / vector=Milvus）：A-14 三级降级的完整形态
 KB_RETRIEVAL_LEVELS = _env("KB_RETRIEVAL_LEVELS", "1")
+# BM25 稀疏路开关（T17.2，ADR-016 §2）：bm25+vector 双路 RRF 融合（kb/bm25.py）；关闭=融合层
+# 不尝试不降级不记，检索链行为与 T17.1 前逐字节一致（回滚保证）；缓存键随之切换（融合指纹）
+KB_BM25_ENABLED = _env("KB_BM25_ENABLED", "1")
 # LLM 抽取并行度（大文档异步抽取任务用；对供应商限流友好）
 KB_EXTRACT_WORKERS = int(_env("KB_EXTRACT_WORKERS", "4"))
 

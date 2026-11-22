@@ -681,6 +681,9 @@ def kb_search(body: SearchBody) -> dict[str, Any]:
             "location": h.get("location") or "?",
             "text": h.get("text", ""),
             "score": h.get("score"),
+            # T17.2（ADR-016 §2）：hybrid 级携带命中路名（如 ["bm25","vector"]）；
+            # 单路级无此键 → None（诚实：非融合层级不造路名）
+            "paths": h.get("paths"),
         }
         for h in (r.hits or [])[:10]
     ]

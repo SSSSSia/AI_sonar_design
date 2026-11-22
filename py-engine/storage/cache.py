@@ -141,15 +141,21 @@ def llm_cache_key(provider_tag: str, messages: list[dict[str, str]], kwargs: dic
     return f"cache:llm:call:{fingerprint(provider_tag, messages, semantic)}"
 
 
-def kb_cache_key(query: str, kb_ids: list[str] | None) -> str:
+def kb_cache_key(query: str, kb_ids: list[str] | None, fusion: str | None = None) -> str:
     """T14.8（审查问题 9b）：范围语义入键——None=不过滤（unscoped，SDK 全局索引可达）
     与 []/库列表=scoped（仅归属文档）检索语义不同，此前 `kb_ids or []` 把两者合并成
-    同一缓存键，TTL 内先入者污染另一语义（审查用例 15）。键内含排序后的范围集合。"""
+    同一缓存键，TTL 内先入者污染另一语义（审查用例 15）。键内含排序后的范围集合。
+    T17.2（ADR-016 §2）：fusion=融合配置指纹（BM25 开关+语料 fingerprint）——融合结果
+    与旧单路结果不混缓存；None=键与融合前逐字节一致（关闭态回滚保证）。"""
     if kb_ids is None:
         scope = "unscoped"
     else:
         scope = f"scoped:{','.join(sorted(str(k) for k in kb_ids))}" or "scoped:all-owned"
-    return f"cache:kb:query:{fingerprint(query, scope)}"
+    if fusion is None:
+        # None 不入指纹材料（fingerprint(*parts) 的 canonical JSON 会序列化 None）——
+        # 关闭态键与融合前逐字节一致
+        return f"cache:kb:query:{fingerprint(query, scope)}"
+    return f"cache:kb:query:{fingerprint(query, scope, fusion)}"
 
 
 def codegen_cache_key(
