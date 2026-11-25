@@ -92,6 +92,12 @@ REF_SOURCE = _env("REF_SOURCE", "file").strip().lower()
 REF_MATCH_ALLOW_WEAK = _env("REF_MATCH_ALLOW_WEAK", "0").lower() in ("1", "true", "yes")
 # 匹配入选阈值（标题信号与关键词各 0.5 加权；达阈值但标题未命中=weak_keyword）
 REF_MATCH_MIN_SCORE = float(_env("REF_MATCH_MIN_SCORE", "0.05"))
+# 范例库向量检索（T17.4，ADR-016 §4）：confirm 时 embed 入 Milvus ref_scripts_vec 集合，
+# select_reference 词法分+向量分 RRF 合成排序（type_matched 权威优先不变，向量只扩召回不改判分）。
+# **默认关**——参考域错域静默注入是历史原罪（A0-2 止血对象），生产启用留 T16.2 B2 选例实验
+# 评审决定（与 REF_SOURCE=db 默认 file 同构）；关闭=检索行为与纯词法逐字节一致
+REF_VECTOR_ENABLED = _env("REF_VECTOR_ENABLED", "0").lower() in ("1", "true", "yes")
+KB_REF_VECTOR_COLLECTION = _env("KB_REF_VECTOR_COLLECTION", "ref_scripts_vec")
 
 # ---- CAD 交互微调（T8.1，PHASE-008，ADR-004）----
 BUCKET_CAD_TUNES = "cad-tunes"                            # 微调每轮产物（STEP/FCStd/脚本/截图）

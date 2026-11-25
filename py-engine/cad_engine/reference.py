@@ -265,8 +265,49 @@ class CodeSearchService:
                 grade = GRADE_TYPE_MATCHED if type_matched else GRADE_WEAK_KEYWORD
                 candidates.append((combined, grade, entry))
 
-        # 标题命中（权威信号）优先，其后按分排序
+        # T17.4（ADR-016 §4）：向量名次合成（app_config.REF_VECTOR_ENABLED，默认关=零执行
+        # 与纯词法逐字节一致）。grade 判定/无匹配不注入/weak 过滤三锚全不动——RRF 只作
+        # 同 grade 内次级排序（type_matched 权威优先仍居首位）；向量命中但词法低于阈值的
+        # entry 以 weak_keyword 加入候选（subject to REF_MATCH_ALLOW_WEAK，向量只扩召回
+        # 不改判分）。读侧 active 兜底：向量名次对当前 entries 的 ref_id 集合过滤。
+        vector_ranks: dict[str, tuple[int, float]] = {}
+        if app_config.REF_VECTOR_ENABLED:
+            from cad_engine.ref_vector import search_ref_vectors
+
+            vector_ranks = search_ref_vectors(design_document[:2000])
+            if vector_ranks:
+                known = {str(e.get("id") or Path(e.get("file", "")).stem) for e in entries}
+                vector_ranks = {k: v for k, v in vector_ranks.items() if k in known}
+                seen_ids = {str(e.get("id") or Path(e.get("file", "")).stem)
+                            for _, _, e in candidates}
+                for ref_id, (_rank, _vs) in vector_ranks.items():
+                    if ref_id in seen_ids:
+                        continue  # 已是词法候选
+                    entry = next((e for e in entries
+                                  if str(e.get("id") or Path(e.get("file", "")).stem) == ref_id), None)
+                    if entry is not None:
+                        # 向量扩召回：词法未达阈值 → weak_keyword（默认被 weak 过滤，语义不破）
+                        candidates.append((0.0, GRADE_WEAK_KEYWORD, entry))
+                        seen_ids.add(ref_id)
+
+        def _rrf(entry_id: str, lexical_rank: int) -> float:
+            k = 60
+            s = 1.0 / (k + lexical_rank)
+            vr = vector_ranks.get(entry_id)
+            if vr is not None:
+                s += 1.0 / (k + vr[0])
+            return s
+
+        # 先按词法内部序定名次（combined 分），再合成 RRF；标题命中（权威信号）仍居首位
         candidates.sort(key=lambda x: (x[1] == GRADE_TYPE_MATCHED, x[0]), reverse=True)
+        if vector_ranks:
+            fused: list[tuple[float, str, dict, float]] = []
+            for lex_rank, (score, grade, entry) in enumerate(candidates, start=1):
+                entry_id = str(entry.get("id") or Path(entry.get("file", "")).stem)
+                fused.append((score, grade, entry, _rrf(entry_id, lex_rank)))
+            fused.sort(key=lambda x: (x[1] == GRADE_TYPE_MATCHED, x[3], x[0]), reverse=True)
+            candidates = [(s, g, e) for s, g, e, _ in fused]
+            logger.info("范例向量名次参与融合: %s", {k: v[0] for k, v in vector_ranks.items()})
 
         reason: Optional[str] = None
         for score, grade, entry in candidates[:top_n]:

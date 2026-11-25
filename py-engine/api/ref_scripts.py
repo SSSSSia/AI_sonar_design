@@ -166,7 +166,34 @@ def patch_reference(row_id: str, req: PatchRequest, user: str = Depends(require_
         row = ref_store.update_meta(row_id, req.model_dump(exclude_unset=True))
     except (KeyError, ValueError) as exc:
         raise _resolve_row_error(exc) from exc
+    _sync_vector_on_transition(current, row)
     return {"row": row}
+
+
+def _sync_vector_on_transition(before: dict[str, Any], after: dict[str, Any]) -> None:
+    """T17.4（ADR-016 §4）：启停迁移的向量同步（flag 门控，best-effort 不阻塞 API）。
+
+    active 化（confirm 语义外=disabled 重新启用）→ embed+upsert；停用 → 删向量
+    （active-only：向量集合只反映 active 行）。"""
+    import app_config
+
+    if not app_config.REF_VECTOR_ENABLED:
+        return
+    if before.get("status") == after.get("status"):
+        return
+    try:
+        from cad_engine.ref_vector import delete_ref_vector, sync_ref_vector
+        from storage import object_store
+
+        if after["status"] == "active":
+            content = object_store.download_text(after["bucket"], after["object_key"])
+            ok = sync_ref_vector(after, content)
+            if not ok:
+                logger.warning("范例向量同步失败（检索纯词法降级，回填脚本可补）: %s", after["ref_id"])
+        else:
+            delete_ref_vector(after["ref_id"])
+    except Exception as exc:  # noqa: BLE001 - 向量同步失败不影响启停结果（A-16 如实日志）
+        logger.warning("范例向量迁移同步异常（不阻塞）: %s: %s", after.get("ref_id"), exc)
 
 
 @router.post("/{row_id}/confirm")
@@ -177,6 +204,20 @@ def confirm_reference(row_id: str, user: str = Depends(require_admin)) -> dict[s
     except (KeyError, ValueError) as exc:
         raise _resolve_row_error(exc) from exc
     logger.info("范例已确认激活 %s v%s by %s（同 ref_id 旧 active 已停用）", row["ref_id"], row["version"], user)
+    # T17.4（ADR-016 §4）：confirm 时 embed（三来源 manual_upload/import/deposit 汇合点；
+    # flag 门控 best-effort，失败不阻塞入库——「失败如实降级为纯词法」）
+    import app_config
+
+    if app_config.REF_VECTOR_ENABLED:
+        try:
+            from cad_engine.ref_vector import sync_ref_vector
+            from storage import object_store
+
+            content = object_store.download_text(row["bucket"], row["object_key"])
+            if not sync_ref_vector(row, content):
+                logger.warning("范例向量未写入（检索纯词法降级，回填脚本可补）: %s", row["ref_id"])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("范例向量同步异常（不阻塞入库）: %s: %s", row.get("ref_id"), exc)
     return {"row": row}
 
 
