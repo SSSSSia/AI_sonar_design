@@ -93,6 +93,29 @@ def get_reference_content(row_id: str) -> dict[str, Any]:
     }
 
 
+@router.get("/{row_id}/views")
+def get_reference_views(row_id: str):
+    """范例三视图 PNG（T17.6，ADR-016 §5 读侧出口）：MinIO ref-scripts 桶 views.png 直出。
+
+    视觉通道未生成（REF_VISUAL_ENABLED 关/沙箱或渲染失败/历史行）→ 404 如实（A-16）。"""
+    from fastapi.responses import Response
+
+    row = ref_store.get_row(row_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"范例登记不存在: {row_id}")
+    from cad_engine.render import views_object_key
+
+    key = views_object_key(row["ref_id"], row["version"])
+    try:
+        data = object_store.download_bytes("ref-scripts", key)
+    except Exception as exc:  # noqa: BLE001 - 对象不存在/读取失败统一 404 如实
+        raise HTTPException(
+            status_code=404,
+            detail=f"暂无三视图（视觉通道未生成或读取失败）: {type(exc).__name__}",
+        ) from exc
+    return Response(content=data, media_type="image/png")
+
+
 # ----------------------------------------------------------------------
 # 登记（manual_upload）
 # ----------------------------------------------------------------------

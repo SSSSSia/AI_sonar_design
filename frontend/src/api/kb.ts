@@ -208,6 +208,10 @@ export interface KbSearchHit {
   location: string
   text: string
   score: number | null
+  /** T17.2（ADR-016 §2）：融合级命中路名（如 ["bm25","vector"]）；单路级为 null */
+  paths?: string[] | null
+  /** T17.3（ADR-016 §3）：融合混排中的图谱实体项 kind="graph"；chunk 项为 null */
+  kind?: string | null
 }
 
 export interface KbSearchResult {

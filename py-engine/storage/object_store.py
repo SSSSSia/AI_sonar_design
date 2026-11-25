@@ -90,6 +90,17 @@ def download_text(bucket: str, object_key: str) -> str:
         resp.release_conn()
 
 
+def download_bytes(bucket: str, object_key: str) -> bytes:
+    """读取对象原始字节（T17.6 范例三视图 PNG 查看）。失败抛异常由调用方降级。"""
+    _ensure_buckets()
+    resp = _get_client().get_object(bucket, object_key)
+    try:
+        return resp.read()
+    finally:
+        resp.close()
+        resp.release_conn()
+
+
 def remove_object(bucket: str, object_key: str) -> None:
     """删除对象（T3.1 文档删除同步清理，§6 ⑦）。对象不存在时静默（幂等）。"""
     _ensure_buckets()

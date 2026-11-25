@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Empty, Input, Select, Space, Tag, Typography } from 'antd'
 import { errText } from '../../api/client'
 import { listBases, searchKb, type KbSearchHit, type KbSearchResult } from '../../api/kb'
+import { formatPaths, isGraphEntity } from './refSearchView'
 
 /**
  * U3.10 知识检索 Tab：包装三级降级检索（POST /api/v1/kb/search）。
@@ -13,6 +14,11 @@ import { listBases, searchKb, type KbSearchHit, type KbSearchResult } from '../.
 const LEVEL_LABEL: Record<string, { text: string; color: string }> = {
   local: { text: 'local · SDK 图谱', color: 'purple' },
   basic: { text: 'basic · SDK 向量', color: 'geekblue' },
+  // T17.2/T17.3（ADR-016 §2/§3）：三路混合检索新 level（枚举只增不改；RRF 分仅排序）
+  hybrid: { text: 'hybrid · 混合融合（BM25+向量 RRF）', color: 'gold' },
+  bm25: { text: 'bm25 · 稀疏关键词（BM25）', color: 'volcano' },
+  'hybrid+graph': { text: 'hybrid+graph · 混合融合+图谱', color: 'gold' },
+  'bm25+graph': { text: 'bm25+graph · 稀疏关键词+图谱', color: 'volcano' },
   'vector+graph': { text: 'vector+graph · 向量+图谱', color: 'cyan' },
   vector: { text: 'vector · 向量（Milvus）', color: 'cyan' },
   graph: { text: 'graph · 图谱（Neo4j 实体层）', color: 'green' },
@@ -21,11 +27,14 @@ const LEVEL_LABEL: Record<string, { text: string; color: string }> = {
 }
 
 function HitCard({ hit }: { hit: KbSearchHit }) {
+  const pathsText = formatPaths(hit.paths)
+  const graphEntity = isGraphEntity(hit.kind)
   return (
     <div
       style={{
         border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px',
         background: 'var(--card-deep, rgba(255,255,255,.02))',
+        ...(graphEntity ? { borderLeft: '3px solid rgba(114,46,209,.65)' } : {}),
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -35,6 +44,12 @@ function HitCard({ hit }: { hit: KbSearchHit }) {
           </span>
         ) : (
           <Tag style={{ fontSize: 11 }}>聚合</Tag>
+        )}
+        {graphEntity && <Tag color="purple" style={{ fontSize: 11 }}>图谱实体</Tag>}
+        {pathsText && (
+          <span className="mono" style={{ fontSize: 11, color: '#d4b106', background: 'rgba(212,177,6,.12)', borderRadius: 4, padding: '1px 6px' }}>
+            {pathsText}
+          </span>
         )}
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>{hit.doc_name || '未知来源'}</Typography.Text>
         {hit.location && <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>{hit.location}</span>}

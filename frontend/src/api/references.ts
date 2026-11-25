@@ -1,4 +1,4 @@
-import { get, http, patch, post } from './client'
+import { get, getBlob, http, patch, post } from './client'
 
 // ---- 参考代码范例库（T16.1 B1，ADR-015：ref_scripts 表 V21 + MinIO ref-scripts 桶）----
 // 状态机 pending|active|disabled：检索只读 active；pending 激活走 confirm；无删除（撤回走状态）。
@@ -49,6 +49,36 @@ export function getRefContent(rowId: string) {
   return get<{ row_id: string; ref_id: string; version: number; file_name: string; content: string; content_sha256: string; sha256_match: boolean }>(
     `/kb/references/${rowId}/content`,
   )
+}
+
+// ---- T17.5/T17.6（ADR-016 §5）：图片检索 + 范例三视图 ----
+
+export interface RefImageMatch {
+  ref_id: string
+  score: number
+  /** 入库 caption 全文（人工核对入口，A-16 可读） */
+  caption: string
+  active: boolean
+}
+
+/** 图片检索范例：装备图/草图 → VLM caption → 视觉向量同空间检索（视觉通道关闭时 409）。 */
+export async function searchRefByImage(file: File, topK = 5) {
+  const form = new FormData()
+  form.append('image', file)
+  const resp = await http.post(`/kb/references/search-by-image?top_k=${topK}`, form, {
+    timeout: 180_000,
+  })
+  return resp.data as { matches: RefImageMatch[]; caption: string; detail: string }
+}
+
+/** 范例三视图 PNG（blob URL；404=暂无三视图，调用方如实呈现）。 */
+export async function getRefViewsUrl(rowId: string): Promise<string | null> {
+  try {
+    const { blob } = await getBlob(`/kb/references/${rowId}/views`)
+    return URL.createObjectURL(blob)
+  } catch {
+    return null
+  }
 }
 
 /** 上传登记新脚本/新版本（multipart）→ pending 待确认。 */

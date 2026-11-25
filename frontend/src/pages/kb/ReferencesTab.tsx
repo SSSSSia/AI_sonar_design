@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Upload } from 'antd'
+import { App, Button, Card, Empty, Image, Input, Modal, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip, Upload } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  confirmRefScript, depositFromRecord, getRefContent, importRefCatalog, listDepositCandidates,
-  listRefScripts, patchRefScript, uploadRefScript,
-  type DepositCandidate, type DepositBlocked, type RefScriptRow,
+  confirmRefScript, depositFromRecord, getRefContent, getRefViewsUrl, importRefCatalog,
+  listDepositCandidates, listRefScripts, patchRefScript, searchRefByImage, uploadRefScript,
+  type DepositCandidate, type DepositBlocked, type RefImageMatch, type RefScriptRow,
 } from '../../api/references'
 import { QueryEmpty } from '../../components/QueryEmpty'
 import { errText } from '../../api/client'
@@ -26,6 +26,12 @@ export function ReferencesTab() {
   } | null>(null)
   const [viewRow, setViewRow] = useState<RefScriptRow | null>(null)
   const [viewContent, setViewContent] = useState<{ content: string; sha256_match: boolean } | null>(null)
+  // T17.6（ADR-016 §5）：图片检索（首个图片组件；caption 回显=人工核对入口）
+  const [imageOpen, setImageOpen] = useState(false)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageSearching, setImageSearching] = useState(false)
+  const [imageResult, setImageResult] = useState<{ matches: RefImageMatch[]; caption: string } | null>(null)
   const [form, setForm] = useState({
     file: null as File | null, ref_id: '', title: '', description: '', domain: '', domain_rules: '',
     sonar_types: [] as string[], keywords: [] as string[],
@@ -34,6 +40,15 @@ export function ReferencesTab() {
   const rowsQuery = useQuery({ queryKey: ['kb-ref-scripts'], queryFn: () => listRefScripts() })
   const rows: RefScriptRow[] = rowsQuery.data?.rows ?? []
   const latest = latestVersionIds(rows)
+
+  // T17.6 三视图（ADR-016 §5 读侧出口）：随查看 Modal 拉取；null=暂无（404 如实呈现）
+  const viewsQuery = useQuery({
+    queryKey: ['kb-ref-views', viewRow?.id],
+    queryFn: () => getRefViewsUrl(viewRow!.id),
+    enabled: !!viewRow,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
 
   async function patch(row: RefScriptRow, fields: Record<string, unknown>) {
     try {
@@ -112,6 +127,19 @@ export function ReferencesTab() {
       const r = await getRefContent(row.id)
       setViewContent({ content: r.content, sha256_match: r.sha256_match })
     } catch (e) { message.error(errText(e, 160)); setViewRow(null) }
+  }
+
+  /** T17.6 图片检索（ADR-016 §5）：装备图 → VLM caption → 视觉向量同空间检索；
+   * caption 回显=人工核对入口；flag 关（409）/瞬态失败如实提示。 */
+  async function runImageSearch() {
+    if (!imageFile) { message.warning('请先选择装备图片'); return }
+    setImageSearching(true)
+    setImageResult(null)
+    try {
+      const r = await searchRefByImage(imageFile)
+      setImageResult({ matches: r.matches, caption: r.caption })
+      if (!r.matches.length) message.info(r.detail || '视觉检索无命中（如实呈现）')
+    } catch (e) { message.error(errText(e, 200)) } finally { setImageSearching(false) }
   }
 
   const columns: ColumnsType<RefScriptRow> = [
@@ -195,6 +223,9 @@ export function ReferencesTab() {
       title="参考代码范例库"
       extra={
         <Space>
+          <Button size="small" onClick={() => { setImageOpen(true); setImageResult(null); setImageFile(null); setImagePreview(null) }}>
+            图片检索
+          </Button>
           <Button size="small" onClick={() => void openDeposit()}>批准沉淀</Button>
           <Popconfirm title="从当前文件源（catalog.yaml）幂等导入？" description="内容一致→跳过；变更→新版本（待确认）；不自动激活。"
             onConfirm={() => void importCatalog()}>
@@ -248,10 +279,82 @@ export function ReferencesTab() {
             <Tag color="red">内容哈希与登记不符（可能被篡改或半写）</Tag>
           </div>
         )}
+        <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 6 }}>三视图（iso / side / top）</div>
+        {viewsQuery.isLoading ? (
+          <div style={{ marginBottom: 12 }}><Spin size="small" /> <span style={{ fontSize: 12, color: 'var(--text-3)' }}>加载三视图…</span></div>
+        ) : viewsQuery.data ? (
+          <Image
+            src={viewsQuery.data} alt="三视图"
+            width="100%" style={{ maxHeight: 320, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 12 }}
+          />
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
+            暂无三视图（视觉通道未生成——REF_VISUAL_ENABLED 关闭或沙箱/渲染未产出，A-16 如实）
+          </div>
+        )}
+        <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 6 }}>脚本正文</div>
         <pre style={{
           maxHeight: 480, overflow: 'auto', fontSize: 12, lineHeight: 1.5,
           background: 'var(--bg-2, #f6f7f9)', padding: 12, borderRadius: 6, margin: 0,
         }}>{viewContent?.content ?? '加载中…'}</pre>
+      </Modal>
+      <Modal
+        title="图片检索范例（装备图 → VLM 描述 → 视觉向量检索）"
+        open={imageOpen} footer={null} onCancel={() => setImageOpen(false)} width={720} destroyOnClose
+      >
+        <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 10 }}>
+          上传装备照片/草图/三视图，服务端生成中文描述后与范例视觉索引同空间检索；
+          命中的 caption 全文回显（入库描述，人工可核对，A-16）。
+        </div>
+        <Upload.Dragger
+          accept="image/*" maxCount={1} showUploadList={false}
+          beforeUpload={(f) => {
+            setImageFile(f)
+            setImagePreview(URL.createObjectURL(f))
+            setImageResult(null)
+            return false
+          }}
+          style={{ background: 'var(--card-deep, rgba(255,255,255,.02))' }}
+        >
+          {imagePreview ? (
+            <Image src={imagePreview} alt="查询图预览" height={140} style={{ objectFit: 'contain' }} preview={false} />
+          ) : (
+            <>点击或拖拽图片到此处（png/jpg）</>
+          )}
+        </Upload.Dragger>
+        <div style={{ marginTop: 10 }}>
+          <Button type="primary" size="small" loading={imageSearching} disabled={!imageFile} onClick={() => void runImageSearch()}>
+            检索
+          </Button>
+        </div>
+        {imageResult && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {imageResult.matches.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无命中（如实呈现）" />
+            ) : imageResult.matches.map((m) => (
+              <div key={m.ref_id} style={{
+                border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px',
+                background: 'var(--card-deep, rgba(255,255,255,.02))',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--accent-bg)', borderRadius: 4, padding: '1px 6px' }}>
+                    {m.score.toFixed(3)}
+                  </span>
+                  <span style={{ fontSize: 12.5, fontFamily: 'monospace' }}>{m.ref_id}</span>
+                  {m.active ? <Tag color="green" style={{ fontSize: 11 }}>active</Tag> : <Tag style={{ fontSize: 11 }}>非 active</Tag>}
+                  <span style={{ flex: 1 }} />
+                  {(() => {
+                    const row = rows.find((r) => r.ref_id === m.ref_id && r.status === 'active')
+                    return row ? <Button size="small" onClick={() => void openView(row)}>查看</Button> : null
+                  })()}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-2)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                  {m.caption}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
       <Modal
         title="批准沉淀（gate2 真实批准 → pending 范例候选）" open={depositOpen} footer={null}
