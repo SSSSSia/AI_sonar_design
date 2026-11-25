@@ -171,29 +171,50 @@ def patch_reference(row_id: str, req: PatchRequest, user: str = Depends(require_
 
 
 def _sync_vector_on_transition(before: dict[str, Any], after: dict[str, Any]) -> None:
-    """T17.4（ADR-016 §4）：启停迁移的向量同步（flag 门控，best-effort 不阻塞 API）。
-
-    active 化（confirm 语义外=disabled 重新启用）→ embed+upsert；停用 → 删向量
-    （active-only：向量集合只反映 active 行）。"""
+    """T17.4/T17.5（ADR-016 §4/§5）：启停迁移的向量+视觉同步（flag 门控，best-effort
+    不阻塞 API）。active 化（confirm 语义外=disabled 重新启用）→ 文本向量 embed+upsert
+    与视觉同步；停用 → 删两路向量（active-only：向量集合只反映 active 行）。"""
     import app_config
 
-    if not app_config.REF_VECTOR_ENABLED:
-        return
     if before.get("status") == after.get("status"):
         return
-    try:
-        from cad_engine.ref_vector import delete_ref_vector, sync_ref_vector
-        from storage import object_store
+    if after["status"] == "active" and app_config.REF_VECTOR_ENABLED:
+        try:
+            from cad_engine.ref_vector import sync_ref_vector
+            from storage import object_store
 
-        if after["status"] == "active":
             content = object_store.download_text(after["bucket"], after["object_key"])
-            ok = sync_ref_vector(after, content)
-            if not ok:
+            if not sync_ref_vector(after, content):
                 logger.warning("范例向量同步失败（检索纯词法降级，回填脚本可补）: %s", after["ref_id"])
-        else:
-            delete_ref_vector(after["ref_id"])
-    except Exception as exc:  # noqa: BLE001 - 向量同步失败不影响启停结果（A-16 如实日志）
-        logger.warning("范例向量迁移同步异常（不阻塞）: %s: %s", after.get("ref_id"), exc)
+        except Exception as exc:  # noqa: BLE001 - 同步失败不影响启停结果（A-16 如实日志）
+            logger.warning("范例向量迁移同步异常（不阻塞）: %s: %s", after.get("ref_id"), exc)
+    if after["status"] == "active" and app_config.REF_VISUAL_ENABLED:
+        try:
+            from cad_engine.ref_visual import sync_ref_visual
+            from storage import object_store
+
+            content = object_store.download_text(after["bucket"], after["object_key"])
+            vis = sync_ref_visual(after, content)
+            if not vis.get("ok"):
+                logger.warning("范例视觉同步未完成（stage=%s %s，回填脚本可补）: %s",
+                               vis.get("stage"), vis.get("detail"), after["ref_id"])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("范例视觉迁移同步异常（不阻塞）: %s: %s", after.get("ref_id"), exc)
+    if after["status"] != "active":
+        if app_config.REF_VECTOR_ENABLED:
+            try:
+                from cad_engine.ref_vector import delete_ref_vector
+
+                delete_ref_vector(after["ref_id"])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("范例向量删除异常: %s: %s", after.get("ref_id"), exc)
+        if app_config.REF_VISUAL_ENABLED:
+            try:
+                from cad_engine.ref_visual import delete_ref_visual
+
+                delete_ref_visual(after["ref_id"])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("范例视觉向量删除异常: %s: %s", after.get("ref_id"), exc)
 
 
 @router.post("/{row_id}/confirm")
@@ -204,21 +225,71 @@ def confirm_reference(row_id: str, user: str = Depends(require_admin)) -> dict[s
     except (KeyError, ValueError) as exc:
         raise _resolve_row_error(exc) from exc
     logger.info("范例已确认激活 %s v%s by %s（同 ref_id 旧 active 已停用）", row["ref_id"], row["version"], user)
-    # T17.4（ADR-016 §4）：confirm 时 embed（三来源 manual_upload/import/deposit 汇合点；
-    # flag 门控 best-effort，失败不阻塞入库——「失败如实降级为纯词法」）
+    # T17.4（ADR-016 §4）文本向量 + T17.5（§5）视觉通道：confirm 单挂点（三来源汇合；
+    # flag 门控 best-effort，失败不阻塞入库——「失败如实降级」）
     import app_config
 
-    if app_config.REF_VECTOR_ENABLED:
+    if app_config.REF_VECTOR_ENABLED or app_config.REF_VISUAL_ENABLED:
         try:
-            from cad_engine.ref_vector import sync_ref_vector
             from storage import object_store
 
             content = object_store.download_text(row["bucket"], row["object_key"])
-            if not sync_ref_vector(row, content):
-                logger.warning("范例向量未写入（检索纯词法降级，回填脚本可补）: %s", row["ref_id"])
         except Exception as exc:  # noqa: BLE001
-            logger.warning("范例向量同步异常（不阻塞入库）: %s: %s", row.get("ref_id"), exc)
+            logger.warning("范例内容下载失败（同步跳过，回填脚本可补）: %s: %s", row["ref_id"], exc)
+            return {"row": row}
+        if app_config.REF_VECTOR_ENABLED:
+            try:
+                from cad_engine.ref_vector import sync_ref_vector
+
+                if not sync_ref_vector(row, content):
+                    logger.warning("范例向量未写入（检索纯词法降级，回填脚本可补）: %s", row["ref_id"])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("范例向量同步异常（不阻塞入库）: %s: %s", row.get("ref_id"), exc)
+        if app_config.REF_VISUAL_ENABLED:
+            try:
+                from cad_engine.ref_visual import sync_ref_visual
+
+                vis = sync_ref_visual(row, content)
+                if not vis.get("ok"):
+                    logger.warning("范例视觉同步未完成（stage=%s %s）: %s",
+                                   vis.get("stage"), vis.get("detail"), row["ref_id"])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("范例视觉同步异常（不阻塞入库）: %s: %s", row.get("ref_id"), exc)
     return {"row": row}
+
+
+@router.post("/search-by-image")
+async def search_reference_by_image(
+    image: UploadFile = File(...), top_k: int = Query(5, ge=1, le=20),
+    user: str = Depends(require_user),
+) -> dict[str, Any]:
+    """图片检索范例（T17.5，ADR-016 §5）：装备图/草图 → VLM caption → 视觉向量同空间检索。
+
+    caption 回显=人工可核对（A-16）；命中经 active 行集合过滤（视觉向量只来自 confirmed
+    行，残留兜底）。REF_VISUAL_ENABLED 关闭 → 409 如实（视觉通道未启用）。"""
+    import app_config
+
+    if not app_config.REF_VISUAL_ENABLED:
+        raise HTTPException(status_code=409, detail="视觉检索未启用（REF_VISUAL_ENABLED=0）")
+    png = await image.read()
+    if not png:
+        raise HTTPException(status_code=422, detail="图片内容为空")
+    from cad_engine.ref_visual import search_visual_by_image
+
+    hits = search_visual_by_image(png, top_k=top_k)
+    if not hits:
+        return {"matches": [], "caption": "", "detail": "视觉检索无命中或失败（如实）"}
+    active_ids = {str(r["ref_id"]) for r in ref_store.get_active_rows()}
+    matches = [
+        {"ref_id": ref_id, "score": round(score, 4),
+         # caption 回显：命中条目的入库描述（人工核对入口；PNG 在 MinIO ref-scripts 桶可回看）
+         "caption": cap, "active": True}
+        for ref_id, (_rank, score, cap) in sorted(hits.items(), key=lambda kv: kv[1][0])
+        if ref_id in active_ids  # active 过滤：非 active 残留不呈现（与检索口径一致）
+    ]
+    # caption 回显=过滤后首位（最匹配 active 范例）的入库描述；无命中为空（A-16 不造）
+    caption = matches[0]["caption"] if matches else ""
+    return {"matches": matches, "caption": caption, "detail": ""}
 
 
 # ----------------------------------------------------------------------

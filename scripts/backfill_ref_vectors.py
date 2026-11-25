@@ -33,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     from cad_engine.ref_vector import sync_ref_vector
 
     synced = skipped_empty = failed = 0
+    visual_synced = visual_failed = 0
     for row in rows:
         try:
             content = object_store.download_text(row["bucket"], row["object_key"])
@@ -47,11 +48,26 @@ def main(argv: list[str] | None = None) -> int:
             synced += 1
         else:
             failed += 1
+        # T17.5 视觉通道（函数直调不经 flag；逐步骤如实 stage）
+        try:
+            from cad_engine.ref_visual import sync_ref_visual
+
+            vis = sync_ref_visual(row, content)
+            if vis.get("ok"):
+                visual_synced += 1
+            else:
+                visual_failed += 1
+                print(f"  视觉未完成 {row['ref_id']}: stage={vis.get('stage')} {vis.get('detail')}")
+        except Exception as exc:
+            visual_failed += 1
+            print(f"  视觉异常 {row['ref_id']}: {exc}")
     print(json.dumps({"active_rows": len(rows), "synced": synced,
-                      "skipped_empty": skipped_empty, "failed": failed}, ensure_ascii=False))
-    if failed:
-        print("存在失败（供应商/对象读取侧）——重跑本脚本可续补（幂等）")
-    return 0 if not failed else 1
+                      "skipped_empty": skipped_empty, "failed": failed,
+                      "visual_synced": visual_synced, "visual_failed": visual_failed},
+                     ensure_ascii=False))
+    if failed or visual_failed:
+        print("存在失败（供应商/沙箱/渲染/对象读取侧）——重跑本脚本可续补（幂等）")
+    return 0 if not (failed or visual_failed) else 1
 
 
 if __name__ == "__main__":

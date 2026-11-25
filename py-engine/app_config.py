@@ -98,6 +98,18 @@ REF_MATCH_MIN_SCORE = float(_env("REF_MATCH_MIN_SCORE", "0.05"))
 # 评审决定（与 REF_SOURCE=db 默认 file 同构）；关闭=检索行为与纯词法逐字节一致
 REF_VECTOR_ENABLED = _env("REF_VECTOR_ENABLED", "0").lower() in ("1", "true", "yes")
 KB_REF_VECTOR_COLLECTION = _env("KB_REF_VECTOR_COLLECTION", "ref_scripts_vec")
+# 范例库视觉通道（T17.5，ADR-016 §5，caption-then-embed）：confirm 时沙箱重放出 STEP→三视图
+# PNG→MinIO→VLM 中文 caption（人工可核对，存 Milvus text 字段）→embedding 入 ref_visuals 集合；
+# 图片查询 API（POST /kb/references/search-by-image）。**默认关**（同上参考域纪律）；
+# caption 每范例一次+查询一次量级（成本可控）
+REF_VISUAL_ENABLED = _env("REF_VISUAL_ENABLED", "0").lower() in ("1", "true", "yes")
+KB_REF_VISUAL_COLLECTION = _env("KB_REF_VISUAL_COLLECTION", "ref_visuals")
+# 视觉 LLM（T17.5 落地=T18.1 提前交付，ADR-016 §5/§6）：独立客户端照 kb/ocr.py 先例直调
+# OpenAI 兼容 chat/completions（image_url base64）——不动 LlmAdapter 主链（缓存键/流式解析/
+# 脱敏的纯文本假设）。SiliconFlow 可切 zai-org/GLM-4.5V / Qwen/Qwen2.5-VL-32B-Instruct
+LLM_VISION_MODEL = _env("LLM_VISION_MODEL", "Qwen/Qwen3-VL-32B-Instruct")  # 2026-11-26 实测：
+# 本账号 GLM-4.5V/Qwen2.5-VL/PaddleOCR-VL 全 403 Model disabled，Qwen3-VL-32B 唯一可用
+LLM_VISION_TIMEOUT_S = int(_env("LLM_VISION_TIMEOUT_S", "120"))
 
 # ---- CAD 交互微调（T8.1，PHASE-008，ADR-004）----
 BUCKET_CAD_TUNES = "cad-tunes"                            # 微调每轮产物（STEP/FCStd/脚本/截图）
