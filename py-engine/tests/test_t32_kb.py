@@ -291,7 +291,7 @@ def test_graph_level_hit_with_fake_neo4j(monkeypatch):
     monkeypatch.setattr(ns, "Neo4jStore", lambda: FakeStore())
     hit = svc._try_neo4j("外径 限制")
     assert hit is not None
-    content, refs = hit
+    content, refs, _entities = hit  # T17.3 起 3 元组（第三元素=图实体项语义分，回退 None 不造分）
     assert "外径限制" in content
     assert refs[0].items() >= {"doc_id": "docX", "location": "DesignConstraint:外径限制"}.items()
 

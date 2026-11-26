@@ -123,6 +123,7 @@ class TestHookMetrics:
         monkeypatch.setattr(cache, "get_json", lambda layer, key: None)
         monkeypatch.setattr(cache, "set_json", lambda key, value, ttl: False)
         svc = GraphRAGService.__new__(GraphRAGService)  # 绕过重初始化（t96 同法）
+        svc.bm25_enabled = False  # T17.1 起服务带稀疏路开关——绕过构造须补属性（stale stub 清偿）
         monkeypatch.setattr(svc, "_query_uncached", lambda q, kb_ids=None: RetrievalResult("内容", "graph"))
         before = _sample("py_kb_query_duration_seconds_count", {"level": "graph"}) or 0.0
         svc.query("拖曳阵总体设计")

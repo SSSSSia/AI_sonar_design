@@ -102,6 +102,7 @@ def test_kb_query_cache_skips_text_level(monkeypatch, fake_redis):
     from knowledge.service import GraphRAGService, RetrievalResult
 
     svc = GraphRAGService.__new__(GraphRAGService)  # 绕过 __init__（不碰语料）
+    svc.bm25_enabled = False  # T17.1 起服务带稀疏路开关——绕过构造须补属性（stale stub 清偿）
     calls = {"n": 0}
 
     def _uncached_vector(self, q, kb_ids=None):
