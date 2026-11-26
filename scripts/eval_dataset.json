@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "annotator": "维护者（ZCode 会话 2026-11-26）",
+    "note": "二值相关标注；relevant 键=doc_id:段落N（kb_chunks.location）；全部 relevant 取自已核实的 chunk 内容样本，非第三方评测集——毕设口径如实记录",
+    "docs": {
+      "8451dd5a7df34556": "声呐技术(1.4-1.5).txt",
+      "6986507f5cc643f3": "水声学原理(1.3-1.6).txt",
+      "3bee64ec276b4dcf": "towed_array_cad_knowledge.txt",
+      "eb7ae0af352547a6": "潜艇拖曳声呐总体工程设计.txt"
+    }
+  },
+  "queries": [
+    {
+      "id": "q01",
+      "query": "声呐作用距离的定义是什么",
+      "relevant": ["8451dd5a7df34556:段落8", "8451dd5a7df34556:段落9", "8451dd5a7df34556:段落10"]
+    },
+    {
+      "id": "q02",
+      "query": "检测概率与虚警概率如何定义（置信级）",
+      "relevant": ["8451dd5a7df34556:段落11", "8451dd5a7df34556:段落13", "8451dd5a7df34556:段落17"]
+    },
+    {
+      "id": "q03",
+      "query": "声呐盲区有哪些类型（几何盲区/混响盲区）",
+      "relevant": ["8451dd5a7df34556:段落20", "8451dd5a7df34556:段落21", "8451dd5a7df34556:段落22", "8451dd5a7df34556:段落32"]
+    },
+    {
+      "id": "q04",
+      "query": "多波束搜索如何提高搜索速度",
+      "relevant": ["8451dd5a7df34556:段落45"]
+    },
+    {
+      "id": "q05",
+      "query": "收发分置声呐的声呐方程如何修正（往返传播损失不同）",
+      "relevant": ["8451dd5a7df34556:段落80", "6986507f5cc643f3:段落70"]
+    },
+    {
+      "id": "q06",
+      "query": "混响级如何表示",
+      "relevant": ["8451dd5a7df34556:段落110"]
+    },
+    {
+      "id": "q07",
+      "query": "主动声呐声源级的定义",
+      "relevant": ["6986507f5cc643f3:段落3", "6986507f5cc643f3:段落4", "6986507f5cc643f3:段落5", "6986507f5cc643f3:段落6"]
+    },
+    {
+      "id": "q08",
+      "query": "声源级与发射器辐射声功率的关系",
+      "relevant": ["6986507f5cc643f3:段落9", "6986507f5cc643f3:段落10", "6986507f5cc643f3:段落14"]
+    },
+    {
+      "id": "q09",
+      "query": "指向性发射器的声源级表达式",
+      "relevant": ["6986507f5cc643f3:段落15", "6986507f5cc643f3:段落17"]
+    },
+    {
+      "id": "q10",
+      "query": "噪声级 NL 的定义式",
+      "relevant": ["6986507f5cc643f3:段落40"]
+    },
+    {
+      "id": "q11",
+      "query": "工程上应用声呐方程设计参数的复杂性",
+      "relevant": ["6986507f5cc643f3:段落98"]
+    },
+    {
+      "id": "q12",
+      "query": "拖曳线列阵湿端从尾到头的部件组成",
+      "relevant": ["3bee64ec276b4dcf:段落7", "3bee64ec276b4dcf:段落8", "3bee64ec276b4dcf:段落83", "eb7ae0af352547a6:段落10"]
+    },
+    {
+      "id": "q13",
+      "query": "水密航插的尺寸参数",
+      "relevant": ["3bee64ec276b4dcf:段落40"]
+    },
+    {
+      "id": "q14",
+      "query": "湿端力学与安全参数（尾绳破断拉力/最小弯曲半径）",
+      "relevant": ["3bee64ec276b4dcf:段落49"]
+    },
+    {
+      "id": "q15",
+      "query": "干端母船设备有哪些（绞车/甲板基座）",
+      "relevant": ["3bee64ec276b4dcf:段落84"]
+    },
+    {
+      "id": "q16",
+      "query": "阵元间距如何选取（波长一半与倍频程中心频率）",
+      "relevant": ["eb7ae0af352547a6:段落24", "eb7ae0af352547a6:段落26"]
+    }
+  ],
+  "visual": {
+    "note": "正例=已入库范例（ref_visuals 自检索）；负例=T16.4 三候选渲染图（未入库，跨类型混淆分离度考察→CLIP 条件立项判据）；单范例库规模局限如实",
+    "positive_ref": "towed_array_system_twin",
+    "positive_image": "%TEMP%/t175_probe_views.png",
+    "negative_images": [
+      {"path": "docs/reviews/t164-candidates/sonobuoy_views.png", "label": "声呐浮标（未入库候选）"},
+      {"path": "docs/reviews/t164-candidates/side_scan_towfish_v2_views.png", "label": "侧扫拖鱼（未入库候选）"},
+      {"path": "docs/reviews/t164-candidates/transducer_array_v2_views.png", "label": "换能器基阵（未入库候选）"}
+    ]
+  }
+}
