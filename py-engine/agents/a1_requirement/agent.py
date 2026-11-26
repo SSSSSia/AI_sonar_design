@@ -22,10 +22,13 @@ from typing import Any, Callable, Optional
 from agents.a1_requirement.prompts import (
     FALLBACK_QUERIES_TEMPLATE,
     PLAN_PROMPT,
+    READING_PROMPT,
     RETRIEVAL_DIMENSIONS,
     SYSTEM_PROMPT,
 )
 from ir_contract import validate_ir
+from llm import vision as llm_vision
+from storage import object_store
 
 logger = logging.getLogger("sonarcad.a1")
 
@@ -76,7 +79,11 @@ class A1Agent:
         """
         raw_text = ir0["raw_text"]
 
-        plan = self._plan(raw_text)
+        # T18.5（ADR-017）：用户附图 VLM 预读——描述性 caption 注入需求 prompt；
+        # 无 attachments/读取或预读失败 → None → 不注入（IR0 旧形态逐字节，A-16 如实）
+        reading = self._read_attachments(ir0)
+
+        plan = self._plan(raw_text, reading)
         sub_queries = plan["sub_queries"]
         logger.info("A1 规划 %s 条子查询（llm=%s）", len(sub_queries), plan["source"])
 
@@ -96,14 +103,17 @@ class A1Agent:
     # ------------------------------------------------------------------
     # Step 1: 需求理解 + 查询规划（LLM，白名单用途）
     # ------------------------------------------------------------------
-    def _plan(self, raw_text: str) -> dict[str, Any]:
+    def _plan(self, raw_text: str, reading: str | None = None) -> dict[str, Any]:
         prompt = PLAN_PROMPT.format(dimensions="\n".join(f"- {d}" for d in RETRIEVAL_DIMENSIONS))
         if self._llm is not None:
             try:
+                user_content = f"用户需求：{raw_text}\n\n{prompt}"
+                if reading:
+                    user_content = f"用户需求：{raw_text}\n\n{reading}\n\n{prompt}"
                 raw = self._llm.chat(
                     [
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"用户需求：{raw_text}\n\n{prompt}"},
+                        {"role": "user", "content": user_content},
                     ],
                     max_tokens=1024,
                     temperature=0.2,
@@ -133,6 +143,36 @@ class A1Agent:
             except Exception as exc:
                 logger.warning("A1 LLM 规划失败，使用兜底: %s", exc)
         return self._fallback_plan(raw_text)
+
+    def _read_attachments(self, ir0: dict[str, Any]) -> str | None:
+        """T18.5（ADR-017）用户附图预读：MinIO 逐张下载→describe_images 多图一次调用→
+        描述文本（供 prompt 注入）。
+
+        诚实降级（A-16）：单张下载失败跳过该张；全部失败/VLM 失败→None 不注入——
+        管线不因附图预读失败而阻塞；caption 全文进日志（trace 可查），不进 IR1 契约
+        （加法演进留观察）。无 attachments→零行为（不触 MinIO 不调 VLM）。
+        """
+        refs = ir0.get("attachments")
+        if not isinstance(refs, list) or not refs:
+            return None
+        pngs: list[bytes] = []
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            try:
+                pngs.append(object_store.download_bytes(
+                    str(ref.get("bucket")), str(ref.get("object_key"))))
+            except Exception as exc:  # 单张失败跳过该张（材料缺位如实）
+                logger.warning("A1 附图读取失败（跳过）: %s: %s", ref.get("object_key"), exc)
+        if not pngs:
+            logger.info("A1 附图全部读取失败（无预读注入）")
+            return None
+        text = llm_vision.describe_images(pngs, READING_PROMPT)
+        if not text:
+            logger.info("A1 附图 VLM 预读失败（供应商/超时），不注入（A-16 如实）")
+            return None
+        logger.info("A1 附图预读完成（%d 张）: %s", len(pngs), text[:160])
+        return f"用户附图（VLM 预读描述，可能不准确，仅供参考）：\n{text}"
 
     @staticmethod
     def _fallback_plan(raw_text: str) -> dict[str, Any]:

@@ -47,9 +47,10 @@ public class SessionController {
         return false;
     }
 
-    /** kbIds 可选（PHASE-006 会话选库；null/空 = Agent 自主决策模式）。 */
+    /** kbIds 可选（PHASE-006 会话选库；null/空 = Agent 自主决策模式）。attachments 可选（T18.5 参考图片引用，≤3）。 */
     public record CreateSessionRequest(String projectId, String title, String requirement,
-                                       java.util.List<String> kbIds) {}
+                                       java.util.List<String> kbIds,
+                                       java.util.List<com.sonarcad.workflow.session.AttachmentRef> attachments) {}
 
     @PostMapping
     @PreAuthorize("hasAnyRole('admin','designer')")
@@ -72,8 +73,23 @@ public class SessionController {
         if (req.title().length() > 20) {
             throw new IllegalArgumentException("会话标题不能超过 20 字");
         }
+        // T18.5（ADR-017）：参考图片引用白名单校验——bucket 限 session-attachments、
+        // object_key 限内容寻址形态（防注入任意桶/键；数量 ≤3 对齐 ir0.schema maxItems）
+        if (req.attachments() != null) {
+            if (req.attachments().size() > 3) {
+                throw new IllegalArgumentException("参考图片最多 3 张");
+            }
+            for (com.sonarcad.workflow.session.AttachmentRef a : req.attachments()) {
+                if (a == null || !"session-attachments".equals(a.bucket())) {
+                    throw new IllegalArgumentException("附件引用桶非法（限 session-attachments）");
+                }
+                if (a.objectKey() == null || !a.objectKey().matches("^[0-9a-f]{16}/.+")) {
+                    throw new IllegalArgumentException("附件引用 object_key 非法（须为内容寻址形态）");
+                }
+            }
+        }
         DesignSessionEntity created = sessionService.create(req.projectId(), req.title(), req.requirement(),
-                req.kbIds(), userId);
+                req.kbIds(), req.attachments(), userId);
         auditRecorder.record(userId, "session.create", "session", created.getId(),
                 Map.of("title", req.title(), "project_id", req.projectId()), clientIp(request));
         return ApiResponse.ok(created);

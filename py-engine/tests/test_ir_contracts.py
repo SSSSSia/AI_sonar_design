@@ -34,6 +34,56 @@ def test_ir0_minimal() -> None:
     _validate(_load("ir0.schema.json"), {"raw_text": "设计一型拖曳线列阵声呐"})
 
 
+def test_ir0_attachments_form() -> None:
+    """T18.5 加法演进：含 attachments 合法实例（旧快照无此字段仍合法，见 test_ir0_minimal）。"""
+    _validate(_load("ir0.schema.json"), {
+        "raw_text": "参考该图设计拖曳体",
+        "attachments": [
+            {"bucket": "session-attachments", "object_key": "0123456789abcdef/ref-photo.png",
+             "sha256": "ab" * 32},
+        ],
+    })
+
+
+def test_ir0_attachments_rejects_unknown_key() -> None:
+    import jsonschema
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(_load("ir0.schema.json"), {
+            "raw_text": "x",
+            "attachments": [{"bucket": "session-attachments", "object_key": "0123456789abcdef/a.png",
+                             "extra": 1}],
+        })
+
+
+def test_ir0_attachments_rejects_foreign_bucket() -> None:
+    """bucket 白名单（const session-attachments）——防用户注入任意桶引用。"""
+    import jsonschema
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(_load("ir0.schema.json"), {
+            "raw_text": "x",
+            "attachments": [{"bucket": "step-models", "object_key": "0123456789abcdef/a.step"}],
+        })
+
+
+def test_ir0_attachments_rejects_fourth() -> None:
+    import jsonschema
+    item = {"bucket": "session-attachments", "object_key": "0123456789abcdef/a.png"}
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(_load("ir0.schema.json"), {
+            "raw_text": "x", "attachments": [dict(item), dict(item), dict(item), dict(item)],
+        })
+
+
+def test_ir0_attachments_rejects_bad_object_key() -> None:
+    """object_key 必须为 sha256 前 16 位内容寻址形态（上传端点产出，防路径注入）。"""
+    import jsonschema
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(_load("ir0.schema.json"), {
+            "raw_text": "x",
+            "attachments": [{"bucket": "session-attachments", "object_key": "…/a.png"}],
+        })
+
+
 def test_ir1_structure() -> None:
     ir1 = {
         "objectives": [

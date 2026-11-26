@@ -106,7 +106,7 @@ class SessionGateDispatchTest {
         when(kbBaseLookupMapper.selectList(any())).thenReturn(java.util.List.of(kb));
 
         service.create("p-1", "标题", "需求",
-                java.util.List.of("0eb22589-055c-4453-921a-42206e2e6948"), "u1");
+                java.util.List.of("0eb22589-055c-4453-921a-42206e2e6948"), null, "u1");
 
         ArgumentCaptor<DesignSessionEntity> inserted = ArgumentCaptor.forClass(DesignSessionEntity.class);
         verify(sessionMapper).insert(inserted.capture());
@@ -118,7 +118,7 @@ class SessionGateDispatchTest {
     void createRejectsMalformedKbId() {
         // 非法 uuid 格式：预检直接 400（不触 DB——真实场景曾打出 500）
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> service.create("p-1", "标题", "需求", java.util.List.of("kb-1"), "u1"));
+                () -> service.create("p-1", "标题", "需求", java.util.List.of("kb-1"), null, "u1"));
         assertEquals(400, ex.getStatusCode().value());
     }
 
@@ -128,8 +128,43 @@ class SessionGateDispatchTest {
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.create("p-1", "标题", "需求",
-                        java.util.List.of("00000000-0000-0000-0000-000000000000"), "u1"));
+                        java.util.List.of("00000000-0000-0000-0000-000000000000"), null, "u1"));
         assertEquals(400, ex.getStatusCode().value());
+    }
+
+    @Test
+    void createPersistsAttachmentsIntoIr0() {
+        // T18.5（ADR-017）：attachments 随创建写进 IR0 快照 content（A1 经 VLM 预读引用）
+        service.create("p-1", "标题", "参考该图设计拖曳体",
+                null,
+                java.util.List.of(new com.sonarcad.workflow.session.AttachmentRef(
+                        "session-attachments", "0123456789abcdef/ref-photo.png",
+                        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789")),
+                "u1");
+
+        ArgumentCaptor<com.sonarcad.workflow.session.IrSnapshotEntity> ir =
+                ArgumentCaptor.forClass(com.sonarcad.workflow.session.IrSnapshotEntity.class);
+        verify(irSnapshotMapper).insert(ir.capture());
+        String content = ir.getValue().getContent();
+        assertTrue(content.contains("\"raw_text\""));
+        assertTrue(content.contains("\"attachments\""));
+        assertTrue(content.contains("0123456789abcdef/ref-photo.png"));
+        assertTrue(content.contains("session-attachments"));
+    }
+
+    @Test
+    void createWithoutAttachmentsKeepsLegacyIr0() {
+        // 旧形态逐字节：无 attachments 请求的 IR0 content 不含该键（回滚保证）
+        service.create("p-1", "标题", "需求", null, null, "u1");
+
+        ArgumentCaptor<com.sonarcad.workflow.session.IrSnapshotEntity> ir =
+                ArgumentCaptor.forClass(com.sonarcad.workflow.session.IrSnapshotEntity.class);
+        verify(irSnapshotMapper).insert(ir.capture());
+        String content = ir.getValue().getContent();
+        assertTrue(content.contains("\"raw_text\":\"需求\"") || content.contains("\"raw_text\": \"需求\"")
+                        || content.contains("需求"),
+                "raw_text 必在");
+        assertFalse(content.contains("attachments"));
     }
 
     @Test

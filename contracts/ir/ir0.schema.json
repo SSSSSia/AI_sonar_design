@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sonarcad.local/contracts/ir/ir0.schema.json",
   "title": "IR0 原始需求",
-  "description": "A1 的输入。字段定义以本 Schema 为单一事实源（宪法 A-04），依据 P2《系统架构设计_核心版》附录 IR Schema 汇总。",
+  "description": "A1 的输入。字段定义以本 Schema 为单一事实源（宪法 A-04），依据 P2《系统架构设计_核心版》附录 IR Schema 汇总。T18.5 加法演进（ADR-017）：顶层可选 attachments 承载用户上传参考图片的 MinIO 引用（旧快照无此字段合法，A-12 快照不可变——创建时一次写入）；A1 经 VLM 图片预读（describe_images caption）将描述注入需求 prompt，不传递大对象（P3 §8.3）。",
   "type": "object",
   "additionalProperties": false,
   "required": ["raw_text"],
@@ -11,6 +11,32 @@
       "type": "string",
       "minLength": 1,
       "description": "用户原始自然语言需求"
+    },
+    "attachments": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "用户上传参考图片引用（T18.5 加法演进，旧快照无此字段合法；仅限 session-attachments 桶——上传端点白名单，内容寻址 object_key 幂等）",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bucket", "object_key"],
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "const": "session-attachments",
+            "description": "附件桶（白名单常量，防用户注入任意桶）"
+          },
+          "object_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}/.+",
+            "description": "对象键（sha256 前 16 位内容寻址前缀/文件名，上传端点产出）"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "内容 SHA-256（上传端点计算，可独立核对）"
+          }
+        }
+      }
     }
   }
 }

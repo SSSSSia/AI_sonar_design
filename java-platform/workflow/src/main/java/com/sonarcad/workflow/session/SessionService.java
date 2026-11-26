@@ -53,9 +53,12 @@ public class SessionService {
      * 创建会话（pending）。requirement 非空时固化为 IR0 快照 v1（created_by=user），
      * 供 A1 消费（A-04：需求原文一经创建不可变，修订 = 新会话或 IR0 新快照）。
      * kbIds 非空时逐个校验存在（PHASE-006 D6-6）；null/空 = Agent 自主决策模式。
+     * attachments 非空时写入 IR0（T18.5，ADR-017：参考图片 MinIO 引用，A1 经 VLM 预读；
+     * 引用已在控制器校验白名单桶——这里只透传）。
      */
     public DesignSessionEntity create(String projectId, String title, String requirement,
-                                      java.util.List<String> kbIds, String createdBy) {
+                                      java.util.List<String> kbIds,
+                                      java.util.List<AttachmentRef> attachments, String createdBy) {
         DesignSessionEntity s = new DesignSessionEntity();
         s.setProjectId(projectId);
         s.setTitle(title);
@@ -71,7 +74,7 @@ public class SessionService {
             ir0.setIrType("IR0");
             ir0.setVersion(1);
             ir0.setSchemaVersion("v1");
-            ir0.setContent(serializeIr0(requirement));
+            ir0.setContent(serializeIr0(requirement, attachments));
             ir0.setCreatedBy("user");
             irSnapshotMapper.insert(ir0);
         }
@@ -119,10 +122,16 @@ public class SessionService {
         return sb.append("]").toString();
     }
 
-    private String serializeIr0(String requirement) {
+    private String serializeIr0(String requirement, java.util.List<AttachmentRef> attachments) {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper()
-                    .writeValueAsString(java.util.Map.of("raw_text", requirement));
+            // T18.5 加法演进（ADR-017）：attachments 非空才放键——旧形态（纯 raw_text）逐字节保留；
+            // Map.of 不收 null 值，故用 LinkedHashMap 分 key 构造
+            java.util.Map<String, Object> ir0 = new java.util.LinkedHashMap<>();
+            ir0.put("raw_text", requirement);
+            if (attachments != null && !attachments.isEmpty()) {
+                ir0.put("attachments", attachments);
+            }
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(ir0);
         } catch (Exception e) {
             throw new IllegalStateException("IR0 序列化失败", e);
         }

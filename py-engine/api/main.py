@@ -27,6 +27,7 @@ from app_config import (
     KNOWLEDGE_KB_DIR,
     WORKFLOW_BASE_URL,
 )
+from api.attachments import router as attachments_router
 from api.kb import router as kb_router
 from api.authz import require_admin, require_user
 from api.cad import router as cad_router
@@ -78,6 +79,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 app.include_router(kb_router, prefix="/api/v1")
+app.include_router(attachments_router, prefix="/api/v1")  # gateway /api/v1/attachments/**（T18.5 会话参考图）
 app.include_router(ref_scripts_router, prefix="/api/v1")  # gateway /api/v1/kb/references/**（T16.1 范例库）
 app.include_router(cad_router, prefix="/api/v1")  # gateway /api/v1/kb/** 直转（T3.1）
 app.include_router(cad_agent_router, prefix="/api/v1")  # gateway /api/v1/cad-agent/**（T8.3 微调）

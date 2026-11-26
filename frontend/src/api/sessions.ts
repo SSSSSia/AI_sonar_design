@@ -1,5 +1,12 @@
-import { del, get, patch, post } from './client'
+import { del, get, http, patch, post } from './client'
 import type { DesignSession, PageResult, Project } from './types'
+
+/** 会话参考图片附件引用（T18.5，ADR-017）：IR 引用惯例 {bucket, object_key, sha256}。 */
+export interface AttachmentRef {
+  bucket: string
+  object_key: string
+  sha256: string
+}
 
 export function listSessions(params?: { projectId?: string; page?: number; size?: number }) {
   return get<PageResult<DesignSession>>('/workflow/sessions', params)
@@ -15,8 +22,22 @@ export function createSession(body: {
   requirement: string
   /** 知识库多选（PHASE-006）；不传/空数组 = Agent 自主决策模式 */
   kbIds?: string[]
+  /** 参考图片引用（T18.5）；不传 = 纯文本需求（IR0 旧形态） */
+  attachments?: AttachmentRef[]
 }) {
   return post<DesignSession>('/workflow/sessions', body)
+}
+
+/** 上传会话参考图片（T18.5）：multipart 经 gateway /attachments/** → py-engine，
+ * sha256 内容寻址幂等，返回 IR 引用（multipart 照 searchRefByImage 的 http.post 直调先例）。 */
+export async function uploadSessionAttachment(file: File): Promise<AttachmentRef> {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await http.post<{ bucket: string; object_key: string; sha256: string }>(
+    '/attachments/upload',
+    form,
+  )
+  return resp.data
 }
 
 export function getAllowedEvents(id: string) {

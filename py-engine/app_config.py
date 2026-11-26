@@ -62,6 +62,7 @@ MINIO_PRESIGN_PUBLIC_ENDPOINT = _env("MINIO_PRESIGN_PUBLIC_ENDPOINT")
 BUCKET_STEP_MODELS = "step-models"
 BUCKET_CAD_SCRIPTS = "cad-scripts"
 BUCKET_REF_SCRIPTS = "ref-scripts"                        # 参考范例脚本实体桶（T16.1 B1，ADR-015）
+BUCKET_SESSION_ATTACHMENTS = "session-attachments"        # 会话参考图片附件桶（T18.5，ADR-017）
 
 # CAD 沙箱（A-13 有界）
 CAD_EXECUTE_TIMEOUT_S = int(_env("CAD_EXECUTE_TIMEOUT_S", "300"))

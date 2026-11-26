@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Alert, App, Button, Card, Form, Input, Modal, Select, Typography } from 'antd'
+import { Alert, App, Button, Card, Form, Image, Input, Modal, Select, Typography, Upload } from 'antd'
+import { UploadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { listProjects, createSession, fireEvent } from '../../api/sessions'
+import { listProjects, createSession, fireEvent, uploadSessionAttachment, type AttachmentRef } from '../../api/sessions'
 import { listBases } from '../../api/kb'
 import { errText } from '../../api/client'
 import type { Project } from '../../api/types'
@@ -35,6 +36,7 @@ export default function NewSessionPage() {
   const [projectModal, setProjectModal] = useState(false)
   const [restored, setRestored] = useState<SessionDraft | null>(null)
   const [confirmNav, setConfirmNav] = useState<string | null>(null)
+  const [images, setImages] = useState<{ file: File; preview: string }[]>([])
   const presetProjectId = params.get('project') ?? undefined
 
   const projectsQuery = useQuery({
@@ -90,14 +92,40 @@ export default function NewSessionPage() {
     navigate(confirmNav ?? '/')
   }
 
+  function addImage(file: File) {
+    if (images.length >= 3) {
+      message.warning('参考图片最多 3 张')
+      return
+    }
+    setImages((prev) => [...prev, { file, preview: URL.createObjectURL(file) }])
+  }
+
+  function removeImage(idx: number) {
+    setImages((prev) => {
+      URL.revokeObjectURL(prev[idx].preview)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
   async function submit(values: FormValues) {
     setSubmitting(true)
     try {
       const kbIds = values.kbIds?.length ? values.kbIds : undefined
-      const session = await createSession({ ...values, kbIds })
+      // T18.5：附图先逐张上传拿 IR 引用（失败如实提示并中止——不建会话），再随创建请求进 IR0 快照
+      const attachments: AttachmentRef[] = []
+      for (const img of images) {
+        try {
+          attachments.push(await uploadSessionAttachment(img.file))
+        } catch (e) {
+          message.error(`参考图片上传失败：${errText(e)}`)
+          return
+        }
+      }
+      const session = await createSession({ ...values, kbIds, attachments: attachments.length ? attachments : undefined })
       await fireEvent(session.id, 'START')
       message.success('会话已创建，A1 需求解析已启动')
       clearDraft()
+      setImages([])
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
       navigate(`/sessions/${session.id}`)
@@ -166,6 +194,38 @@ export default function NewSessionPage() {
               loading={basesQuery.isLoading}
               options={bases.map((b) => ({ value: b.id, label: b.is_default ? `${b.name}（默认）` : b.name }))}
             />
+          </Form.Item>
+          <Form.Item label="参考图片（可选，≤3 张）" extra="图片经 VLM 预读生成中文描述后随需求一并作为 A1 上下文；上传后随 IR0 快照留档不可撤回。">
+            <div>
+              <Upload.Dragger
+                accept="image/*"
+                multiple
+                showUploadList={false}
+                beforeUpload={(file) => { addImage(file); return false }}
+                style={{ background: 'var(--card-deep, rgba(255,255,255,.02))' }}
+              >
+                <Button icon={<UploadOutlined />}>选择图片</Button>
+                <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                  支持拖拽，单张 ≤5MB
+                </Typography.Text>
+              </Upload.Dragger>
+              {images.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {images.map((img, idx) => (
+                    <div key={idx} style={{ position: 'relative' }}>
+                      <Image src={img.preview} width={72} height={72} style={{ objectFit: 'cover', borderRadius: 6 }} />
+                      <Button
+                        size="small" danger
+                        onClick={() => removeImage(idx)}
+                        style={{ position: 'absolute', top: 0, right: 0, width: 18, height: 18, padding: 0, minWidth: 0, fontSize: 11, lineHeight: '16px' }}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Form.Item>
           <Form.Item
             name="requirement"
