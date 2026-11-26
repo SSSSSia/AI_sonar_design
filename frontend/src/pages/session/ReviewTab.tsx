@@ -1,18 +1,20 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, App as AntdApp, Button, Card, Checkbox, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography,
+  Alert, App as AntdApp, Button, Card, Checkbox, Form, Image, Input, Modal, Radio, Select, Space, Table, Tag, Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   getIrVersion, parseIr, postReview, reviseIr1,
-  type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type ReviewRecord,
+  type Ir1, type Ir2, type Ir2Param, type Ir3, type Ir3Feature, type Ir4, type Ir3VisionCheck, type ReviewRecord,
 } from '../../api/workflow'
+import { getSessionVisionViewsUrl } from '../../api/sessions'
 import { updateParameter, type ParamProposal } from '../../api/cadAgent'
 import { ApiError } from '../../api/client'
 import { confirmParamProposals, ignoreParamProposal, listParamProposals, listTunes } from '../../api/cadAgent'
 import { summarizeTunes } from './tuneSummary'
 import { formatReferenceUsed } from './referenceUsed'
+import { findingColor, verdictText, visionCardState, visionMetaLine } from './visionView'
 import { formatDisplayTransforms, formatMappedObjectParams, formatParamMapping } from './paramMapping'
 import {
   aggregateUnresolved, buildVersionList, diffIr2Params, latestApprovedGate2,
@@ -355,6 +357,8 @@ export function ReviewTab({
 
       {ir3 && <Ir3Card ir3={ir3} params={params(ir2 ?? { design_document: '', parameters: [] })} />}
 
+      {ir3 && <VisionCheckCard sessionId={sessionId} vc={ir3.vision_check} ir3Version={versions?.IR3} />}
+
       {gate === 'gate2' && <ProposalCard sessionId={sessionId} />}
 
       <Modal
@@ -686,6 +690,74 @@ function Ir3Card({ ir3, params }: { ir3: Ir3; params: Ir2Param[] }) {
       {displayLine && (
         <div style={{ padding: '8px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12.5, color: 'var(--text-2)' }}>
           {displayLine}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ---- 视觉校验卡（T18.6，ADR-017）：三视图 PNG+判词全文+findings——gate2 参考信号非判分依据
+//      （A-07：数值判断交代码；T18.3 盲测判别上限已证，不虚增可信度）；三态诚实（A-16）。
+function VisionCheckCard({ sessionId, vc, ir3Version }: {
+  sessionId: string
+  vc?: Ir3VisionCheck
+  ir3Version?: number
+}) {
+  const state = visionCardState(vc)
+  const viewsQuery = useQuery({
+    queryKey: ['vision-views', sessionId, ir3Version],
+    queryFn: () => getSessionVisionViewsUrl(sessionId, ir3Version),
+    enabled: state.kind === 'checked',
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
+  const meta = vc ? visionMetaLine(vc) : null
+  return (
+    <Card
+      title="视觉校验（gate2 参考材料）"
+      size="small"
+      extra={<Tag color="default">参考信号 · 非判分依据</Tag>}
+    >
+      {state.kind === 'off' && (
+        <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>{state.text}</Typography.Text>
+      )}
+      {state.kind === 'skipped' && (
+        <Alert type="info" showIcon message={state.text} />
+      )}
+      {state.kind === 'checked' && vc && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {(vc.findings?.length ?? 0) > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {vc.findings!.map((f, i) => (
+                <div key={i} style={{ fontSize: 12.5 }}>
+                  <Tag color={findingColor(f.severity)}>{f.severity}</Tag>
+                  <span style={{ color: 'var(--text-1)' }}>{f.item}</span>
+                  <span style={{ color: 'var(--text-2)' }}>——{f.detail}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+              判词未见明显异常（不等于「通过」——是否采信由本关人工裁决）
+            </Typography.Text>
+          )}
+          <div style={{
+            fontSize: 12.5, color: 'var(--text-2)', background: 'var(--card-deep, rgba(255,255,255,.02))',
+            border: '1px solid var(--hairline)', borderRadius: 6, padding: '8px 12px',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          }}>
+            {verdictText(vc) ?? '判词全文缺失（如实呈现，A-16）'}
+          </div>
+          {viewsQuery.data === null ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>三视图留档缺位（上传失败，判词全文仍在上方可核对）</Typography.Text>
+          ) : viewsQuery.data ? (
+            <Image src={viewsQuery.data} width="100%" style={{ maxHeight: 320, objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 6 }} />
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>三视图加载中…</Typography.Text>
+          )}
+          {meta && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{meta}</Typography.Text>
+          )}
         </div>
       )}
     </Card>

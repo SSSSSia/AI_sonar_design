@@ -1,4 +1,4 @@
-import { del, get, http, patch, post } from './client'
+import { del, get, getBlob, http, patch, post } from './client'
 import type { DesignSession, PageResult, Project } from './types'
 
 /** 会话参考图片附件引用（T18.5，ADR-017）：IR 引用惯例 {bucket, object_key, sha256}。 */
@@ -38,6 +38,17 @@ export async function uploadSessionAttachment(file: File): Promise<AttachmentRef
     form,
   )
   return resp.data
+}
+
+/** gate2 裁决材料：会话域三视图 PNG（T18.6，照 getRefViewsUrl 先例——getBlob→objectURL，
+ * 404/未启用/skipped→null 如实降级）。 */
+export async function getSessionVisionViewsUrl(sid: string, version?: number): Promise<string | null> {
+  try {
+    const { blob } = await getBlob(`/cad/sessions/${sid}/vision-views${version ? `?version=${version}` : ''}`)
+    return URL.createObjectURL(blob)
+  } catch {
+    return null
+  }
 }
 
 export function getAllowedEvents(id: string) {

@@ -135,6 +135,41 @@ def download(sid: str, kind: str = Query(..., pattern="^(step|script)$"),
     return {"url": data_uri, "filename": f"ir3_v{version}.py", "expires_in": 0, "inline": True}
 
 
+@router.get("/sessions/{sid}/vision-views")
+def vision_views(sid: str, version: int | None = Query(default=None),
+                 user: str = Depends(require_user)) -> Response:
+    """gate2 裁决材料：三视图 PNG 直出（T18.6，ADR-017；引用=IR3.vision_check.views_png）。
+
+    诚实语义（A-16）：vision_check 缺失（flag 关/旧快照）→404「未启用」；skipped→404 带
+    原因；views_png 缺位（上传失败留档缺位）→404 如实。bucket 白名单防快照引用注入。
+    """
+    if version is not None:
+        ir3 = ir_store.get_snapshot(sid, "IR3", version)
+        if not ir3:
+            raise HTTPException(status_code=404, detail=f"IR3 v{version} 不存在")
+    else:
+        ir3, version = _ir3_or_404(sid)
+    vc = ir3.get("vision_check")
+    if not isinstance(vc, dict) or not vc:
+        raise HTTPException(status_code=404, detail="视觉校验未启用（CAD_VISION_CHECK 默认关）")
+    if vc.get("status") == "skipped":
+        raise HTTPException(status_code=404,
+                            detail=f"视觉校验未完成：{vc.get('detail') or '未知原因'}")
+    ref = vc.get("views_png")
+    if not isinstance(ref, dict) or not ref.get("object_key"):
+        raise HTTPException(status_code=404, detail="三视图留档缺位（上传失败，判词仍在 IR3）")
+    if ref.get("bucket") != BUCKET_STEP_MODELS:
+        raise HTTPException(status_code=404, detail="views 引用桶非法")
+    from storage import object_store
+
+    try:
+        data = object_store.download_bytes(ref["bucket"], ref["object_key"])
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"三视图对象读取失败：{exc}") from exc
+    return Response(content=data, media_type="image/png",
+                    headers={"X-IR-Version": str(version or 0)})
+
+
 @router.delete("/sessions/{sid}/artifacts")
 def delete_session_artifacts(sid: str, user: str = Depends(require_user)) -> dict:
     """会话删除联动清理（workflow SessionCleanup 内网直连）：MinIO 三桶按 {sid}/ 前缀清理。

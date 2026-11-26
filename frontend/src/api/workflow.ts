@@ -96,6 +96,18 @@ export interface Ir3ReferenceUsed {
   rules_version?: string
   reason?: 'no_catalog' | 'no_match' | 'weak_filtered' | 'read_failed'
 }
+/** T18.2/T18.6：视觉校验旁路判词（ADR-017，加法演进旧快照无此字段）；warning 级参考信号非判分依据 */
+export interface Ir3VisionCheck {
+  status: 'checked' | 'skipped'
+  /** skipped 原因（render_failed/vlm_failed） */
+  detail?: string
+  findings?: { item: string; severity: 'warning' | 'info'; detail: string }[]
+  /** VLM 判词全文（人工可核对，A-16） */
+  verdict_text?: string
+  views_png?: { bucket: string; object_key: string; sha256?: string }
+  model?: string
+  checked_at?: string
+}
 export interface Ir3 {
   cadquery_script: string
   step_file: { bucket: string; object_key: string }
@@ -106,6 +118,8 @@ export interface Ir3 {
   display_transforms?: Ir3DisplayTransform[]
   /** T15.2：声明制参数→对象映射（ADR-014 §2，旧快照无此字段） */
   param_mapping?: Ir3ParamMapping
+  /** T18.2：视觉校验旁路判词（ADR-017，旧快照无此字段） */
+  vision_check?: Ir3VisionCheck
 }
 /** T15.1：显示变换声明（ADR-014 §3，加法演进旧快照无此字段） */
 export interface Ir3DisplayTransform {
