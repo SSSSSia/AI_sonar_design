@@ -75,6 +75,7 @@ class A4Agent:
         issues += self._check_display_transform(ir2, ir3 or {})
         issues += self._check_semantic_mapping(ir2, ir3 or {})
         issues += self._check_document(ir2, params)
+        issues += self._check_vision(ir3 or {})
 
         total = stats["pass"] + stats["violation"]
         csr = round(stats["pass"] / total * 100, 2) if total > 0 else None
@@ -352,6 +353,43 @@ class A4Agent:
                     "CHK-DOC-SOURCE-MISSING", "warning",
                     f"{st} 类参数「{p.get('name')}」（{p.get('id')}）source_ref 缺失——溯源依据空洞",
                     [str(p.get("id"))]))
+        return issues
+
+    # ------------------------------------------------------------------
+    def _check_vision(self, ir3: dict[str, Any]) -> list[dict[str, Any]]:
+        """视觉校验旁路呈现（T18.2，ADR-017）。IR3 vision_check 判词以 warning 级
+        issues 显性呈现——强化 gate2 人工裁决材料，**不进 CSR/coverage 分母**
+        （A-07：数值判断交代码，VLM 判词是参考信号非判分依据；口径同 _check_document
+        ——CSR 分母本就不含 warning，T9.2）。
+
+        - skipped → CHK-VISION-SKIPPED warning（旁路未完成显性呈现，A-16）；
+        - checked + findings 非空 → 逐条 CHK-VISION-FINDING（severity 取 VLM 自评）；
+        - checked + 空 findings/解析失败 → 不造「通过」条目（A-16：判词全文在 IR3
+          vision_check 可查，是否采信由 gate2 人工裁决）；
+        - 字段缺失（flag 关/旧快照）→ 零行为（旧 IR4 形态逐字节不变）。
+        """
+        vc = ir3.get("vision_check")
+        if not isinstance(vc, dict) or not vc:
+            return []
+        status = str(vc.get("status") or "")
+        if status == "skipped":
+            return [_issue(
+                "CHK-VISION-SKIPPED", "warning",
+                f"视觉校验旁路未完成：{str(vc.get('detail') or '未知原因')}（判词缺位如实呈现，A-16）")]
+        if status != "checked":
+            return []
+        findings = vc.get("findings")
+        if not isinstance(findings, list):
+            return []
+        issues: list[dict[str, Any]] = []
+        for f in findings:
+            if not isinstance(f, dict):
+                continue
+            severity = "warning" if str(f.get("severity") or "") == "warning" else "info"
+            issues.append(_issue(
+                "CHK-VISION-FINDING", severity,
+                f"视觉判词疑点 [{f.get('item')}]：{f.get('detail')}"
+                "（VLM 参考信号非判分依据，裁决权在 gate2 人工）"))
         return issues
 
     def _check_geometry_numeric(self, ir2: dict[str, Any], ir3: dict[str, Any],

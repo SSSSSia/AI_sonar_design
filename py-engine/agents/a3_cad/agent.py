@@ -40,9 +40,11 @@ from agents.a3_cad.prompts import (
     build_fix_prompt,
     build_system_prompt,
 )
+import app_config as _cfg
 from app_config import A3_LEGACY_MAPPING, CAD_GEO_LINK_TOL_PCT, CAD_INSPECT_TIMEOUT_S, REF_CODE_DIR
 from cad_engine import sandbox, validators
 from cad_engine.reference import CodeSearchService, strip_markdown
+from cad_engine.vision_check import run_vision_check
 from ir_contract import validate_ir
 from storage import object_store
 
@@ -182,7 +184,14 @@ class A3Agent:
         # 旧 IR3 快照引用各自的对象，任意历史版本可完整复现。
         step_file = result["step_files"][0]
         step_ref, script_ref = _upload_artifacts(session_id, step_file, script)
-        return self._build_ir3(script, step_ref, script_ref, ir2, step_file, fix_round, gen_meta)
+        # T18.2（ADR-017）：视觉校验旁路（CAD_VISION_CHECK 默认关）——Step4 落盘后的
+        # 可选步骤，best-effort 永不抛（判词是 gate2 参考信号，失败如实 skipped 不阻断）；
+        # 关闭→None→IR3 不含 vision_check 字段（旧形态逐字节一致，回滚保证）。
+        vision_check = None
+        if _cfg.CAD_VISION_CHECK:
+            vision_check = run_vision_check(session_id, str(step_file))
+        return self._build_ir3(script, step_ref, script_ref, ir2, step_file, fix_round, gen_meta,
+                               vision_check=vision_check)
 
     # ------------------------------------------------------------------
     def _inspect_step(self, step_local_path: str) -> dict[str, Any] | None:
@@ -228,12 +237,14 @@ class A3Agent:
         step_local_path: str,
         fix_round: int,
         gen_meta: dict[str, Any] | None = None,
+        vision_check: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """IR3 组装（T7.3 重写）：features 由 STEP 实测分段构造，长度类参数自动联动
         （geometry_link.link_params），未联动如实 null——不再按参数 id 批量造占位镜像
         （A-16）。提取失败/禁用降级 features=[] + geometry_summary 如实标注，管线继续。
         T16.0 A0-4：gen_meta（生成配置，含参考来源/缓存命中）组装为 reference_used 契约字段。
         T15.1：脚本 @display 声明解析为 display_transforms（物理/显示分离，ADR-014 §3）。
+        T18.2：vision_check 视觉校验旁路判词（ADR-017，加法演进）——None（flag 关）省略字段。
         """
         params: list[dict[str, Any]] = ir2.get("parameters", [])
         inspect = self._inspect_step(step_local_path)
@@ -320,6 +331,10 @@ class A3Agent:
         # T15.2（B-2，ADR-014 §2）：声明制参数→对象映射（加法演进，旧快照可读）
         if param_mapping:
             ir3_payload["param_mapping"] = param_mapping
+        # T18.2（ADR-017）：视觉校验旁路判词（加法演进，旧快照可读）——flag 关/None→
+        # 省略字段（旧形态逐字节，A-16 不造空契约）；skipped 形态也如实落契约。
+        if vision_check:
+            ir3_payload["vision_check"] = vision_check
         ir3 = validate_ir("IR3", ir3_payload)
         # 来源信息 reference_used 自 T16.0 A0-4 起进 IR3 契约（溯源，加法演进旧快照可读）；
         # 其余执行元数据（修复轮数/脚本引用）仍只进日志，不进契约（A-04：快照与 schema 严格一致）

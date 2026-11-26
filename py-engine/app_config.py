@@ -110,6 +110,12 @@ KB_REF_VISUAL_COLLECTION = _env("KB_REF_VISUAL_COLLECTION", "ref_visuals")
 LLM_VISION_MODEL = _env("LLM_VISION_MODEL", "Qwen/Qwen3-VL-32B-Instruct")  # 2026-11-26 实测：
 # 本账号 GLM-4.5V/Qwen2.5-VL/PaddleOCR-VL 全 403 Model disabled，Qwen3-VL-32B 唯一可用
 LLM_VISION_TIMEOUT_S = int(_env("LLM_VISION_TIMEOUT_S", "120"))
+# CAD 视觉校验旁路（T18.2，PHASE-018；ADR-017）：开启时 A3 Step4 落盘后渲染三视图→
+# VLM 结构化判词→IR3 vision_check 字段。定位=gate2 人工裁决的**参考信号**：warning 级，
+# 不进 A4/CSR 分母（A-07）、不进修复重试计数（A-13）。**默认关**——判词非确定性且检出
+# 质量待 T18.3 盲测 gate 判据（三错例≥2 检出+正确例不误判）；关闭=A3 产物与旧形态
+# 逐字节一致（IR3 不含 vision_check 字段，回滚保证）。进程级 env，切换需重启 worker
+CAD_VISION_CHECK = _env("CAD_VISION_CHECK", "0").lower() in ("1", "true", "yes")
 
 # ---- CAD 交互微调（T8.1，PHASE-008，ADR-004）----
 BUCKET_CAD_TUNES = "cad-tunes"                            # 微调每轮产物（STEP/FCStd/脚本/截图）
