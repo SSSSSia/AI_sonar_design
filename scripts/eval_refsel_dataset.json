@@ -1,0 +1,127 @@
+{
+  "note": "T16.2 B2 选例实验冻结数据集（2026-11-27，ADR-018 决策 2 判据核算）。维护者（AI）标注，非第三方集——A-16 如实。kind: pos_std=标准标题正例（sonar_types 子串命中）/pos_weak=弱变体正例（标题不含词表全词，考察 weak/向量扩召回）/neg_near=擦边负例（含词表子串词，考察错域注入）/neg_far=远域负例。判据（ADR-018 决策 2 事先注册）：A=错域注入 0；B=fusion+weak 相对 lexical+weak 正例正确命中净增≥3；ALLOW_WEAK 门=weak 注入精度≥90%；视觉=3 正例 top-1 全中本类型 ∧ Δ≥0.1（Δ=min(正例top1)−max(负例top1)，T17.7 单正例口径的多正例推广）。",
+  "frozen_at": "2026-11-27",
+  "library_snapshot": "active: towed_array_system_twin v1 (domain=towed_array) / sonobuoy v1 / transducer_array v1；REF_SOURCE=db",
+  "text": [
+    {
+      "id": "pos-tow-std",
+      "kind": "pos_std",
+      "expected_ref_id": "towed_array_system_twin",
+      "doc": "# 拖曳线列阵声呐设计文档\n\n## 1. 概述\n本设计为拖曳线列阵声呐湿端，由拖曳缆拖曳，沿轴线依次布置前置隔振段、设备舱与水听器阵列段。\n\n## 2. 组成\n圆柱形主体耐压段（两端收锥）、稳定翼一对、尾部拖曳环（吊耳连接）。\n\n## 3. 尺寸\n见结构化参数表。\n\n## 6. 配色\n主体深蓝，翼板浅灰，拖曳环橙色。"
+    },
+    {
+      "id": "pos-son-std",
+      "kind": "pos_std",
+      "expected_ref_id": "sonobuoy",
+      "doc": "# 声呐浮标设计文档\n\n## 1. 概述\n直升机空投声呐浮标，入水后垂直漂浮：顶部天线杆露出水面，底部悬挂水听器段。\n\n## 2. 组成\n圆柱形浮体、顶部天线杆（细圆柱）、底部水听器悬挂段（细长圆柱）。\n\n## 3. 尺寸\n见结构化参数表。总长约 1415mm。\n\n## 6. 配色\n浮体深蓝，天线浅灰，水听器段橙色。"
+    },
+    {
+      "id": "pos-tda-std",
+      "kind": "pos_std",
+      "expected_ref_id": "transducer_array",
+      "doc": "# 换能器基阵设计文档\n\n## 1. 概述\n平面水声换能器基阵：矩形基座板上按网格阵列布置圆柱阵元，用于声波发射与接收。\n\n## 2. 组成\n矩形基座板一块、圆柱阵元若干（均匀网格阵列）。\n\n## 3. 尺寸\n见结构化参数表。\n\n## 6. 配色\n基座深蓝，阵元浅灰。"
+    },
+    {
+      "id": "pos-tow-weak",
+      "kind": "pos_weak",
+      "expected_ref_id": "towed_array_system_twin",
+      "doc": "# 深海拖曳湿端结构设计\n\n## 1. 概述\n拖曳线列阵声呐的湿端分段结构：柔性缆拖曳，湿端含隔振段与设备舱，细长回转体外形的耐压设计。\n\n## 2. 组成\n耐压圆柱主体、收锥段、稳定翼、拖曳环。\n\n## 3. 尺寸\n见参数表。"
+    },
+    {
+      "id": "pos-tow-weak2",
+      "kind": "pos_weak",
+      "expected_ref_id": "towed_array_system_twin",
+      "doc": "# 柔性拖缆湿端设备舱设计\n\n水声侦察设备的拖曳湿端，设备舱与水听器段沿缆布置，拖曳速度 8 节，湿端总长受收放装置约束。细长圆柱耐压壳。"
+    },
+    {
+      "id": "pos-son-weak",
+      "kind": "pos_weak",
+      "expected_ref_id": "sonobuoy",
+      "doc": "# 空投式水声探测浮体装置设计\n\n直升机快速布放的水声探测浮体：入水自扶正垂直姿态，上部露出天线杆，下部悬挂水听器。圆柱浮体提供浮力。\n\n尺寸见参数表。"
+    },
+    {
+      "id": "pos-tda-weak",
+      "kind": "pos_weak",
+      "expected_ref_id": "transducer_array",
+      "doc": "# 平面水声发射换能单元阵列设计\n\n主动声呐发射用平面基阵：基座板上按行列网格布置圆柱形换能单元，间距均匀以保证指向性。\n\n尺寸见参数表。"
+    },
+    {
+      "id": "neg-near-1",
+      "kind": "neg_near",
+      "expected_ref_id": null,
+      "doc": "# 气象监测浮标站体结构设计\n\n海洋气象浮标站：圆盘形浮体+桅杆+太阳能板支架+锚链系留环。用于风速风向气温气压测量，不含任何水声设备。"
+    },
+    {
+      "id": "neg-near-2",
+      "kind": "neg_near",
+      "expected_ref_id": null,
+      "doc": "# 水下缆阵安全监护系统方案\n\n水下生产系统缆阵的监护方案：位移传感器、张力监测与应急释放装置选型，属海洋工程安全设备，非声学载荷。"
+    },
+    {
+      "id": "neg-far-1",
+      "kind": "neg_far",
+      "expected_ref_id": null,
+      "doc": "# 舰桥内舾装布置设计\n\n驾驶室操纵台、海图桌、仪表板与座椅的布置设计，室内木作与金属骨架结构。"
+    },
+    {
+      "id": "neg-far-2",
+      "kind": "neg_far",
+      "expected_ref_id": null,
+      "doc": "# 雷达天线座结构设计\n\n船用导航雷达天线座：铸铝基座+回转支承+桅杆安装法兰，载荷为风矩与天线自重。"
+    }
+  ],
+  "gen_docs": [
+    {
+      "id": "gen-son",
+      "expected_ref_id": "sonobuoy",
+      "doc": "# 声呐浮标设计文档\n\n## 1. 概述\n直升机空投声呐浮标，入水后垂直漂浮：顶部天线杆露出水面，底部悬挂水听器段。\n\n## 2. 组成（自下而上）\n圆柱形浮体（耐压外壳）→ 顶部天线杆（细圆柱）→ 底部水听器悬挂段（细长圆柱）。三段同轴。\n\n## 3. 尺寸\n总长约 1415mm（浮体 915 + 天线杆 300 + 水听器段 200），见结构化参数表。\n\n## 6. 配色\n浮体深蓝、天线杆浅灰、水听器段橙色。",
+      "params": [
+        { "id": "p_body_diameter", "name": "浮体直径", "value": 124, "unit": "mm", "derivation": "A-size 标准 4.875in" },
+        { "id": "p_body_height", "name": "浮体高度", "value": 915, "unit": "mm", "derivation": "A-size 标准 36in" },
+        { "id": "p_antenna_diameter", "name": "天线杆直径", "value": 20, "unit": "mm" },
+        { "id": "p_antenna_height", "name": "天线杆高度", "value": 300, "unit": "mm" },
+        { "id": "p_hydro_diameter", "name": "水听器吊杆直径", "value": 40, "unit": "mm" },
+        { "id": "p_hydro_height", "name": "水听器吊杆高度", "value": 200, "unit": "mm" }
+      ],
+      "expected_bbox_mm": [124, 124, 1415]
+    },
+    {
+      "id": "gen-tda",
+      "expected_ref_id": "transducer_array",
+      "doc": "# 换能器基阵设计文档\n\n## 1. 概述\n平面水声换能器基阵：矩形基座板上按 4 行×6 列网格布置圆柱阵元，间距均匀。\n\n## 2. 组成\n矩形基座板一块、圆柱阵元 24 个。\n\n## 3. 尺寸\n基座 480×320×20mm，阵元直径 40mm 高 30mm，见参数表。\n\n## 6. 配色\n基座深蓝，阵元浅灰。",
+      "params": [
+        { "id": "p_base_length", "name": "基座长", "value": 480, "unit": "mm" },
+        { "id": "p_base_width", "name": "基座宽", "value": 320, "unit": "mm" },
+        { "id": "p_base_thickness", "name": "基座厚", "value": 20, "unit": "mm" },
+        { "id": "p_elem_diameter", "name": "阵元直径", "value": 40, "unit": "mm" },
+        { "id": "p_elem_height", "name": "阵元高", "value": 30, "unit": "mm" },
+        { "id": "p_rows", "name": "行数", "value": 4, "unit": "-" },
+        { "id": "p_cols", "name": "列数", "value": 6, "unit": "-" }
+      ],
+      "expected_bbox_mm": [480, 320, 50]
+    },
+    {
+      "id": "gen-tow",
+      "expected_ref_id": "towed_array_system_twin",
+      "doc": "# 拖曳线列阵声呐设计文档（湿端拖曳体）\n\n## 1. 概述\n拖曳线列阵声呐的湿端拖曳体，拖曳速度 8 节，细长回转体外形，尾部拖曳点连接拖曳缆。\n\n## 2. 组成（沿轴线）\n圆柱形耐压主体（首端收锥+尾端收锥）、两侧对称稳定翼（薄板）、尾部拖曳环（经吊耳板连接）。\n\n## 3. 尺寸\n主体耐压段长约 1200mm、直径约 200mm，见结构化参数表。\n\n## 6. 配色\n主体深蓝，翼板浅灰，拖曳环橙色。",
+      "params": [
+        { "id": "p_hull_diameter", "name": "主体直径", "value": 200, "unit": "mm" },
+        { "id": "p_hull_length", "name": "主体耐压段长", "value": 1200, "unit": "mm" },
+        { "id": "p_nose_length", "name": "首锥长", "value": 150, "unit": "mm" },
+        { "id": "p_tail_length", "name": "尾锥长", "value": 100, "unit": "mm" },
+        { "id": "p_fin_span", "name": "翼展", "value": 300, "unit": "mm" },
+        { "id": "p_fin_chord", "name": "翼弦长", "value": 400, "unit": "mm" },
+        { "id": "p_ring_inner_dia", "name": "拖曳环内径", "value": 50, "unit": "mm" }
+      ],
+      "expected_bbox_note": "细长体 Z 向为主轴；主体段总长≈1450mm（1200+150+100），翼/环为附属"
+    }
+  ],
+  "visual": {
+    "note": "正例=3 类型 active 行（图从 MinIO ref-scripts 桶 views_object_key 现取，回填后必在）；负例=未入库类型（侧扫拖鱼）渲染图两张",
+    "positive_ref_ids": ["towed_array_system_twin", "sonobuoy", "transducer_array"],
+    "negative_images": [
+      { "path": "docs/reviews/t164-candidates/side_scan_towfish_v2_views.png", "label": "侧扫拖鱼 v2（未入库类型）" },
+      { "path": "docs/reviews/t164-candidates/side_scan_towfish_v3_views.png", "label": "侧扫拖鱼 v3（未入库类型）" }
+    ]
+  }
+}
