@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -33,10 +34,14 @@ TYPE_SPECS: list[dict] = [
         "id": "side_scan_towfish",
         "cn": "侧扫声呐拖鱼",
         "requirement": (
-            "设计一个侧扫声呐拖鱼（towfish）：圆柱形耐压段主体 + 两端收缩段（建议直接用 "
-            "cone(r1, r2, H) 截锥原语拼 接，不要用 loft）+ 两侧对称稳定翼（薄板，须与主体 union 连接）"
-            "+ 尾部小拖曳环。主体耐压段长约 1200mm、直径约 200mm。"
-            "顶部用 # 注释声明每个参数的物理含义，参数化为命名常量。"
+            "设计一个侧扫声呐拖鱼（towfish），构造配方（已验证稳健，严格照做）：主体=圆柱耐压段"
+            "（长约 1200mm、直径约 200mm）+ 两端截锥收缩段，截锥用 cq.Workplane('YZ').circle(r1)"
+            ".workplane(offset=H).circle(r2).loft(combine=False) 后 union（不要用其它锥/旋转/抽壳"
+            "写法）；两侧对称稳定翼=fin_points 四点 polyline().close() 薄板 extrude(厚度, both=True)"
+            "（不要 fillet、不要 pushPoints+rect），平移使其根部插入主体至少一个板厚（体积重叠）"
+            "后 union；尾端拖曳环=两同心圆 extrude 成环形，经一小块矩形吊耳板（与尾锥端面体积重叠）"
+            "union，环平面包含主体轴线。命名常量与注释一一对应，注释写明每个位置常量从哪个端点"
+            "量起；主体耐压段长度与含锥段/附件的总长分别用两个常量声明。"
         ),
         "sonar_types": ["侧扫声呐", "side scan sonar", "拖鱼"],
     },
@@ -81,6 +86,9 @@ Common CadQuery pitfalls to AVOID (each of these has produced wrong geometry in 
 - Every auxiliary feature (fins, rings, handles) must be boolean-combined (`union`) with the
   main body so the final `result` is ONE connected solid — never leave features floating
   detached from the body.
+- Two solids that only TOUCH at a face or an edge do NOT fuse: `union` of tangent solids
+  still yields multiple separate solids. Every attached feature must geometrically OVERLAP
+  the body (embed its root at least one wall thickness into the body) so the union fuses.
 - The named constants must map one-to-one to the required dimensions; do not invent extra
   orientation axes that change the stated bounding dimensions.
 """
@@ -178,6 +186,71 @@ def _measure(step_files: list) -> dict:
     }
 
 
+# 连通性两两核对上限（ADR-018 决策 1 新增必检项）：超过只报数量不判连通（组合爆炸，如实 N/A）
+_MAX_PAIRWISE_SOLIDS = 12
+
+
+def _connectivity(step_file) -> dict:
+    """连通性实测（2026-11-26 裁决新增入库必检项，ADR-018）：实体数/有效性/两两重叠建图
+    判连通分量。教训=拖鱼 v2 翼板与主体仅线相切、拖曳环悬空——重放 PASS+bbox/体积证据
+    不测「部件之间连没连」（docs/reviews/t164-candidates/REPORT.md 裁决记录节）。
+    connected 判据=isValid 且全部实体在同一个重叠连通分量（union-find）；
+    min_pair_overlap_ratio=相连实体对的最小重叠体积比（对较小实体体积归一）。"""
+    out: dict = {"measured": False}
+    try:
+        import tempfile
+
+        import cadquery as cq
+
+        data = Path(step_file).read_bytes()
+        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
+            f.write(data)
+            tmp = f.name
+        try:
+            shape = cq.importers.importStep(tmp).val()
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        solids = shape.Solids()  # cadquery 2.x 直接返回 list（T17.5 实测）
+        out["solids"] = len(solids)
+        out["valid"] = bool(shape.isValid())
+        out["measured"] = True
+        if len(solids) > _MAX_PAIRWISE_SOLIDS:
+            out["connected"] = None  # 超上限不判（A-16 如实 N/A）
+            out["reason"] = f"solids={len(solids)} 超两两核对上限 {_MAX_PAIRWISE_SOLIDS}"
+            return out
+        parent = list(range(len(solids)))
+
+        def _find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        vols = [s.Volume() for s in solids]
+        ratios: list[float] = []
+        for i in range(len(solids)):
+            for j in range(i + 1, len(solids)):
+                try:
+                    inter = solids[i].intersect(solids[j])
+                    ov = sum(s.Volume() for s in inter.Solids()) if inter.Solids() else 0.0
+                except Exception:  # noqa: BLE001 - 不相交/布尔失败按零重叠（如实）
+                    ov = 0.0
+                if ov > 1e-6:
+                    parent[_find(i)] = _find(j)
+                    ratios.append(ov / (min(vols[i], vols[j]) or 1.0))
+        components = len({_find(i) for i in range(len(solids))})
+        out["components"] = components
+        out["min_pair_overlap_ratio"] = round(min(ratios), 6) if ratios else None
+        out["connected"] = components == 1 and out["valid"]
+        return out
+    except Exception as exc:  # noqa: BLE001 - 实测失败如实不抛（harness 纪律）
+        out["reason"] = str(exc)[:200]
+        return out
+
+
 def run_one(spec: dict, out_dir: Path, timeout_s: int, suffix: str = "", render: bool = False) -> dict:
     t0 = time.perf_counter()
     sfx = f"_{suffix}" if suffix else ""
@@ -215,12 +288,19 @@ def run_one(spec: dict, out_dir: Path, timeout_s: int, suffix: str = "", render:
     )
     if replay["ok"] and replay.get("step_files"):
         rec["geometry"] = _measure(replay["step_files"])
+        rec["connectivity"] = _connectivity(replay["step_files"][0])
         if render:
             pv = _render_views(replay["step_files"][0], out_dir / f"{spec['id']}{sfx}_views.png")
             rec["preview"] = {"ok": pv["ok"], "file": f"{spec['id']}{sfx}_views.png"} if pv["ok"] \
                 else {"ok": False, "error": pv["error"]}
     (out_dir / f"{spec['id']}{sfx}.py").write_text(code, encoding="utf-8")
-    rec["status"] = "candidate_ready" if replay["ok"] else "replay_failed"
+    if not replay["ok"]:
+        rec["status"] = "replay_failed"
+    elif (rec.get("connectivity") or {}).get("connected") is False:
+        # ADR-018 决策 1：连通性必检不过=不入库候选（如实落状态，不冒充 candidate_ready）
+        rec["status"] = "candidate_rejected_disconnected"
+    else:
+        rec["status"] = "candidate_ready"
     rec["elapsed_s"] = round(time.perf_counter() - t0, 1)
     return rec
 
@@ -271,6 +351,13 @@ def main(argv: list[str] | None = None) -> int:
                 lines.append(f"  - {p.get('name')} volume={p.get('volume_mm3')}mm³ bbox={p.get('bbox_mm')}")
         elif r.get("replay", {}).get("ok"):
             lines.append(f"- 实测: 失败（{g.get('reason')}）——如实")
+        c = r.get("connectivity") or {}
+        if c.get("measured"):
+            conn = c.get("connected")
+            conn_txt = "连通" if conn else ("N/A（超上限不判）" if conn is None else "不连通")
+            lines.append(f"- 连通性: solids={c.get('solids')} valid={c.get('valid')} → {conn_txt}"
+                         + (f"（min_overlap_ratio={c.get('min_pair_overlap_ratio')}）"
+                            if c.get("min_pair_overlap_ratio") is not None else ""))
         pv = r.get("preview") or {}
         if pv.get("ok"):
             lines.append(f"- 三视图: {pv.get('file')}")
@@ -278,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             lines.append(f"- 三视图: 渲染失败（{str(pv.get('error'))[:100]}）——如实")
         if r.get("error"):
             lines.append(f"- 异常: {r['error']}")
-        lines.append(f"- 脚本: docs/reviews/t164-candidates/{r['id']}.py · 明细: {r['id']}.report.json")
+        lines.append(f"- 脚本: docs/reviews/t164-candidates/{r['id']}{sfx}.py · 明细: {r['id']}{sfx}.report.json")
         lines.append("")
     lines.append("> 裁决点：每条候选是否「参数语义正确 + 几何合理 + 值得入库」由用户判定；")
     lines.append("> 入库动作 = manual_upload 上传 + 六件套核对 + confirm（PHASE-016 §3.9 checklist）。")
