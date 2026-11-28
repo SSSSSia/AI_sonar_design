@@ -327,6 +327,10 @@ def run_one(spec: dict, out_dir: Path, timeout_s: int, suffix: str = "", render:
     elif (rec.get("connectivity") or {}).get("connected") is False:
         # ADR-018 决策 1：连通性必检不过=不入库候选（如实落状态，不冒充 candidate_ready）
         rec["status"] = "candidate_rejected_disconnected"
+    elif (rec.get("connectivity") or {}).get("connected") is None:
+        # 超两两核对上限 N/A（connected=None）与实测连通必须状态可辨（2026-11-28 审查整改）：
+        # 独立状态值，不与 candidate_ready（实测连通）混同——N/A 候选入库裁决时一眼可辨
+        rec["status"] = "candidate_ready_connectivity_na"
     else:
         rec["status"] = "candidate_ready"
     rec["elapsed_s"] = round(time.perf_counter() - t0, 1)
