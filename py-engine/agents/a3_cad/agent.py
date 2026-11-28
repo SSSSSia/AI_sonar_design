@@ -94,7 +94,9 @@ class A3Agent:
 
         # Step 1: 参考范例 + 代码生成（L1 codegen 缓存，T9.6 键=IR2 参数指纹；T16.0 A0-3 起
         # 键另含生成配置指纹（范例/提示词/领域规则版本），值=JSON envelope 可追溯旧生成配置；
-        # 沙箱执行/几何实测链路照跑，IR3 真实性不受缓存影响；修复循环 _fix 不查缓存）
+        # 沙箱执行/几何实测链路照跑，IR3 真实性不受缓存影响；修复循环 _fix 不查缓存。
+        # T16.4 deposit 教训：仅「首轮生成且沙箱一次通过」的脚本写缓存——失败/修复产物
+        # 不缓存（旧语义非空即写，坏脚本进缓存致 gate 驳回 rework 同键命中无法换新采样）。
         ref_code, match_info = self._ref_service.select_reference(design_doc)
         if match_info:
             logger.info(
@@ -120,6 +122,7 @@ class A3Agent:
             ir2, provider_tag, ref_fingerprint, PROMPT_VERSION, validators.DOMAIN_RULES_VERSION,
         )
         cached = cache.get_json("codegen", cache_key)
+        _gen_fresh = False
         if isinstance(cached, dict) and cached.get("script"):
             # 缓存命中可追溯旧生成配置（A0-3 验收）：来源以 envelope 内 gen_meta 为准，
             # 不归因到当前刚检索的候选
@@ -131,6 +134,7 @@ class A3Agent:
             )
             script = cached["script"]
         else:
+            _gen_fresh = True  # 未命中分支：本轮生成是新采样（沙箱一次通过后才写缓存，见 Step 3 后）
             script = self._generate(design_doc, ir2.get("parameters", []), ref_code, domain)
             gen_meta = {
                 "ref": match_info,
@@ -142,8 +146,6 @@ class A3Agent:
                 "provider_tag": provider_tag,
                 "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
-            if script.strip():
-                cache.set_json(cache_key, {"script": script, "gen_meta": gen_meta}, cache.TTL_CODEGEN_S)
         if _m:
             _m.observe_a3_codegen(time.perf_counter() - t_gen)
 
@@ -178,6 +180,11 @@ class A3Agent:
             raise RuntimeError(
                 f"CadQuery 执行在 {self._fix_max_rounds} 轮修复后仍失败: {result['error']}"
             )
+        # 缓存写入（T16.4 deposit 实战教训）：仅「首轮生成且沙箱一次通过」的脚本进缓存——
+        # 失败/修复产物不缓存（旧语义非空即写，导致 gate 驳回→rework 同 IR2 指纹同键命中
+        # 同一坏脚本，循环无法换新采样）。命中端语义不变：命中后 validate/sandbox 照跑。
+        if _gen_fresh and fix_round == 0 and script.strip():
+            cache.set_json(cache_key, {"script": script, "gen_meta": gen_meta}, cache.TTL_CODEGEN_S)
 
         # Step 4: 产物落 MinIO（D-10；IR 只存引用）。T14.5（审查问题 4a）：路径按次
         # 版本化——历史产物不被后续生成覆盖（A-12），引用带 sha256 供独立下载核对；
