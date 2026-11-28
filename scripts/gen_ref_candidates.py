@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -25,6 +24,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "py-engine"))
 
 from cad_engine.geometry_inspect import inspect_step  # noqa: E402
+from cad_engine.quality import check_connectivity as _connectivity  # noqa: E402  # T19.1 升格生产模块
 from cad_engine.reference import strip_markdown  # noqa: E402
 from cad_engine.sandbox import run_in_subprocess  # noqa: E402
 
@@ -212,71 +212,6 @@ def _measure(step_files: list) -> dict:
             for p in (insp.get("parts") or [])[:3]
         ],
     }
-
-
-# 连通性两两核对上限（ADR-018 决策 1 新增必检项）：超过只报数量不判连通（组合爆炸，如实 N/A）
-_MAX_PAIRWISE_SOLIDS = 12
-
-
-def _connectivity(step_file) -> dict:
-    """连通性实测（2026-11-26 裁决新增入库必检项，ADR-018）：实体数/有效性/两两重叠建图
-    判连通分量。教训=拖鱼 v2 翼板与主体仅线相切、拖曳环悬空——重放 PASS+bbox/体积证据
-    不测「部件之间连没连」（docs/reviews/t164-candidates/REPORT.md 裁决记录节）。
-    connected 判据=isValid 且全部实体在同一个重叠连通分量（union-find）；
-    min_pair_overlap_ratio=相连实体对的最小重叠体积比（对较小实体体积归一）。"""
-    out: dict = {"measured": False}
-    try:
-        import tempfile
-
-        import cadquery as cq
-
-        data = Path(step_file).read_bytes()
-        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
-            f.write(data)
-            tmp = f.name
-        try:
-            shape = cq.importers.importStep(tmp).val()
-        finally:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-        solids = shape.Solids()  # cadquery 2.x 直接返回 list（T17.5 实测）
-        out["solids"] = len(solids)
-        out["valid"] = bool(shape.isValid())
-        out["measured"] = True
-        if len(solids) > _MAX_PAIRWISE_SOLIDS:
-            out["connected"] = None  # 超上限不判（A-16 如实 N/A）
-            out["reason"] = f"solids={len(solids)} 超两两核对上限 {_MAX_PAIRWISE_SOLIDS}"
-            return out
-        parent = list(range(len(solids)))
-
-        def _find(i: int) -> int:
-            while parent[i] != i:
-                parent[i] = parent[parent[i]]
-                i = parent[i]
-            return i
-
-        vols = [s.Volume() for s in solids]
-        ratios: list[float] = []
-        for i in range(len(solids)):
-            for j in range(i + 1, len(solids)):
-                try:
-                    inter = solids[i].intersect(solids[j])
-                    ov = sum(s.Volume() for s in inter.Solids()) if inter.Solids() else 0.0
-                except Exception:  # noqa: BLE001 - 不相交/布尔失败按零重叠（如实）
-                    ov = 0.0
-                if ov > 1e-6:
-                    parent[_find(i)] = _find(j)
-                    ratios.append(ov / (min(vols[i], vols[j]) or 1.0))
-        components = len({_find(i) for i in range(len(solids))})
-        out["components"] = components
-        out["min_pair_overlap_ratio"] = round(min(ratios), 6) if ratios else None
-        out["connected"] = components == 1 and out["valid"]
-        return out
-    except Exception as exc:  # noqa: BLE001 - 实测失败如实不抛（harness 纪律）
-        out["reason"] = str(exc)[:200]
-        return out
 
 
 def run_one(spec: dict, out_dir: Path, timeout_s: int, suffix: str = "", render: bool = False) -> dict:
